@@ -107,7 +107,8 @@ export default function DoublesMatchupApp() {
   const addMember = () => {
     const activeMembers = members.filter(m => m.isActive);
     const avgPlay = activeMembers.length > 0 ? Math.floor(activeMembers.reduce((s, m) => s + m.playCount, 0) / activeMembers.length) : 0;
-    const newMember: Member = { id: nextMemberId, name: `選手 ${nextMemberId}`, level: 'A', isActive: true, playCount: avgPlay, matchHistory: {} };
+    // 「選手 」を除去し、番号のみに修正
+    const newMember: Member = { id: nextMemberId, name: `${nextMemberId}`, level: 'A', isActive: true, playCount: avgPlay, matchHistory: {} };
     setMembers([...members, newMember]);
     setNextMemberId(prev => prev + 1);
   };
@@ -224,7 +225,6 @@ export default function DoublesMatchupApp() {
 
       <main className="p-2 w-full max-w-[1400px] mx-auto">
         {activeTab === 'dashboard' && (
-          /* lg: (1024px以上) で2列。それ未満（タブレット縦含む）は1列 */
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
             {courts.map(court => (
               <div key={court.id} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col h-[18vh] min-h-[145px]">
