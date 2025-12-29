@@ -15,5 +15,12 @@
     "lucide-react": "latest",
     "tailwindcss": "latest",
     "@tailwindcss/postcss": "latest"
+  },
+  "devDependencies": {
+    "typescript": "latest",
+    "@types/react": "latest",
+    "@types/node": "latest",
+    "@types/react-dom": "latest",
+    "postcss": "latest"
   }
 }
