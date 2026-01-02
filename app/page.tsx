@@ -63,7 +63,7 @@ export default function DoublesMatchupApp() {
   const [isInitialized, setIsInitialized] = useState(false);
 
   useEffect(() => {
-    const savedData = localStorage.getItem('doubles-app-data-v9');
+    const savedData = localStorage.getItem('doubles-app-data-v8');
     if (savedData) {
       const data = JSON.parse(savedData);
       setMembers(data.members || []);
@@ -80,7 +80,7 @@ export default function DoublesMatchupApp() {
   useEffect(() => {
     if (!isInitialized) return;
     const data = { members, courts, matchHistory, config, nextMemberId };
-    localStorage.setItem('doubles-app-data-v9', JSON.stringify(data));
+    localStorage.setItem('doubles-app-data-v8', JSON.stringify(data));
   }, [members, courts, matchHistory, config, nextMemberId, isInitialized]);
 
   const initializeCourts = (count: number) => {
@@ -107,7 +107,6 @@ export default function DoublesMatchupApp() {
   const addMember = () => {
     const activeMembers = members.filter(m => m.isActive);
     const avgPlay = activeMembers.length > 0 ? Math.floor(activeMembers.reduce((s, m) => s + m.playCount, 0) / activeMembers.length) : 0;
-    // 「選手 」を除去し、番号のみに修正
     const newMember: Member = { id: nextMemberId, name: `${nextMemberId}`, level: 'A', isActive: true, playCount: avgPlay, matchHistory: {} };
     setMembers([...members, newMember]);
     setNextMemberId(prev => prev + 1);
@@ -212,6 +211,13 @@ export default function DoublesMatchupApp() {
     return <span className={`ml-2 px-2 py-0.5 rounded text-[10px] text-white ${c[l]}`}>{l}</span>;
   };
 
+  // --- レベルをトグル（A->B->C->A）する関数 ---
+  const toggleLevel = (currentLevel: Level): Level => {
+    if (currentLevel === 'A') return 'B';
+    if (currentLevel === 'B') return 'C';
+    return 'A';
+  };
+
   return (
     <div className="min-h-screen bg-gray-100 text-gray-900 pb-20 font-sans overflow-x-hidden">
       <header className="bg-blue-800 text-white px-4 py-3 shadow flex justify-between items-center sticky top-0 z-20">
@@ -269,9 +275,13 @@ export default function DoublesMatchupApp() {
                   <div className="flex-1">
                     <input value={m.name} onChange={e => setMembers(prev => prev.map(x => x.id === m.id ? { ...x, name: e.target.value } : x))} className="w-full font-bold text-xl bg-transparent outline-none focus:text-blue-600" />
                     <div className="flex items-center gap-4 mt-1">
-                      <select value={m.level} onChange={e => setMembers(prev => prev.map(x => x.id === m.id ? { ...x, level: e.target.value as Level } : x))} className="text-xs font-bold bg-gray-100 rounded-md px-2 py-1 border-none outline-none">
-                        <option value="A">レベルA</option><option value="B">レベルB</option><option value="C">レベルC</option>
-                      </select>
+                      {/* プルダウンから、クリックで切り替わるボタンに変更 */}
+                      <button 
+                        onClick={() => setMembers(prev => prev.map(x => x.id === m.id ? { ...x, level: toggleLevel(m.level) } : x))}
+                        className={`text-xs font-bold rounded-md px-3 py-1 text-white transition-colors ${m.level === 'A' ? 'bg-blue-600' : m.level === 'B' ? 'bg-yellow-500' : 'bg-red-500'}`}
+                      >
+                        レベル{m.level}
+                      </button>
                       <span className="text-xs text-gray-400 font-bold tracking-wider">試合数: {m.playCount}</span>
                     </div>
                   </div>
