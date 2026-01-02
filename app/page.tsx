@@ -22,7 +22,6 @@ interface Member {
   level: Level;
   isActive: boolean;
   playCount: number;
-  lastPlayedTime: number; // 追加: 最後に試合に入った時刻（タイムスタンプ）
   matchHistory: Record<number, number>;
 }
 
@@ -64,7 +63,7 @@ export default function DoublesMatchupApp() {
   const [isInitialized, setIsInitialized] = useState(false);
 
   useEffect(() => {
-    const savedData = localStorage.getItem('doubles-app-data-v11');
+    const savedData = localStorage.getItem('doubles-app-data-v9');
     if (savedData) {
       const data = JSON.parse(savedData);
       setMembers(data.members || []);
@@ -81,7 +80,7 @@ export default function DoublesMatchupApp() {
   useEffect(() => {
     if (!isInitialized) return;
     const data = { members, courts, matchHistory, config, nextMemberId };
-    localStorage.setItem('doubles-app-data-v11', JSON.stringify(data));
+    localStorage.setItem('doubles-app-data-v9', JSON.stringify(data));
   }, [members, courts, matchHistory, config, nextMemberId, isInitialized]);
 
   const initializeCourts = (count: number) => {
@@ -101,120 +100,58 @@ export default function DoublesMatchupApp() {
 
   const resetPlayCountsOnly = () => {
     if (confirm('全員の試合数と対戦履歴をリセットします。')) {
-      setMembers(prev => prev.map(m => ({ 
-        ...m, 
-        playCount: 0, 
-        lastPlayedTime: 0, // 時刻もリセット
-        matchHistory: {} 
-      })));
+      setMembers(prev => prev.map(m => ({ ...m, playCount: 0, matchHistory: {} })));
     }
   };
 
   const addMember = () => {
     const activeMembers = members.filter(m => m.isActive);
     const avgPlay = activeMembers.length > 0 ? Math.floor(activeMembers.reduce((s, m) => s + m.playCount, 0) / activeMembers.length) : 0;
-    // lastPlayedTimeは0（未プレイ扱い）で初期化
-    const newMember: Member = { id: nextMemberId, name: `${nextMemberId}`, level: 'A', isActive: true, playCount: avgPlay, lastPlayedTime: 0, matchHistory: {} };
+    // 「選手 」を除去し、番号のみに修正
+    const newMember: Member = { id: nextMemberId, name: `${nextMemberId}`, level: 'A', isActive: true, playCount: avgPlay, matchHistory: {} };
     setMembers([...members, newMember]);
     setNextMemberId(prev => prev + 1);
   };
 
-  // 試合割当時に playCount と lastPlayedTime を更新
   const applyMatchToMembers = (playerIds: number[]) => {
-    const now = Date.now();
     setMembers(prevM => prevM.map(m => {
       if (!playerIds.includes(m.id)) return m;
       const newH = { ...m.matchHistory };
       playerIds.forEach(oid => { if (m.id !== oid) newH[oid] = (newH[oid] || 0) + 1; });
-      return { 
-        ...m, 
-        playCount: m.playCount + 1, 
-        lastPlayedTime: now, // 現在時刻を記録（これで「さっきやった」と判定できる）
-        matchHistory: newH 
-      };
+      return { ...m, playCount: m.playCount + 1, matchHistory: newH };
     }));
   };
 
   const getMatchForCourt = (currentCourts: Court[], currentMembers: Member[]) => {
     const playingIds = new Set<number>();
     currentCourts.forEach(c => { if (c.match) [c.match.p1, c.match.p2, c.match.p3, c.match.p4].forEach(id => playingIds.add(id)); });
-    
     const candidates = currentMembers.filter(m => m.isActive && !playingIds.has(m.id));
     if (candidates.length < 4) return null;
 
-    const calculateGroupCost = (group: Member[]) => {
-      let cost = 0;
-      for (let i = 0; i < group.length; i++) {
-        for (let j = i + 1; j < group.length; j++) {
-          cost += (group[i].matchHistory[group[j].id] || 0);
-        }
-      }
-      return cost;
-    };
-
-    const findBestGroupFromPool = (pool: Member[]) => {
-      if (pool.length === 4) return pool;
-      let bestGroup: Member[] | null = null;
-      let minCost = Infinity;
-      const iterations = 60; 
-      for (let i = 0; i < iterations; i++) {
-        const shuffled = [...pool].sort(() => Math.random() - 0.5);
-        const group = shuffled.slice(0, 4);
-        const cost = calculateGroupCost(group);
-        if (cost < minCost) {
-          minCost = cost;
-          bestGroup = group;
-        }
-        if (minCost === 0) break;
-      }
-      return bestGroup || pool.slice(0, 4);
-    };
-
-    // --- ソートロジックの改善 ---
     const sortedCandidates = [...candidates].sort((a, b) => {
-      // 1. 試合数が少ない人が最優先
       if (a.playCount !== b.playCount) return a.playCount - b.playCount;
-      
-      // 2. 試合数が同じなら、前回の試合時刻が古い（＝休憩が長い）人が優先
-      // 0（未プレイ）は一番古い扱いになるため最優先される
-      if (a.lastPlayedTime !== b.lastPlayedTime) return a.lastPlayedTime - b.lastPlayedTime;
-      
-      // 3. それでも同じならランダム
       return Math.random() - 0.5;
     });
 
-    let selectedPlayers: Member[] = [];
+    let selected: Member[] = [];
     let matchLevel: Level | undefined = undefined;
 
     if (config.levelStrict) {
       for (const base of sortedCandidates) {
-        const sameLevelMembers = candidates.filter(m => m.level === base.level);
-        if (sameLevelMembers.length >= 4) {
-          // レベル内でも「試合数 > 休憩時間」順に並べ替えてプールを作る
-          const sameLevelSorted = [...sameLevelMembers].sort((a, b) => {
-            if (a.playCount !== b.playCount) return a.playCount - b.playCount;
-            return a.lastPlayedTime - b.lastPlayedTime || Math.random() - 0.5;
-          });
-          
-          const poolSize = Math.min(sameLevelSorted.length, 8);
-          const pool = sameLevelSorted.slice(0, poolSize);
-          
-          selectedPlayers = findBestGroupFromPool(pool);
+        const sameLevel = candidates.filter(m => m.level === base.level);
+        if (sameLevel.length >= 4) {
+          selected = [...sameLevel].sort((a, b) => a.playCount - b.playCount || Math.random() - 0.5).slice(0, 4);
           matchLevel = base.level;
           break;
         }
       }
     } else {
-      // 通常モード：上位12人（3コート分）程度を候補にして、その中で相性を見る
-      // ここでのsortedCandidatesは既に「休憩が長い順」に並んでいる
-      const poolSize = Math.min(sortedCandidates.length, 12);
-      const pool = sortedCandidates.slice(0, poolSize);
-      selectedPlayers = findBestGroupFromPool(pool);
+      selected = sortedCandidates.slice(0, 4);
     }
 
-    if (selectedPlayers.length < 4) return null;
+    if (selected.length < 4) return null;
 
-    const p = selectedPlayers;
+    const p = selected;
     const getC = (m1: Member, m2: Member) => m1.matchHistory[m2.id] || 0;
     const costs = [
       { order: [0, 1, 2, 3], c: getC(p[0], p[1]) + getC(p[2], p[3]) },
