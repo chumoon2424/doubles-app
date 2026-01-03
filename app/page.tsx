@@ -211,7 +211,6 @@ export default function DoublesMatchupApp() {
     return <span className={`ml-2 px-2 py-0.5 rounded text-[10px] text-white ${c[l]}`}>{l}</span>;
   };
 
-  // --- レベルをトグル（A->B->C->A）する関数 ---
   const toggleLevel = (currentLevel: Level): Level => {
     if (currentLevel === 'A') return 'B';
     if (currentLevel === 'B') return 'C';
@@ -241,13 +240,21 @@ export default function DoublesMatchupApp() {
                   {court.match ? (
                     <div className="flex items-center gap-2 h-full">
                       <div className="flex-1 grid grid-cols-2 gap-2 h-full">
-                        <div className="bg-blue-50 rounded-lg flex flex-col justify-center items-center border border-blue-100 px-2">
-                          <div className="text-xl sm:text-2xl lg:text-3xl font-black text-blue-900 truncate w-full text-center leading-tight mb-1">{members.find(m => m.id === court.match?.p1)?.name}</div>
-                          <div className="text-xl sm:text-2xl lg:text-3xl font-black text-blue-900 truncate w-full text-center leading-tight">{members.find(m => m.id === court.match?.p2)?.name}</div>
+                        <div className="bg-blue-50 rounded-lg flex flex-col justify-center items-center border border-blue-100 px-2 overflow-hidden">
+                          <div className="w-full text-center leading-tight mb-1 font-black text-blue-900 whitespace-nowrap overflow-hidden" style={{ fontSize: 'clamp(1.5rem, 8vw, 3.5rem)' }}>
+                            {members.find(m => m.id === court.match?.p1)?.name}
+                          </div>
+                          <div className="w-full text-center leading-tight font-black text-blue-900 whitespace-nowrap overflow-hidden" style={{ fontSize: 'clamp(1.5rem, 8vw, 3.5rem)' }}>
+                            {members.find(m => m.id === court.match?.p2)?.name}
+                          </div>
                         </div>
-                        <div className="bg-red-50 rounded-lg flex flex-col justify-center items-center border border-red-100 px-2">
-                          <div className="text-xl sm:text-2xl lg:text-3xl font-black text-red-900 truncate w-full text-center leading-tight mb-1">{members.find(m => m.id === court.match?.p3)?.name}</div>
-                          <div className="text-xl sm:text-2xl lg:text-3xl font-black text-red-900 truncate w-full text-center leading-tight">{members.find(m => m.id === court.match?.p4)?.name}</div>
+                        <div className="bg-red-50 rounded-lg flex flex-col justify-center items-center border border-red-100 px-2 overflow-hidden">
+                          <div className="w-full text-center leading-tight mb-1 font-black text-red-900 whitespace-nowrap overflow-hidden" style={{ fontSize: 'clamp(1.5rem, 8vw, 3.5rem)' }}>
+                            {members.find(m => m.id === court.match?.p3)?.name}
+                          </div>
+                          <div className="w-full text-center leading-tight font-black text-red-900 whitespace-nowrap overflow-hidden" style={{ fontSize: 'clamp(1.5rem, 8vw, 3.5rem)' }}>
+                            {members.find(m => m.id === court.match?.p4)?.name}
+                          </div>
                         </div>
                       </div>
                       <button onClick={() => finishMatch(court.id)} className="bg-gray-800 text-white px-5 h-full rounded-lg font-bold text-sm lg:text-lg shrink-0 flex items-center shadow-inner">終了</button>
@@ -275,7 +282,6 @@ export default function DoublesMatchupApp() {
                   <div className="flex-1">
                     <input value={m.name} onChange={e => setMembers(prev => prev.map(x => x.id === m.id ? { ...x, name: e.target.value } : x))} className="w-full font-bold text-xl bg-transparent outline-none focus:text-blue-600" />
                     <div className="flex items-center gap-4 mt-1">
-                      {/* プルダウンから、クリックで切り替わるボタンに変更 */}
                       <button 
                         onClick={() => setMembers(prev => prev.map(x => x.id === m.id ? { ...x, level: toggleLevel(m.level) } : x))}
                         className={`text-xs font-bold rounded-md px-3 py-1 text-white transition-colors ${m.level === 'A' ? 'bg-blue-600' : m.level === 'B' ? 'bg-yellow-500' : 'bg-red-500'}`}
