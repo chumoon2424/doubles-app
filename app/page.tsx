@@ -217,18 +217,20 @@ export default function DoublesMatchupApp() {
     return 'A';
   };
 
+  // 文字数に応じてフォントサイズをさらに抑制
   const getDynamicFontSize = (name: string = '') => {
     const len = name.length;
-    if (len <= 2) return 'clamp(1.5rem, 10vw, 3.8rem)';
-    if (len <= 4) return 'clamp(1.2rem, 8vw, 3.2rem)';
-    if (len <= 6) return 'clamp(1rem, 6vw, 2.4rem)';
-    return 'clamp(0.8rem, 5vw, 1.8rem)';
+    if (len <= 2) return 'clamp(1.4rem, 9vw, 3.5rem)';
+    if (len <= 4) return 'clamp(1.1rem, 7vw, 2.8rem)';
+    if (len <= 6) return 'clamp(0.9rem, 5vw, 2rem)';
+    if (len <= 8) return 'clamp(0.8rem, 4.5vw, 1.6rem)';
+    return 'clamp(0.7rem, 4vw, 1.3rem)';
   };
 
   return (
     <div className="min-h-screen bg-gray-100 text-gray-900 pb-20 font-sans overflow-x-hidden">
       <header className="bg-blue-800 text-white px-4 py-3 shadow flex justify-between items-center sticky top-0 z-20">
-        <h1 className="text-xl font-bold flex items-center gap-2"><Trophy size={20} /> ダブルス割</h1>
+        <h1 className="text-xl font-bold flex items-center gap-2"><Trophy size={20} /> ダブルスメーカー</h1>
         {activeTab === 'dashboard' && (
           <button onClick={handleBulkAction} className="bg-orange-500 text-white px-4 py-2 rounded-full text-xs font-bold shadow-md active:scale-95 transition-transform">
             一括更新
