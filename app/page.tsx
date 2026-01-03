@@ -217,6 +217,15 @@ export default function DoublesMatchupApp() {
     return 'A';
   };
 
+  // 文字数に応じてフォントサイズを計算するヘルパー
+  const getDynamicFontSize = (name: string = '') => {
+    const len = name.length;
+    if (len <= 2) return 'clamp(1.5rem, 10vw, 3.8rem)';
+    if (len <= 4) return 'clamp(1.2rem, 8vw, 3.2rem)';
+    if (len <= 6) return 'clamp(1rem, 6vw, 2.4rem)';
+    return 'clamp(0.8rem, 5vw, 1.8rem)'; // 長い名前用
+  };
+
   return (
     <div className="min-h-screen bg-gray-100 text-gray-900 pb-20 font-sans overflow-x-hidden">
       <header className="bg-blue-800 text-white px-4 py-3 shadow flex justify-between items-center sticky top-0 z-20">
@@ -241,18 +250,18 @@ export default function DoublesMatchupApp() {
                     <div className="flex items-center gap-2 h-full">
                       <div className="flex-1 grid grid-cols-2 gap-2 h-full">
                         <div className="bg-blue-50 rounded-lg flex flex-col justify-center items-center border border-blue-100 px-2 overflow-hidden">
-                          <div className="w-full text-center leading-tight mb-1 font-black text-blue-900 whitespace-nowrap overflow-hidden" style={{ fontSize: 'clamp(1.5rem, 8vw, 3.5rem)' }}>
+                          <div className="w-full text-center leading-tight mb-1 font-black text-blue-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p1)?.name) }}>
                             {members.find(m => m.id === court.match?.p1)?.name}
                           </div>
-                          <div className="w-full text-center leading-tight font-black text-blue-900 whitespace-nowrap overflow-hidden" style={{ fontSize: 'clamp(1.5rem, 8vw, 3.5rem)' }}>
+                          <div className="w-full text-center leading-tight font-black text-blue-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p2)?.name) }}>
                             {members.find(m => m.id === court.match?.p2)?.name}
                           </div>
                         </div>
                         <div className="bg-red-50 rounded-lg flex flex-col justify-center items-center border border-red-100 px-2 overflow-hidden">
-                          <div className="w-full text-center leading-tight mb-1 font-black text-red-900 whitespace-nowrap overflow-hidden" style={{ fontSize: 'clamp(1.5rem, 8vw, 3.5rem)' }}>
+                          <div className="w-full text-center leading-tight mb-1 font-black text-red-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p3)?.name) }}>
                             {members.find(m => m.id === court.match?.p3)?.name}
                           </div>
-                          <div className="w-full text-center leading-tight font-black text-red-900 whitespace-nowrap overflow-hidden" style={{ fontSize: 'clamp(1.5rem, 8vw, 3.5rem)' }}>
+                          <div className="w-full text-center leading-tight font-black text-red-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p4)?.name) }}>
                             {members.find(m => m.id === court.match?.p4)?.name}
                           </div>
                         </div>
