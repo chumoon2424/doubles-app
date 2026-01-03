@@ -165,29 +165,32 @@ export default function DoublesMatchupApp() {
   const generateNextMatch = (courtId: number) => {
     const match = getMatchForCourt(courts, members);
     if (!match) return alert('待機メンバーが足りません');
-    applyMatchToMembers([match.p1, match.p2, match.p3, match.p4]);
+    
+    // 割当（開始）のタイミングで履歴に追加
+    const ids = [match.p1, match.p2, match.p3, match.p4];
+    const names = ids.map(id => members.find(m => m.id === id)?.name || '?');
+    setMatchHistory(prev => [{
+      id: Date.now().toString() + courtId,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      courtId, players: names, playerIds: ids, level: match.level
+    }, ...prev]);
+
+    applyMatchToMembers(ids);
     setCourts(prev => prev.map(c => c.id === courtId ? { ...c, match } : c));
   };
 
   const finishMatch = (courtId: number) => {
     setCourts(prevCourts => {
-      const court = prevCourts.find(c => c.id === courtId);
-      if (!court || !court.match) return prevCourts;
-      const ids = [court.match.p1, court.match.p2, court.match.p3, court.match.p4];
-      const names = ids.map(id => members.find(m => m.id === id)?.name || '?');
-      
-      setMatchHistory(prev => [{
-        id: Date.now().toString() + courtId,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        courtId, players: names, playerIds: ids, level: court.match?.level
-      }, ...prev]);
-
+      // 終了時はコートを空にするだけ（履歴追加は開始時に移動済み）
       return prevCourts.map(c => c.id === courtId ? { ...c, match: null } : c);
     });
   };
 
   const handleBulkAction = () => {
-    courts.filter(c => c.match).forEach(c => finishMatch(c.id));
+    // 1. 進行中の試合をすべて終了
+    setCourts(prev => prev.map(c => ({ ...c, match: null })));
+
+    // 2. 順次新しい試合を割り当て（履歴追加を含む）
     setTimeout(() => {
       setCourts(prev => {
         let current = [...prev];
@@ -195,8 +198,17 @@ export default function DoublesMatchupApp() {
           if (!current[i].match) {
             const match = getMatchForCourt(current, members);
             if (match) {
+              const ids = [match.p1, match.p2, match.p3, match.p4];
+              const names = ids.map(id => members.find(m => m.id === id)?.name || '?');
+              
+              setMatchHistory(prevH => [{
+                id: Date.now().toString() + current[i].id,
+                timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                courtId: current[i].id, players: names, playerIds: ids, level: match.level
+              }, ...prevH]);
+
               current[i] = { ...current[i], match };
-              applyMatchToMembers([match.p1, match.p2, match.p3, match.p4]);
+              applyMatchToMembers(ids);
             }
           }
         }
@@ -217,7 +229,6 @@ export default function DoublesMatchupApp() {
     return 'A';
   };
 
-  // 文字数に応じてフォントサイズをさらに抑制
   const getDynamicFontSize = (name: string = '') => {
     const len = name.length;
     if (len <= 2) return 'clamp(1.4rem, 9vw, 3.5rem)';
