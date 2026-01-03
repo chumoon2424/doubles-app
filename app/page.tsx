@@ -11,7 +11,10 @@ import {
   RefreshCw,
   Trophy,
   FastForward,
-  RotateCcw
+  RotateCcw,
+  Link as LinkIcon,
+  Unlink,
+  X
 } from 'lucide-react';
 
 type Level = 'A' | 'B' | 'C';
@@ -22,7 +25,9 @@ interface Member {
   level: Level;
   isActive: boolean;
   playCount: number;
+  lastPlayedTime: number;
   matchHistory: Record<number, number>;
+  fixedPairMemberId: number | null; // 固定ペアの相手ID
 }
 
 interface Court {
@@ -61,9 +66,12 @@ export default function DoublesMatchupApp() {
   });
   const [nextMemberId, setNextMemberId] = useState(1);
   const [isInitialized, setIsInitialized] = useState(false);
+  
+  // ペア選択モーダル用
+  const [editingPairMemberId, setEditingPairMemberId] = useState<number | null>(null);
 
   useEffect(() => {
-    const savedData = localStorage.getItem('doubles-app-data-v8');
+    const savedData = localStorage.getItem('doubles-app-data-v12'); // Version up
     if (savedData) {
       const data = JSON.parse(savedData);
       setMembers(data.members || []);
@@ -80,7 +88,7 @@ export default function DoublesMatchupApp() {
   useEffect(() => {
     if (!isInitialized) return;
     const data = { members, courts, matchHistory, config, nextMemberId };
-    localStorage.setItem('doubles-app-data-v8', JSON.stringify(data));
+    localStorage.setItem('doubles-app-data-v12', JSON.stringify(data));
   }, [members, courts, matchHistory, config, nextMemberId, isInitialized]);
 
   const initializeCourts = (count: number) => {
@@ -99,74 +107,214 @@ export default function DoublesMatchupApp() {
   };
 
   const resetPlayCountsOnly = () => {
-    if (confirm('全員の試合数と対戦履歴をリセットします。')) {
-      setMembers(prev => prev.map(m => ({ ...m, playCount: 0, matchHistory: {} })));
+    if (confirm('全員の試合数と対戦履歴をリセットします。固定ペア設定は維持されます。')) {
+      setMembers(prev => prev.map(m => ({ 
+        ...m, 
+        playCount: 0, 
+        lastPlayedTime: 0, 
+        matchHistory: {} 
+      })));
     }
   };
 
   const addMember = () => {
     const activeMembers = members.filter(m => m.isActive);
     const avgPlay = activeMembers.length > 0 ? Math.floor(activeMembers.reduce((s, m) => s + m.playCount, 0) / activeMembers.length) : 0;
-    const newMember: Member = { id: nextMemberId, name: `${nextMemberId}`, level: 'A', isActive: true, playCount: avgPlay, matchHistory: {} };
+    const newMember: Member = { 
+      id: nextMemberId, 
+      name: `${nextMemberId}`, 
+      level: 'A', 
+      isActive: true, 
+      playCount: avgPlay, 
+      lastPlayedTime: 0, 
+      matchHistory: {},
+      fixedPairMemberId: null
+    };
     setMembers([...members, newMember]);
     setNextMemberId(prev => prev + 1);
   };
 
+  // ペア設定の更新
+  const updateFixedPair = (memberId: number, partnerId: number | null) => {
+    setMembers(prev => {
+      let newMembers = [...prev];
+      const target = newMembers.find(m => m.id === memberId);
+      if (!target) return prev;
+
+      // 1. もしターゲットが既に誰かと組んでいたら、その元相方のペアIDを消す
+      if (target.fixedPairMemberId) {
+        const oldPartner = newMembers.find(m => m.id === target.fixedPairMemberId);
+        if (oldPartner) oldPartner.fixedPairMemberId = null;
+      }
+
+      // 2. もし新しいパートナーが既に誰かと組んでいたら、その元相方のペアIDを消す
+      if (partnerId) {
+        const newPartner = newMembers.find(m => m.id === partnerId);
+        if (newPartner && newPartner.fixedPairMemberId) {
+          const partnersOldPartner = newMembers.find(m => m.id === newPartner.fixedPairMemberId);
+          if (partnersOldPartner) partnersOldPartner.fixedPairMemberId = null;
+        }
+        // 新しいパートナーに自分をセット
+        if (newPartner) newPartner.fixedPairMemberId = memberId;
+      }
+
+      // 3. 自分に新しいパートナーをセット
+      target.fixedPairMemberId = partnerId;
+
+      return newMembers;
+    });
+    setEditingPairMemberId(null);
+  };
+
   const applyMatchToMembers = (playerIds: number[]) => {
+    const now = Date.now();
     setMembers(prevM => prevM.map(m => {
       if (!playerIds.includes(m.id)) return m;
       const newH = { ...m.matchHistory };
       playerIds.forEach(oid => { if (m.id !== oid) newH[oid] = (newH[oid] || 0) + 1; });
-      return { ...m, playCount: m.playCount + 1, matchHistory: newH };
+      return { ...m, playCount: m.playCount + 1, lastPlayedTime: now, matchHistory: newH };
     }));
   };
 
+  // --- ユニットベースのマッチングロジック ---
   const getMatchForCourt = (currentCourts: Court[], currentMembers: Member[]) => {
     const playingIds = new Set<number>();
     currentCourts.forEach(c => { if (c.match) [c.match.p1, c.match.p2, c.match.p3, c.match.p4].forEach(id => playingIds.add(id)); });
+    
+    // 待機中のメンバー
     const candidates = currentMembers.filter(m => m.isActive && !playingIds.has(m.id));
-    if (candidates.length < 4) return null;
 
-    const sortedCandidates = [...candidates].sort((a, b) => {
-      if (a.playCount !== b.playCount) return a.playCount - b.playCount;
+    // 候補者を「ユニット（ペアまたはシングル）」に変換
+    // 固定ペアは2人で1つのユニットとして扱う
+    type Unit = { type: 'pair', members: Member[], avgPlay: number, lastTime: number } | { type: 'single', members: Member[], avgPlay: number, lastTime: number };
+    
+    const units: Unit[] = [];
+    const processedIds = new Set<number>();
+
+    candidates.forEach(m => {
+      if (processedIds.has(m.id)) return;
+
+      if (m.fixedPairMemberId && candidates.some(c => c.id === m.fixedPairMemberId)) {
+        // 固定ペアの相手も待機中にいる場合 -> ペアユニット作成
+        const partner = candidates.find(c => c.id === m.fixedPairMemberId)!;
+        processedIds.add(m.id);
+        processedIds.add(partner.id);
+        
+        // 2人の平均試合数と、より遅い(最近の)プレイ時刻を採用
+        units.push({
+          type: 'pair',
+          members: [m, partner],
+          avgPlay: (m.playCount + partner.playCount) / 2,
+          lastTime: Math.max(m.lastPlayedTime, partner.lastPlayedTime)
+        });
+      } else {
+        // シングルユニット
+        processedIds.add(m.id);
+        units.push({
+          type: 'single',
+          members: [m],
+          avgPlay: m.playCount,
+          lastTime: m.lastPlayedTime
+        });
+      }
+    });
+
+    // ユニットをソート（試合数平均 > 最終プレイ時刻 > ランダム）
+    const sortedUnits = units.sort((a, b) => {
+      if (a.avgPlay !== b.avgPlay) return a.avgPlay - b.avgPlay;
+      if (a.lastTime !== b.lastTime) return a.lastTime - b.lastTime;
       return Math.random() - 0.5;
     });
 
-    let selected: Member[] = [];
-    let matchLevel: Level | undefined = undefined;
-
-    if (config.levelStrict) {
-      for (const base of sortedCandidates) {
-        const sameLevel = candidates.filter(m => m.level === base.level);
-        if (sameLevel.length >= 4) {
-          selected = [...sameLevel].sort((a, b) => a.playCount - b.playCount || Math.random() - 0.5).slice(0, 4);
-          matchLevel = base.level;
-          break;
+    // 4人を選出する（ナップサック問題的アプローチの簡易版）
+    // 上から順に取っていき、4人ぴったりになれば採用
+    let selectedMembers: Member[] = [];
+    let currentCount = 0;
+    
+    // レベル厳格モードの場合、ユニットの属性（レベル）も考慮が必要だが、
+    // 固定ペアの場合はレベルが混在する可能性があるため、簡易的に「ペアの代表者のレベル」を見るか、
+    // もしくは厳格モード時はペア設定を無視するか等の判断が必要。
+    // 今回は「固定ペア優先」とし、厳格モードでもペアが組まれていればレベル不一致でも通すか、
+    // 厳密にやるなら「ペアの両方がそのレベルであること」を条件にする。
+    // -> ユーザー指示「固定ペア対バラでもOK」なので、柔軟に対応。
+    // ここではシンプルに「ユニット優先順」で4人埋める。
+    
+    // 厳格モード用のフィルタリング
+    // ペアの場合は「2人のレベルが同じ」かつ「基準レベルと一致」のみ許可するなど
+    // 複雑になるため、今回は「ソート順に上から、4名枠に収まるなら入れる」方式にする
+    
+    for (const unit of sortedUnits) {
+      if (currentCount + unit.members.length <= 4) {
+        // 厳格モードチェック
+        if (config.levelStrict && selectedMembers.length > 0) {
+          // 既に選ばれているメンバーのレベル（代表）
+          const baseLevel = selectedMembers[0].level;
+          // ユニット内の全員がそのレベルと一致するか？
+          const isLevelMatch = unit.members.every(m => m.level === baseLevel);
+          if (!isLevelMatch) continue; // レベルが合わなければスキップ
+        } else if (config.levelStrict && unit.type === 'pair') {
+             // 最初の選出だがペアの場合、ペア同士のレベルが違うと厳格モードでは破綻する可能性があるが
+             // 今回は「ペアのレベルが異なっていても、ペアとして成立させる」か「スキップ」か。
+             // 厳格モードなので、ペア内でもレベル不一致なら選ばないようにする
+             if(unit.members[0].level !== unit.members[1].level) continue;
         }
+
+        selectedMembers = [...selectedMembers, ...unit.members];
+        currentCount += unit.members.length;
       }
-    } else {
-      selected = sortedCandidates.slice(0, 4);
+      if (currentCount === 4) break;
     }
 
-    if (selected.length < 4) return null;
+    if (currentCount < 4) return null;
 
-    const p = selected;
-    const getC = (m1: Member, m2: Member) => m1.matchHistory[m2.id] || 0;
-    const costs = [
-      { order: [0, 1, 2, 3], c: getC(p[0], p[1]) + getC(p[2], p[3]) },
-      { order: [0, 2, 1, 3], c: getC(p[0], p[2]) + getC(p[1], p[3]) },
-      { order: [0, 3, 1, 2], c: getC(p[0], p[3]) + getC(p[1], p[2]) }
-    ].sort((a, b) => a.c - b.c || Math.random() - 0.5);
+    // チーム分け
+    // 固定ペアが含まれている場合は、そのペアを分解しないように配置する
+    // ケース1: 固定ペアA(2名) + 固定ペアB(2名) -> A vs B
+    // ケース2: 固定ペアA(2名) + ソロB + ソロC -> A vs (B+C)
+    // ケース3: 全員ソロ -> 通常ロジック
+    
+    const fixedPairs = units.filter(u => u.type === 'pair' && selectedMembers.includes(u.members[0]));
+    
+    let p1, p2, p3, p4;
+    
+    if (fixedPairs.length === 2) {
+      // ペア対ペア
+      p1 = fixedPairs[0].members[0];
+      p2 = fixedPairs[0].members[1];
+      p3 = fixedPairs[1].members[0];
+      p4 = fixedPairs[1].members[1];
+    } else if (fixedPairs.length === 1) {
+      // ペア対バラ
+      const pair = fixedPairs[0].members;
+      const others = selectedMembers.filter(m => !pair.includes(m));
+      p1 = pair[0];
+      p2 = pair[1];
+      p3 = others[0];
+      p4 = others[1];
+    } else {
+      // 全員バラ（従来ロジック）
+      // 相性最適化
+      const p = selectedMembers;
+      const getC = (m1: Member, m2: Member) => m1.matchHistory[m2.id] || 0;
+      const costs = [
+        { order: [0, 1, 2, 3], c: getC(p[0], p[1]) + getC(p[2], p[3]) },
+        { order: [0, 2, 1, 3], c: getC(p[0], p[2]) + getC(p[1], p[3]) },
+        { order: [0, 3, 1, 2], c: getC(p[0], p[3]) + getC(p[1], p[2]) }
+      ].sort((a, b) => a.c - b.c || Math.random() - 0.5);
+      const o = costs[0].order;
+      p1 = p[o[0]]; p2 = p[o[1]]; p3 = p[o[2]]; p4 = p[o[3]];
+    }
 
-    const o = costs[0].order;
-    return { p1: p[o[0]].id, p2: p[o[1]].id, p3: p[o[2]].id, p4: p[o[3]].id, level: matchLevel };
+    // レベル判定（代表者）
+    const matchLevel = p1.level;
+
+    return { p1: p1.id, p2: p2.id, p3: p3.id, p4: p4.id, level: matchLevel };
   };
 
   const generateNextMatch = (courtId: number) => {
     const match = getMatchForCourt(courts, members);
-    if (!match) return alert('待機メンバーが足りません');
+    if (!match) return alert('待機メンバーが足りません（固定ペアやレベル制限により4名揃いません）');
     
-    // 割当（開始）のタイミングで履歴に追加
     const ids = [match.p1, match.p2, match.p3, match.p4];
     const names = ids.map(id => members.find(m => m.id === id)?.name || '?');
     setMatchHistory(prev => [{
@@ -180,23 +328,21 @@ export default function DoublesMatchupApp() {
   };
 
   const finishMatch = (courtId: number) => {
-    setCourts(prevCourts => {
-      // 終了時はコートを空にするだけ（履歴追加は開始時に移動済み）
-      return prevCourts.map(c => c.id === courtId ? { ...c, match: null } : c);
-    });
+    setCourts(prevCourts => prevCourts.map(c => c.id === courtId ? { ...c, match: null } : c));
   };
 
   const handleBulkAction = () => {
-    // 1. 進行中の試合をすべて終了
     setCourts(prev => prev.map(c => ({ ...c, match: null })));
-
-    // 2. 順次新しい試合を割り当て（履歴追加を含む）
     setTimeout(() => {
       setCourts(prev => {
         let current = [...prev];
+        // メンバー状態のコピー（シミュレーション用）
+        let tempMembers = JSON.parse(JSON.stringify(members)) as Member[];
+        
         for (let i = 0; i < current.length; i++) {
           if (!current[i].match) {
-            const match = getMatchForCourt(current, members);
+            // tempMembersを使ってマッチング計算
+            const match = getMatchForCourt(current, tempMembers);
             if (match) {
               const ids = [match.p1, match.p2, match.p3, match.p4];
               const names = ids.map(id => members.find(m => m.id === id)?.name || '?');
@@ -208,6 +354,14 @@ export default function DoublesMatchupApp() {
               }, ...prevH]);
 
               current[i] = { ...current[i], match };
+              
+              // tempMembersと本番stateの両方を更新（次のループのため）
+              const now = Date.now();
+              const updateLocal = (list: Member[]) => list.map(m => {
+                if (!ids.includes(m.id)) return m;
+                return { ...m, playCount: m.playCount + 1, lastPlayedTime: now };
+              });
+              tempMembers = updateLocal(tempMembers);
               applyMatchToMembers(ids);
             }
           }
@@ -297,27 +451,81 @@ export default function DoublesMatchupApp() {
               <h2 className="font-bold text-xl text-gray-700">名簿 ({members.length})</h2>
               <button onClick={addMember} className="bg-green-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-1 shadow-lg"><Plus size={20} />選手追加</button>
             </div>
-            <div className="bg-white rounded-2xl shadow-sm divide-y overflow-hidden">
+            <div className="bg-white rounded-2xl shadow-sm divide-y overflow-hidden relative">
               {members.map(m => (
                 <div key={m.id} className={`p-4 flex items-center gap-4 ${!m.isActive ? 'bg-gray-50 opacity-40' : ''}`}>
                   <div className="flex-1">
                     <input value={m.name} onChange={e => setMembers(prev => prev.map(x => x.id === m.id ? { ...x, name: e.target.value } : x))} className="w-full font-bold text-xl bg-transparent outline-none focus:text-blue-600" />
-                    <div className="flex items-center gap-4 mt-1">
+                    <div className="flex items-center gap-3 mt-1 flex-wrap">
                       <button 
                         onClick={() => setMembers(prev => prev.map(x => x.id === m.id ? { ...x, level: toggleLevel(m.level) } : x))}
                         className={`text-xs font-bold rounded-md px-3 py-1 text-white transition-colors ${m.level === 'A' ? 'bg-blue-600' : m.level === 'B' ? 'bg-yellow-500' : 'bg-red-500'}`}
                       >
                         レベル{m.level}
                       </button>
+                      
+                      {/* ペア設定ボタン */}
+                      <button 
+                        onClick={() => setEditingPairMemberId(m.id)}
+                        className={`flex items-center gap-1 text-xs font-bold px-2 py-1 rounded border ${m.fixedPairMemberId ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'text-gray-400 border-dashed border-gray-300'}`}
+                      >
+                        {m.fixedPairMemberId ? (
+                          <>
+                            <LinkIcon size={12} />
+                            {members.find(x => x.id === m.fixedPairMemberId)?.name}とペア
+                          </>
+                        ) : (
+                          <>
+                            <Unlink size={12} />
+                            ペアなし
+                          </>
+                        )}
+                      </button>
+
                       <span className="text-xs text-gray-400 font-bold tracking-wider">試合数: {m.playCount}</span>
                     </div>
                   </div>
                   <button onClick={() => setMembers(prev => prev.map(x => x.id === m.id ? { ...x, isActive: !x.isActive } : x))} className={`px-4 py-2 rounded-xl font-bold border-2 transition-all ${m.isActive ? 'border-blue-600 text-blue-600 bg-blue-50' : 'border-gray-200 text-gray-300'}`}>
-                    {m.isActive ? '参加中' : '休み'}
+                    {m.isActive ? '参加' : '休み'}
                   </button>
                   <button onClick={() => {if(confirm(`${m.name}を削除？`)) setMembers(prev => prev.filter(x => x.id !== m.id))}} className="text-gray-200 hover:text-red-500 transition-colors px-2"><Trash2 size={24} /></button>
                 </div>
               ))}
+
+              {/* ペア選択モーダル */}
+              {editingPairMemberId && (
+                <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setEditingPairMemberId(null)}>
+                  <div className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden" onClick={e => e.stopPropagation()}>
+                    <div className="bg-gray-100 px-4 py-3 flex justify-between items-center border-b">
+                      <h3 className="font-bold text-lg">ペアを選択</h3>
+                      <button onClick={() => setEditingPairMemberId(null)} className="text-gray-500"><X size={20}/></button>
+                    </div>
+                    <div className="max-h-[60vh] overflow-y-auto p-2">
+                      <button 
+                        onClick={() => updateFixedPair(editingPairMemberId, null)}
+                        className="w-full text-left px-4 py-3 hover:bg-red-50 text-red-600 font-bold border-b border-gray-100 flex items-center gap-2"
+                      >
+                        <Unlink size={16} /> ペアを解消（なし）
+                      </button>
+                      {members
+                        .filter(m => m.id !== editingPairMemberId && m.isActive) // 自分以外かつ参加中の人のみ
+                        .filter(m => !m.fixedPairMemberId || m.fixedPairMemberId === editingPairMemberId) // フリーの人か、既に自分と組んでる人のみ
+                        .map(candidate => (
+                          <button
+                            key={candidate.id}
+                            onClick={() => updateFixedPair(editingPairMemberId, candidate.id)}
+                            className={`w-full text-left px-4 py-3 hover:bg-blue-50 font-bold border-b border-gray-100 flex items-center gap-2 ${members.find(x => x.id === editingPairMemberId)?.fixedPairMemberId === candidate.id ? 'bg-blue-50 text-blue-700' : 'text-gray-700'}`}
+                          >
+                            <LinkIcon size={16} className="text-gray-400" />
+                            {candidate.name}
+                            <span className="text-xs text-gray-400 ml-auto font-normal">Level {candidate.level}</span>
+                          </button>
+                        ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
             </div>
           </div>
         )}
