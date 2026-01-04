@@ -14,7 +14,9 @@ import {
   RotateCcw,
   Link as LinkIcon,
   Unlink,
-  X
+  X,
+  ZoomIn,
+  ZoomOut
 } from 'lucide-react';
 
 type Level = 'A' | 'B' | 'C';
@@ -25,6 +27,7 @@ interface Member {
   level: Level;
   isActive: boolean;
   playCount: number;
+  imputedPlayCount: number; // みなし試合数
   lastPlayedTime: number;
   matchHistory: Record<number, number>;
   fixedPairMemberId: number | null;
@@ -53,6 +56,7 @@ interface MatchRecord {
 interface AppConfig {
   courtCount: number;
   levelStrict: boolean;
+  zoomLevel: number; // カードの高さ倍率
 }
 
 export default function DoublesMatchupApp() {
@@ -63,19 +67,20 @@ export default function DoublesMatchupApp() {
   const [config, setConfig] = useState<AppConfig>({
     courtCount: 4,
     levelStrict: false,
+    zoomLevel: 1.0,
   });
   const [nextMemberId, setNextMemberId] = useState(1);
   const [isInitialized, setIsInitialized] = useState(false);
   const [editingPairMemberId, setEditingPairMemberId] = useState<number | null>(null);
 
   useEffect(() => {
-    const savedData = localStorage.getItem('doubles-app-data-v13');
+    const savedData = localStorage.getItem('doubles-app-data-v14');
     if (savedData) {
       const data = JSON.parse(savedData);
       setMembers(data.members || []);
       setCourts(data.courts || []);
       setMatchHistory(data.matchHistory || []);
-      setConfig(data.config || { courtCount: 4, levelStrict: false });
+      setConfig(prev => ({ ...prev, ...(data.config || {}) }));
       setNextMemberId(data.nextMemberId || 1);
     } else {
       initializeCourts(4);
@@ -86,7 +91,7 @@ export default function DoublesMatchupApp() {
   useEffect(() => {
     if (!isInitialized) return;
     const data = { members, courts, matchHistory, config, nextMemberId };
-    localStorage.setItem('doubles-app-data-v13', JSON.stringify(data));
+    localStorage.setItem('doubles-app-data-v14', JSON.stringify(data));
   }, [members, courts, matchHistory, config, nextMemberId, isInitialized]);
 
   const initializeCourts = (count: number) => {
@@ -105,25 +110,30 @@ export default function DoublesMatchupApp() {
   };
 
   const resetPlayCountsOnly = () => {
-    if (confirm('全員の試合数と対戦履歴をリセットします。固定ペア設定は維持されます。')) {
+    if (confirm('全員の試合数と対戦履歴、および履歴画面をリセットします。固定ペア設定は維持されます。')) {
       setMembers(prev => prev.map(m => ({ 
         ...m, 
-        playCount: 0, 
+        playCount: 0,
+        imputedPlayCount: 0,
         lastPlayedTime: 0, 
         matchHistory: {} 
       })));
+      setMatchHistory([]); // 履歴もクリア
     }
   };
 
   const addMember = () => {
     const activeMembers = members.filter(m => m.isActive);
     const avgPlay = activeMembers.length > 0 ? Math.floor(activeMembers.reduce((s, m) => s + m.playCount, 0) / activeMembers.length) : 0;
+    // 新規メンバーは最初から平均値を持った状態（＝みなし回数）とするか、0からか。
+    // 仕様「途中追加はその時点の平均回数分は入っていると仮定」
     const newMember: Member = { 
       id: nextMemberId, 
       name: `${nextMemberId}`, 
       level: 'A', 
       isActive: true, 
       playCount: avgPlay, 
+      imputedPlayCount: avgPlay, // 最初から平均値を持たせる＝みなし
       lastPlayedTime: 0, 
       matchHistory: {},
       fixedPairMemberId: null
@@ -158,16 +168,12 @@ export default function DoublesMatchupApp() {
     setEditingPairMemberId(null);
   };
 
-  // レベル変更（ペア連動）
   const handleLevelChange = (id: number) => {
     setMembers(prev => {
       const target = prev.find(m => m.id === id);
       if (!target) return prev;
-      
       const newLevel = toggleLevel(target.level);
-      
       return prev.map(m => {
-        // 自分自身、または自分のペア相手のレベルを更新
         if (m.id === id || (target.fixedPairMemberId && m.id === target.fixedPairMemberId)) {
           return { ...m, level: newLevel };
         }
@@ -176,14 +182,38 @@ export default function DoublesMatchupApp() {
     });
   };
 
+  // 試合開始時の更新処理（参加者カウントUP ＆ 休憩者の底上げ）
   const applyMatchToMembers = (playerIds: number[]) => {
     const now = Date.now();
-    setMembers(prevM => prevM.map(m => {
-      if (!playerIds.includes(m.id)) return m;
-      const newH = { ...m.matchHistory };
-      playerIds.forEach(oid => { if (m.id !== oid) newH[oid] = (newH[oid] || 0) + 1; });
-      return { ...m, playCount: m.playCount + 1, lastPlayedTime: now, matchHistory: newH };
-    }));
+    setMembers(prev => {
+      // 1. まず参加者のカウントを更新
+      const updatedMembers = prev.map(m => {
+        if (!playerIds.includes(m.id)) return m;
+        const newH = { ...m.matchHistory };
+        playerIds.forEach(oid => { if (m.id !== oid) newH[oid] = (newH[oid] || 0) + 1; });
+        return { ...m, playCount: m.playCount + 1, lastPlayedTime: now, matchHistory: newH };
+      });
+
+      // 2. 「参加中(Active)」メンバーの平均試合数を計算
+      const activeMembers = updatedMembers.filter(m => m.isActive);
+      if (activeMembers.length === 0) return updatedMembers;
+      
+      const totalPlays = activeMembers.reduce((sum, m) => sum + m.playCount, 0);
+      const avgPlays = Math.floor(totalPlays / activeMembers.length);
+
+      // 3. 「休憩中(Inactive)」メンバーの試合数が平均より低ければ底上げ（みなし加算）
+      return updatedMembers.map(m => {
+        if (!m.isActive && m.playCount < avgPlays) {
+          const diff = avgPlays - m.playCount;
+          return {
+            ...m,
+            playCount: avgPlays,
+            imputedPlayCount: m.imputedPlayCount + diff
+          };
+        }
+        return m;
+      });
+    });
   };
 
   const getMatchForCourt = (currentCourts: Court[], currentMembers: Member[]) => {
@@ -331,6 +361,13 @@ export default function DoublesMatchupApp() {
     }, 200);
   };
 
+  const changeZoom = (delta: number) => {
+    setConfig(prev => ({
+      ...prev,
+      zoomLevel: Math.max(0.5, Math.min(2.0, prev.zoomLevel + delta))
+    }));
+  };
+
   const getLevelBadge = (l?: Level) => {
     if (!l) return null;
     const c = { A: 'bg-blue-600', B: 'bg-yellow-500', C: 'bg-red-500' };
@@ -343,12 +380,17 @@ export default function DoublesMatchupApp() {
     return 'A';
   };
 
+  // 半角文字かどうか判定してフォントサイズ補正
   const getDynamicFontSize = (name: string = '') => {
+    const isAscii = /^[\x20-\x7E]*$/.test(name);
     const len = name.length;
-    if (len <= 2) return 'clamp(1.4rem, 9vw, 3.5rem)';
-    if (len <= 4) return 'clamp(1.1rem, 7vw, 2.8rem)';
-    if (len <= 6) return 'clamp(0.9rem, 5vw, 2rem)';
-    if (len <= 8) return 'clamp(0.8rem, 4.5vw, 1.6rem)';
+    // 半角のみの場合は、文字数を0.6掛けして判定するイメージで緩和
+    const effectiveLen = isAscii ? len * 0.6 : len;
+
+    if (effectiveLen <= 2) return 'clamp(1.4rem, 9vw, 3.5rem)';
+    if (effectiveLen <= 4) return 'clamp(1.1rem, 7vw, 2.8rem)';
+    if (effectiveLen <= 6) return 'clamp(0.9rem, 5vw, 2rem)';
+    if (effectiveLen <= 8) return 'clamp(0.8rem, 4.5vw, 1.6rem)';
     return 'clamp(0.7rem, 4vw, 1.3rem)';
   };
 
@@ -356,22 +398,35 @@ export default function DoublesMatchupApp() {
     <div className="min-h-screen bg-gray-100 text-gray-900 pb-20 font-sans overflow-x-hidden">
       <header className="bg-blue-800 text-white px-4 py-3 shadow flex justify-between items-center sticky top-0 z-20">
         <h1 className="text-xl font-bold flex items-center gap-2"><Trophy size={20} /> ダブルスメーカー</h1>
-        {activeTab === 'dashboard' && (
-          <button onClick={handleBulkAction} className="bg-orange-500 text-white px-4 py-2 rounded-full text-xs font-bold shadow-md active:scale-95 transition-transform">
-            一括更新
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {activeTab === 'dashboard' && (
+            <div className="flex items-center bg-blue-900/50 rounded-lg p-0.5 mr-2">
+              <button onClick={() => changeZoom(-0.1)} className="p-1.5 hover:bg-blue-800 rounded"><ZoomOut size={16}/></button>
+              <button onClick={() => changeZoom(0.1)} className="p-1.5 hover:bg-blue-800 rounded"><ZoomIn size={16}/></button>
+            </div>
+          )}
+          {activeTab === 'dashboard' && (
+            <button onClick={handleBulkAction} className="bg-orange-500 text-white px-4 py-2 rounded-full text-xs font-bold shadow-md active:scale-95 transition-transform">
+              一括更新
+            </button>
+          )}
+        </div>
       </header>
 
       <main className="p-2 w-full max-w-[1400px] mx-auto">
         {activeTab === 'dashboard' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          // landscape:grid-cols-2 を追加し、横向きなら必ず2列にする
+          <div className="grid grid-cols-1 landscape:grid-cols-2 lg:grid-cols-2 gap-3">
             {courts.map(court => (
-              <div key={court.id} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col min-h-[160px]">
+              <div 
+                key={court.id} 
+                className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col"
+                style={{ height: `${180 * config.zoomLevel}px` }} // 高さを固定・ズーム対応
+              >
                 <div className="bg-gray-50 px-4 py-1.5 border-b flex justify-between items-center shrink-0">
                   <span className="font-bold text-xs text-gray-500 uppercase tracking-widest">Court {court.id} {getLevelBadge(court.match?.level)}</span>
                 </div>
-                <div className="flex-1 p-3 flex flex-col justify-center">
+                <div className="flex-1 p-3 flex flex-col justify-center h-full">
                   {court.match ? (
                     <div className="flex items-center gap-2 h-full">
                       <div className="flex-1 grid grid-cols-2 gap-2 h-full">
@@ -392,10 +447,10 @@ export default function DoublesMatchupApp() {
                           </div>
                         </div>
                       </div>
-                      <button onClick={() => finishMatch(court.id)} className="bg-gray-800 text-white px-5 h-full min-h-[80px] rounded-lg font-bold text-sm lg:text-lg shrink-0 flex items-center shadow-inner">終了</button>
+                      <button onClick={() => finishMatch(court.id)} className="bg-gray-800 text-white px-5 h-full rounded-lg font-bold text-sm lg:text-lg shrink-0 flex items-center shadow-inner">終了</button>
                     </div>
                   ) : (
-                    <button onClick={() => generateNextMatch(court.id)} className="w-full min-h-[100px] border-2 border-dashed border-gray-300 text-gray-400 font-bold text-xl rounded-xl flex items-center justify-center gap-3 hover:bg-gray-50 transition-colors">
+                    <button onClick={() => generateNextMatch(court.id)} className="w-full h-full border-2 border-dashed border-gray-300 text-gray-400 font-bold text-xl rounded-xl flex items-center justify-center gap-3 hover:bg-gray-50 transition-colors">
                       <Play size={28} /> 割当
                     </button>
                   )}
@@ -441,7 +496,10 @@ export default function DoublesMatchupApp() {
                         )}
                       </button>
 
-                      <span className="text-xs text-gray-400 font-bold tracking-wider">試合数: {m.playCount}</span>
+                      <span className="text-xs text-gray-400 font-bold tracking-wider">
+                        試合数: {m.playCount}
+                        {m.imputedPlayCount > 0 && <span className="text-gray-300 ml-1">({m.imputedPlayCount})</span>}
+                      </span>
                     </div>
                   </div>
                   <button onClick={() => setMembers(prev => prev.map(x => x.id === m.id ? { ...x, isActive: !x.isActive } : x))} className={`px-4 py-2 rounded-xl font-bold border-2 transition-all ${m.isActive ? 'border-blue-600 text-blue-600 bg-blue-50' : 'border-gray-200 text-gray-300'}`}>
@@ -468,7 +526,7 @@ export default function DoublesMatchupApp() {
                       {members
                         .filter(m => m.id !== editingPairMemberId && m.isActive)
                         .filter(m => !m.fixedPairMemberId || m.fixedPairMemberId === editingPairMemberId)
-                        .filter(m => m.level === members.find(x => x.id === editingPairMemberId)?.level) // 同レベルのみ
+                        .filter(m => m.level === members.find(x => x.id === editingPairMemberId)?.level)
                         .map(candidate => (
                           <button
                             key={candidate.id}
