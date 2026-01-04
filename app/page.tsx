@@ -223,7 +223,6 @@ export default function DoublesMatchupApp() {
         const newMatchH = { ...m.matchHistory };
         const newPairH = { ...m.pairHistory };
         
-        // 対戦相手・ペアの記録を更新
         let partnerId = 0;
         let opponents: number[] = [];
         if (m.id === p1) { partnerId = p2; opponents = [p3, p4]; }
@@ -268,14 +267,15 @@ export default function DoublesMatchupApp() {
     currentCourts.forEach(c => { if (c.match) [c.match.p1, c.match.p2, c.match.p3, c.match.p4].forEach(id => playingIds.add(id)); });
     
     const candidates = currentMembers.filter(m => m.isActive && !playingIds.has(m.id));
+    if (candidates.length < 4) return null;
 
+    // 1. ユニット（固定ペアまたは個人）の作成
     type Unit = { type: 'pair', members: Member[], avgPlay: number, lastTime: number } | { type: 'single', members: Member[], avgPlay: number, lastTime: number };
     const units: Unit[] = [];
     const processedIds = new Set<number>();
 
     candidates.forEach(m => {
       if (processedIds.has(m.id)) return;
-
       if (m.fixedPairMemberId && candidates.some(c => c.id === m.fixedPairMemberId)) {
         const partner = candidates.find(c => c.id === m.fixedPairMemberId)!;
         processedIds.add(m.id);
@@ -297,36 +297,47 @@ export default function DoublesMatchupApp() {
       }
     });
 
-    // 試合数と時間の重み付けソート。わずかなランダム性を加え、固定化を防ぐ
+    // 2. 出場優先順位でソート（試合数優先、次に待ち時間、最後に重複回避のための計画的シャッフル）
     const sortedUnits = units.sort((a, b) => {
       if (a.avgPlay !== b.avgPlay) return a.avgPlay - b.avgPlay;
       if (Math.abs(a.lastTime - b.lastTime) > 1000) return a.lastTime - b.lastTime;
+      // 試合数が並んでいる場合、後述のコスト計算のためにランダム性を加味
       return Math.random() - 0.5;
     });
 
-    let selectedMembers: Member[] = [];
-    let currentCount = 0;
-    
-    for (const unit of sortedUnits) {
-      if (currentCount + unit.members.length <= 4) {
-        if (config.levelStrict && selectedMembers.length > 0) {
-          const baseLevel = selectedMembers[0].level;
-          const isLevelMatch = unit.members.every(m => m.level === baseLevel);
-          if (!isLevelMatch) continue;
-        } else if (config.levelStrict && unit.type === 'pair') {
-             if(unit.members[0].level !== unit.members[1].level) continue;
+    // 3. 最優先の4人を決定（レベル厳密モード考慮）
+    let bestSelection: Member[] = [];
+    if (config.levelStrict) {
+      // レベルごとに候補を分ける
+      const byLevel = { A: [] as Member[], B: [] as Member[], C: [] as Member[] };
+      sortedUnits.forEach(u => u.members.forEach(m => byLevel[m.level].push(m)));
+      
+      // 最も試合数が少なく、かつ4人以上揃っているレベルを探す
+      const levels: Level[] = ['A', 'B', 'C'];
+      for (const l of levels) {
+        if (byLevel[l].length >= 4) {
+          bestSelection = byLevel[l].slice(0, 4);
+          break;
         }
-
-        selectedMembers = [...selectedMembers, ...unit.members];
-        currentCount += unit.members.length;
       }
-      if (currentCount === 4) break;
     }
 
-    if (currentCount < 4) return null;
+    // レベル厳密で決まらなかった場合、またはOFFの場合は通常の先頭4人
+    if (bestSelection.length < 4) {
+      let currentCount = 0;
+      for (const unit of sortedUnits) {
+        if (currentCount + unit.members.length <= 4) {
+          bestSelection = [...bestSelection, ...unit.members];
+          currentCount += unit.members.length;
+        }
+        if (currentCount === 4) break;
+      }
+    }
 
-    // 4人の組み合わせコスト計算（ペア履歴＋対戦履歴）
-    const p = selectedMembers;
+    if (bestSelection.length < 4) return null;
+
+    // 4. 選ばれた4人の中で「過去の重複」が最小になる組み合わせ（ペア・対戦相手）を決定
+    const p = bestSelection;
     const combinations = [
       { p1: p[0], p2: p[1], p3: p[2], p4: p[3] },
       { p1: p[0], p2: p[2], p3: p[1], p4: p[3] },
@@ -334,17 +345,16 @@ export default function DoublesMatchupApp() {
     ];
 
     const bestComb = combinations.map(c => {
-      // コスト = (今のペア同士の過去ペア回数 * 2) + (今の対戦相手同士の過去対戦回数)
+      // スコアが高いほど「組んだことがある/戦ったことがある」ので避けるべき
       const pairCost = (c.p1.pairHistory[c.p2.id] || 0) + (c.p3.pairHistory[c.p4.id] || 0);
       const matchCost = (c.p1.matchHistory[c.p3.id] || 0) + (c.p1.matchHistory[c.p4.id] || 0) + 
                         (c.p2.matchHistory[c.p3.id] || 0) + (c.p2.matchHistory[c.p4.id] || 0);
       
-      // 固定ペアがある場合はそのペアリングのコストを大幅に下げる
       let fixedBonus = 0;
-      if (c.p1.fixedPairMemberId === c.p2.id) fixedBonus += 100;
-      if (c.p3.fixedPairMemberId === c.p4.id) fixedBonus += 100;
+      if (c.p1.fixedPairMemberId === c.p2.id) fixedBonus += 1000;
+      if (c.p3.fixedPairMemberId === c.p4.id) fixedBonus += 1000;
 
-      return { ...c, totalCost: (pairCost * 2.5 + matchCost) - fixedBonus };
+      return { ...c, totalCost: (pairCost * 5 + matchCost) - fixedBonus };
     }).sort((a, b) => a.totalCost - b.totalCost || Math.random() - 0.5)[0];
 
     const matchLevel = config.levelStrict ? bestComb.p1.level : undefined;
@@ -393,7 +403,19 @@ export default function DoublesMatchupApp() {
               const now = Date.now();
               tempMembers = tempMembers.map(m => {
                 if (!ids.includes(m.id)) return m;
-                return { ...m, playCount: m.playCount + 1, lastPlayedTime: now };
+                const newMatchH = { ...m.matchHistory };
+                const newPairH = { ...m.pairHistory };
+                // 内部シミュレーション用履歴更新
+                let p1=match.p1, p2=match.p2, p3=match.p3, p4=match.p4;
+                let partnerId = 0; let opponents: number[] = [];
+                if (m.id === p1) { partnerId = p2; opponents = [p3, p4]; }
+                else if (m.id === p2) { partnerId = p1; opponents = [p3, p4]; }
+                else if (m.id === p3) { partnerId = p4; opponents = [p1, p2]; }
+                else if (m.id === p4) { partnerId = p3; opponents = [p1, p2]; }
+                newPairH[partnerId] = (newPairH[partnerId] || 0) + 1;
+                opponents.forEach(oid => { newMatchH[oid] = (newMatchH[oid] || 0) + 1; });
+
+                return { ...m, playCount: m.playCount + 1, lastPlayedTime: now, matchHistory: newMatchH, pairHistory: newPairH };
               });
               applyMatchToMembers(match.p1, match.p2, match.p3, match.p4);
             }
