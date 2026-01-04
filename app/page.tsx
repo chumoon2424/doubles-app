@@ -482,7 +482,7 @@ export default function DoublesMatchupApp() {
         {activeTab === 'members' && (
           <div className="space-y-3 max-w-2xl mx-auto">
             <div className="flex justify-between items-center p-2">
-              <h2 className="font-bold text-xl text-gray-700">名簿 ({members.length})</h2>
+              <h2 className="font-bold text-xl text-gray-700">名簿 ({members.filter(m => m.isActive).length}/{members.length})</h2>
               <button onClick={addMember} className="bg-green-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-1 shadow-lg"><Plus size={20} />選手追加</button>
             </div>
             <div className="bg-white rounded-2xl shadow-sm divide-y overflow-hidden relative">
@@ -530,7 +530,7 @@ export default function DoublesMatchupApp() {
 
               {editingPairMemberId && (
                 <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setEditingPairMemberId(null)}>
-                  <div className="bg-white rounded-xl shadow-xl w-full max-sm overflow-hidden" onClick={e => e.stopPropagation()}>
+                  <div className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden" onClick={e => e.stopPropagation()}>
                     <div className="bg-gray-100 px-4 py-3 flex justify-between items-center border-b">
                       <h3 className="font-bold text-lg">ペアを選択 (同レベルのみ)</h3>
                       <button onClick={() => setEditingPairMemberId(null)} className="text-gray-500"><X size={20}/></button>
