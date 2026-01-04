@@ -29,7 +29,8 @@ interface Member {
   playCount: number;
   imputedPlayCount: number; // みなし試合数
   lastPlayedTime: number;
-  matchHistory: Record<number, number>;
+  matchHistory: Record<number, number>; // 対戦した回数
+  pairHistory: Record<number, number>;  // ペアを組んだ回数
   fixedPairMemberId: number | null;
 }
 
@@ -75,22 +76,23 @@ export default function DoublesMatchupApp() {
 
   // データ読み込みと移行ロジック
   useEffect(() => {
-    const savedDataV14 = localStorage.getItem('doubles-app-data-v14');
+    const savedDataV15 = localStorage.getItem('doubles-app-data-v15');
     
-    if (savedDataV14) {
-      const data = JSON.parse(savedDataV14);
+    if (savedDataV15) {
+      const data = JSON.parse(savedDataV15);
       setMembers(data.members || []);
       setCourts(data.courts || []);
       setMatchHistory(data.matchHistory || []);
       setConfig(prev => ({ ...prev, ...(data.config || {}) }));
       setNextMemberId(data.nextMemberId || 1);
     } else {
-      const savedDataV8 = localStorage.getItem('doubles-app-data-v8');
-      if (savedDataV8) {
+      const savedDataV14 = localStorage.getItem('doubles-app-data-v14');
+      if (savedDataV14) {
         try {
-          const oldData = JSON.parse(savedDataV8);
+          const oldData = JSON.parse(savedDataV14);
           const migratedMembers = (oldData.members || []).map((m: any) => ({
             ...m,
+            pairHistory: m.pairHistory || {},
             imputedPlayCount: m.imputedPlayCount || 0,
             lastPlayedTime: m.lastPlayedTime || 0,
             fixedPairMemberId: m.fixedPairMemberId || null,
@@ -119,7 +121,7 @@ export default function DoublesMatchupApp() {
   useEffect(() => {
     if (!isInitialized) return;
     const data = { members, courts, matchHistory, config, nextMemberId };
-    localStorage.setItem('doubles-app-data-v14', JSON.stringify(data));
+    localStorage.setItem('doubles-app-data-v15', JSON.stringify(data));
   }, [members, courts, matchHistory, config, nextMemberId, isInitialized]);
 
   const initializeCourts = (count: number) => {
@@ -144,7 +146,8 @@ export default function DoublesMatchupApp() {
         playCount: 0,
         imputedPlayCount: 0,
         lastPlayedTime: 0, 
-        matchHistory: {} 
+        matchHistory: {},
+        pairHistory: {} 
       })));
       setMatchHistory([]);
     }
@@ -162,6 +165,7 @@ export default function DoublesMatchupApp() {
       imputedPlayCount: avgPlay,
       lastPlayedTime: 0, 
       matchHistory: {},
+      pairHistory: {},
       fixedPairMemberId: null
     };
     setMembers([...members, newMember]);
@@ -208,14 +212,35 @@ export default function DoublesMatchupApp() {
     });
   };
 
-  const applyMatchToMembers = (playerIds: number[]) => {
+  const applyMatchToMembers = (p1: number, p2: number, p3: number, p4: number) => {
     const now = Date.now();
+    const playerIds = [p1, p2, p3, p4];
+    
     setMembers(prev => {
       const updatedMembers = prev.map(m => {
         if (!playerIds.includes(m.id)) return m;
-        const newH = { ...m.matchHistory };
-        playerIds.forEach(oid => { if (m.id !== oid) newH[oid] = (newH[oid] || 0) + 1; });
-        return { ...m, playCount: m.playCount + 1, lastPlayedTime: now, matchHistory: newH };
+        
+        const newMatchH = { ...m.matchHistory };
+        const newPairH = { ...m.pairHistory };
+        
+        // 対戦相手・ペアの記録を更新
+        let partnerId = 0;
+        let opponents: number[] = [];
+        if (m.id === p1) { partnerId = p2; opponents = [p3, p4]; }
+        else if (m.id === p2) { partnerId = p1; opponents = [p3, p4]; }
+        else if (m.id === p3) { partnerId = p4; opponents = [p1, p2]; }
+        else if (m.id === p4) { partnerId = p3; opponents = [p1, p2]; }
+
+        newPairH[partnerId] = (newPairH[partnerId] || 0) + 1;
+        opponents.forEach(oid => { newMatchH[oid] = (newMatchH[oid] || 0) + 1; });
+
+        return { 
+          ...m, 
+          playCount: m.playCount + 1, 
+          lastPlayedTime: now, 
+          matchHistory: newMatchH,
+          pairHistory: newPairH
+        };
       });
 
       const activeMembers = updatedMembers.filter(m => m.isActive);
@@ -272,9 +297,10 @@ export default function DoublesMatchupApp() {
       }
     });
 
+    // 試合数と時間の重み付けソート。わずかなランダム性を加え、固定化を防ぐ
     const sortedUnits = units.sort((a, b) => {
       if (a.avgPlay !== b.avgPlay) return a.avgPlay - b.avgPlay;
-      if (a.lastTime !== b.lastTime) return a.lastTime - b.lastTime;
+      if (Math.abs(a.lastTime - b.lastTime) > 1000) return a.lastTime - b.lastTime;
       return Math.random() - 0.5;
     });
 
@@ -299,35 +325,30 @@ export default function DoublesMatchupApp() {
 
     if (currentCount < 4) return null;
 
-    const fixedPairs = units.filter(u => u.type === 'pair' && selectedMembers.includes(u.members[0]));
-    let p1, p2, p3, p4;
-    
-    if (fixedPairs.length === 2) {
-      p1 = fixedPairs[0].members[0];
-      p2 = fixedPairs[0].members[1];
-      p3 = fixedPairs[1].members[0];
-      p4 = fixedPairs[1].members[1];
-    } else if (fixedPairs.length === 1) {
-      const pair = fixedPairs[0].members;
-      const others = selectedMembers.filter(m => !pair.includes(m));
-      p1 = pair[0];
-      p2 = pair[1];
-      p3 = others[0];
-      p4 = others[1];
-    } else {
-      const p = selectedMembers;
-      const getC = (m1: Member, m2: Member) => m1.matchHistory[m2.id] || 0;
-      const costs = [
-        { order: [0, 1, 2, 3], c: getC(p[0], p[1]) + getC(p[2], p[3]) },
-        { order: [0, 2, 1, 3], c: getC(p[0], p[2]) + getC(p[1], p[3]) },
-        { order: [0, 3, 1, 2], c: getC(p[0], p[3]) + getC(p[1], p[2]) }
-      ].sort((a, b) => a.c - b.c || Math.random() - 0.5);
-      const o = costs[0].order;
-      p1 = p[o[0]]; p2 = p[o[1]]; p3 = p[o[2]]; p4 = p[o[3]];
-    }
+    // 4人の組み合わせコスト計算（ペア履歴＋対戦履歴）
+    const p = selectedMembers;
+    const combinations = [
+      { p1: p[0], p2: p[1], p3: p[2], p4: p[3] },
+      { p1: p[0], p2: p[2], p3: p[1], p4: p[3] },
+      { p1: p[0], p2: p[3], p3: p[1], p4: p[2] }
+    ];
 
-    const matchLevel = config.levelStrict ? p1.level : undefined;
-    return { p1: p1.id, p2: p2.id, p3: p3.id, p4: p4.id, level: matchLevel };
+    const bestComb = combinations.map(c => {
+      // コスト = (今のペア同士の過去ペア回数 * 2) + (今の対戦相手同士の過去対戦回数)
+      const pairCost = (c.p1.pairHistory[c.p2.id] || 0) + (c.p3.pairHistory[c.p4.id] || 0);
+      const matchCost = (c.p1.matchHistory[c.p3.id] || 0) + (c.p1.matchHistory[c.p4.id] || 0) + 
+                        (c.p2.matchHistory[c.p3.id] || 0) + (c.p2.matchHistory[c.p4.id] || 0);
+      
+      // 固定ペアがある場合はそのペアリングのコストを大幅に下げる
+      let fixedBonus = 0;
+      if (c.p1.fixedPairMemberId === c.p2.id) fixedBonus += 100;
+      if (c.p3.fixedPairMemberId === c.p4.id) fixedBonus += 100;
+
+      return { ...c, totalCost: (pairCost * 2.5 + matchCost) - fixedBonus };
+    }).sort((a, b) => a.totalCost - b.totalCost || Math.random() - 0.5)[0];
+
+    const matchLevel = config.levelStrict ? bestComb.p1.level : undefined;
+    return { p1: bestComb.p1.id, p2: bestComb.p2.id, p3: bestComb.p3.id, p4: bestComb.p4.id, level: matchLevel };
   };
 
   const generateNextMatch = (courtId: number) => {
@@ -342,7 +363,7 @@ export default function DoublesMatchupApp() {
       courtId, players: names, playerIds: ids, level: match.level
     }, ...prev]);
 
-    applyMatchToMembers(ids);
+    applyMatchToMembers(match.p1, match.p2, match.p3, match.p4);
     setCourts(prev => prev.map(c => c.id === courtId ? { ...c, match } : c));
   };
 
@@ -361,20 +382,20 @@ export default function DoublesMatchupApp() {
             const match = getMatchForCourt(current, tempMembers);
             if (match) {
               const ids = [match.p1, match.p2, match.p3, match.p4];
-              const names = ids.map(id => members.find(m => m.id === id)?.name || '?');
+              const names = ids.map(id => tempMembers.find(m => m.id === id)?.name || '?');
               setMatchHistory(prevH => [{
                 id: Date.now().toString() + current[i].id,
                 timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                 courtId: current[i].id, players: names, playerIds: ids, level: match.level
               }, ...prevH]);
               current[i] = { ...current[i], match };
+              
               const now = Date.now();
-              const updateLocal = (list: Member[]) => list.map(m => {
+              tempMembers = tempMembers.map(m => {
                 if (!ids.includes(m.id)) return m;
                 return { ...m, playCount: m.playCount + 1, lastPlayedTime: now };
               });
-              tempMembers = updateLocal(tempMembers);
-              applyMatchToMembers(ids);
+              applyMatchToMembers(match.p1, match.p2, match.p3, match.p4);
             }
           }
         }
