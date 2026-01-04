@@ -75,11 +75,9 @@ export default function DoublesMatchupApp() {
 
   // データ読み込みと移行ロジック
   useEffect(() => {
-    // 1. 最新バージョンのデータ確認
     const savedDataV14 = localStorage.getItem('doubles-app-data-v14');
     
     if (savedDataV14) {
-      // 最新データがあればそのまま使う
       const data = JSON.parse(savedDataV14);
       setMembers(data.members || []);
       setCourts(data.courts || []);
@@ -87,16 +85,12 @@ export default function DoublesMatchupApp() {
       setConfig(prev => ({ ...prev, ...(data.config || {}) }));
       setNextMemberId(data.nextMemberId || 1);
     } else {
-      // 2. 最新がない場合、古いデータ(v8)からの移行を試みる
       const savedDataV8 = localStorage.getItem('doubles-app-data-v8');
       if (savedDataV8) {
         try {
           const oldData = JSON.parse(savedDataV8);
-          
-          // メンバーデータの変換（不足しているプロパティを補完）
           const migratedMembers = (oldData.members || []).map((m: any) => ({
             ...m,
-            // 新機能用のプロパティがなければ初期値をセット
             imputedPlayCount: m.imputedPlayCount || 0,
             lastPlayedTime: m.lastPlayedTime || 0,
             fixedPairMemberId: m.fixedPairMemberId || null,
@@ -104,13 +98,10 @@ export default function DoublesMatchupApp() {
           }));
 
           setMembers(migratedMembers);
-          // コート数設定などは引き継ぐ
           if (oldData.config) {
             setConfig(prev => ({ ...prev, courtCount: oldData.config.courtCount || 4, levelStrict: oldData.config.levelStrict || false }));
           }
           setNextMemberId(oldData.nextMemberId || 1);
-          
-          // 履歴やコート状況は不整合を防ぐためリセット扱いで空にする（安全策）
           setCourts(Array.from({ length: oldData.config?.courtCount || 4 }, (_, i) => ({ id: i + 1, match: null })));
           setMatchHistory([]);
           
@@ -119,14 +110,12 @@ export default function DoublesMatchupApp() {
           initializeCourts(4);
         }
       } else {
-        // 3. データが全くない場合（初回）
         initializeCourts(4);
       }
     }
     setIsInitialized(true);
   }, []);
 
-  // データ保存（常に最新キー v14 に保存）
   useEffect(() => {
     if (!isInitialized) return;
     const data = { members, courts, matchHistory, config, nextMemberId };
@@ -337,7 +326,8 @@ export default function DoublesMatchupApp() {
       p1 = p[o[0]]; p2 = p[o[1]]; p3 = p[o[2]]; p4 = p[o[3]];
     }
 
-    const matchLevel = p1.level;
+    // 厳格モードの時だけレベル情報をセットする
+    const matchLevel = config.levelStrict ? p1.level : undefined;
     return { p1: p1.id, p2: p2.id, p3: p3.id, p4: p4.id, level: matchLevel };
   };
 
@@ -402,7 +392,7 @@ export default function DoublesMatchupApp() {
   };
 
   const getLevelBadge = (l?: Level) => {
-    if (!config.levelStrict) return null; // 厳格モードOFFなら非表示
+    // 厳格モードの設定にかかわらず、データにレベル情報がある場合のみ表示する
     if (!l) return null;
     const c = { A: 'bg-blue-600', B: 'bg-yellow-500', C: 'bg-red-500' };
     return <span className={`ml-2 px-2 py-0.5 rounded text-[10px] text-white ${c[l]}`}>{l}</span>;
