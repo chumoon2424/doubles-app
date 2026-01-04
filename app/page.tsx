@@ -11,7 +11,12 @@ import {
   RefreshCw,
   Trophy,
   FastForward,
-  RotateCcw
+  RotateCcw,
+  Link as LinkIcon,
+  Unlink,
+  X,
+  ZoomIn,
+  ZoomOut
 } from 'lucide-react';
 
 type Level = 'A' | 'B' | 'C';
@@ -22,7 +27,10 @@ interface Member {
   level: Level;
   isActive: boolean;
   playCount: number;
+  imputedPlayCount: number; // みなし試合数
+  lastPlayedTime: number;
   matchHistory: Record<number, number>;
+  fixedPairMemberId: number | null;
 }
 
 interface Court {
@@ -48,6 +56,7 @@ interface MatchRecord {
 interface AppConfig {
   courtCount: number;
   levelStrict: boolean;
+  zoomLevel: number;
 }
 
 export default function DoublesMatchupApp() {
@@ -58,21 +67,51 @@ export default function DoublesMatchupApp() {
   const [config, setConfig] = useState<AppConfig>({
     courtCount: 4,
     levelStrict: false,
+    zoomLevel: 1.0,
   });
   const [nextMemberId, setNextMemberId] = useState(1);
   const [isInitialized, setIsInitialized] = useState(false);
+  const [editingPairMemberId, setEditingPairMemberId] = useState<number | null>(null);
 
+  // データ読み込みと移行ロジック
   useEffect(() => {
-    const savedData = localStorage.getItem('doubles-app-data-v8');
-    if (savedData) {
-      const data = JSON.parse(savedData);
+    const savedDataV14 = localStorage.getItem('doubles-app-data-v14');
+    
+    if (savedDataV14) {
+      const data = JSON.parse(savedDataV14);
       setMembers(data.members || []);
       setCourts(data.courts || []);
       setMatchHistory(data.matchHistory || []);
-      setConfig(data.config || { courtCount: 4, levelStrict: false });
+      setConfig(prev => ({ ...prev, ...(data.config || {}) }));
       setNextMemberId(data.nextMemberId || 1);
     } else {
-      initializeCourts(4);
+      const savedDataV8 = localStorage.getItem('doubles-app-data-v8');
+      if (savedDataV8) {
+        try {
+          const oldData = JSON.parse(savedDataV8);
+          const migratedMembers = (oldData.members || []).map((m: any) => ({
+            ...m,
+            imputedPlayCount: m.imputedPlayCount || 0,
+            lastPlayedTime: m.lastPlayedTime || 0,
+            fixedPairMemberId: m.fixedPairMemberId || null,
+            matchHistory: m.matchHistory || {}
+          }));
+
+          setMembers(migratedMembers);
+          if (oldData.config) {
+            setConfig(prev => ({ ...prev, courtCount: oldData.config.courtCount || 4, levelStrict: oldData.config.levelStrict || false }));
+          }
+          setNextMemberId(oldData.nextMemberId || 1);
+          setCourts(Array.from({ length: oldData.config?.courtCount || 4 }, (_, i) => ({ id: i + 1, match: null })));
+          setMatchHistory([]);
+          
+        } catch (e) {
+          console.error("Migration failed", e);
+          initializeCourts(4);
+        }
+      } else {
+        initializeCourts(4);
+      }
     }
     setIsInitialized(true);
   }, []);
@@ -80,7 +119,7 @@ export default function DoublesMatchupApp() {
   useEffect(() => {
     if (!isInitialized) return;
     const data = { members, courts, matchHistory, config, nextMemberId };
-    localStorage.setItem('doubles-app-data-v8', JSON.stringify(data));
+    localStorage.setItem('doubles-app-data-v14', JSON.stringify(data));
   }, [members, courts, matchHistory, config, nextMemberId, isInitialized]);
 
   const initializeCourts = (count: number) => {
@@ -99,74 +138,202 @@ export default function DoublesMatchupApp() {
   };
 
   const resetPlayCountsOnly = () => {
-    if (confirm('全員の試合数と対戦履歴をリセットします。')) {
-      setMembers(prev => prev.map(m => ({ ...m, playCount: 0, matchHistory: {} })));
+    if (confirm('全員の試合数と対戦履歴、および履歴画面をリセットします。固定ペア設定は維持されます。')) {
+      setMembers(prev => prev.map(m => ({ 
+        ...m, 
+        playCount: 0,
+        imputedPlayCount: 0,
+        lastPlayedTime: 0, 
+        matchHistory: {} 
+      })));
+      setMatchHistory([]);
     }
   };
 
   const addMember = () => {
     const activeMembers = members.filter(m => m.isActive);
     const avgPlay = activeMembers.length > 0 ? Math.floor(activeMembers.reduce((s, m) => s + m.playCount, 0) / activeMembers.length) : 0;
-    const newMember: Member = { id: nextMemberId, name: `${nextMemberId}`, level: 'A', isActive: true, playCount: avgPlay, matchHistory: {} };
+    const newMember: Member = { 
+      id: nextMemberId, 
+      name: `${nextMemberId}`, 
+      level: 'A', 
+      isActive: true, 
+      playCount: avgPlay, 
+      imputedPlayCount: avgPlay,
+      lastPlayedTime: 0, 
+      matchHistory: {},
+      fixedPairMemberId: null
+    };
     setMembers([...members, newMember]);
     setNextMemberId(prev => prev + 1);
   };
 
+  const updateFixedPair = (memberId: number, partnerId: number | null) => {
+    setMembers(prev => {
+      let newMembers = [...prev];
+      const target = newMembers.find(m => m.id === memberId);
+      if (!target) return prev;
+
+      if (target.fixedPairMemberId) {
+        const oldPartner = newMembers.find(m => m.id === target.fixedPairMemberId);
+        if (oldPartner) oldPartner.fixedPairMemberId = null;
+      }
+
+      if (partnerId) {
+        const newPartner = newMembers.find(m => m.id === partnerId);
+        if (newPartner && newPartner.fixedPairMemberId) {
+          const partnersOldPartner = newMembers.find(m => m.id === newPartner.fixedPairMemberId);
+          if (partnersOldPartner) partnersOldPartner.fixedPairMemberId = null;
+        }
+        if (newPartner) newPartner.fixedPairMemberId = memberId;
+      }
+
+      target.fixedPairMemberId = partnerId;
+      return newMembers;
+    });
+    setEditingPairMemberId(null);
+  };
+
+  const handleLevelChange = (id: number) => {
+    setMembers(prev => {
+      const target = prev.find(m => m.id === id);
+      if (!target) return prev;
+      const newLevel = toggleLevel(target.level);
+      return prev.map(m => {
+        if (m.id === id || (target.fixedPairMemberId && m.id === target.fixedPairMemberId)) {
+          return { ...m, level: newLevel };
+        }
+        return m;
+      });
+    });
+  };
+
   const applyMatchToMembers = (playerIds: number[]) => {
-    setMembers(prevM => prevM.map(m => {
-      if (!playerIds.includes(m.id)) return m;
-      const newH = { ...m.matchHistory };
-      playerIds.forEach(oid => { if (m.id !== oid) newH[oid] = (newH[oid] || 0) + 1; });
-      return { ...m, playCount: m.playCount + 1, matchHistory: newH };
-    }));
+    const now = Date.now();
+    setMembers(prev => {
+      const updatedMembers = prev.map(m => {
+        if (!playerIds.includes(m.id)) return m;
+        const newH = { ...m.matchHistory };
+        playerIds.forEach(oid => { if (m.id !== oid) newH[oid] = (newH[oid] || 0) + 1; });
+        return { ...m, playCount: m.playCount + 1, lastPlayedTime: now, matchHistory: newH };
+      });
+
+      const activeMembers = updatedMembers.filter(m => m.isActive);
+      if (activeMembers.length === 0) return updatedMembers;
+      
+      const totalPlays = activeMembers.reduce((sum, m) => sum + m.playCount, 0);
+      const avgPlays = Math.floor(totalPlays / activeMembers.length);
+
+      return updatedMembers.map(m => {
+        if (!m.isActive && m.playCount < avgPlays) {
+          const diff = avgPlays - m.playCount;
+          return {
+            ...m,
+            playCount: avgPlays,
+            imputedPlayCount: m.imputedPlayCount + diff
+          };
+        }
+        return m;
+      });
+    });
   };
 
   const getMatchForCourt = (currentCourts: Court[], currentMembers: Member[]) => {
     const playingIds = new Set<number>();
     currentCourts.forEach(c => { if (c.match) [c.match.p1, c.match.p2, c.match.p3, c.match.p4].forEach(id => playingIds.add(id)); });
+    
     const candidates = currentMembers.filter(m => m.isActive && !playingIds.has(m.id));
-    if (candidates.length < 4) return null;
 
-    const sortedCandidates = [...candidates].sort((a, b) => {
-      if (a.playCount !== b.playCount) return a.playCount - b.playCount;
+    type Unit = { type: 'pair', members: Member[], avgPlay: number, lastTime: number } | { type: 'single', members: Member[], avgPlay: number, lastTime: number };
+    const units: Unit[] = [];
+    const processedIds = new Set<number>();
+
+    candidates.forEach(m => {
+      if (processedIds.has(m.id)) return;
+
+      if (m.fixedPairMemberId && candidates.some(c => c.id === m.fixedPairMemberId)) {
+        const partner = candidates.find(c => c.id === m.fixedPairMemberId)!;
+        processedIds.add(m.id);
+        processedIds.add(partner.id);
+        units.push({
+          type: 'pair',
+          members: [m, partner],
+          avgPlay: (m.playCount + partner.playCount) / 2,
+          lastTime: Math.max(m.lastPlayedTime, partner.lastPlayedTime)
+        });
+      } else {
+        processedIds.add(m.id);
+        units.push({
+          type: 'single',
+          members: [m],
+          avgPlay: m.playCount,
+          lastTime: m.lastPlayedTime
+        });
+      }
+    });
+
+    const sortedUnits = units.sort((a, b) => {
+      if (a.avgPlay !== b.avgPlay) return a.avgPlay - b.avgPlay;
+      if (a.lastTime !== b.lastTime) return a.lastTime - b.lastTime;
       return Math.random() - 0.5;
     });
 
-    let selected: Member[] = [];
-    let matchLevel: Level | undefined = undefined;
-
-    if (config.levelStrict) {
-      for (const base of sortedCandidates) {
-        const sameLevel = candidates.filter(m => m.level === base.level);
-        if (sameLevel.length >= 4) {
-          selected = [...sameLevel].sort((a, b) => a.playCount - b.playCount || Math.random() - 0.5).slice(0, 4);
-          matchLevel = base.level;
-          break;
+    let selectedMembers: Member[] = [];
+    let currentCount = 0;
+    
+    for (const unit of sortedUnits) {
+      if (currentCount + unit.members.length <= 4) {
+        if (config.levelStrict && selectedMembers.length > 0) {
+          const baseLevel = selectedMembers[0].level;
+          const isLevelMatch = unit.members.every(m => m.level === baseLevel);
+          if (!isLevelMatch) continue;
+        } else if (config.levelStrict && unit.type === 'pair') {
+             if(unit.members[0].level !== unit.members[1].level) continue;
         }
+
+        selectedMembers = [...selectedMembers, ...unit.members];
+        currentCount += unit.members.length;
       }
-    } else {
-      selected = sortedCandidates.slice(0, 4);
+      if (currentCount === 4) break;
     }
 
-    if (selected.length < 4) return null;
+    if (currentCount < 4) return null;
 
-    const p = selected;
-    const getC = (m1: Member, m2: Member) => m1.matchHistory[m2.id] || 0;
-    const costs = [
-      { order: [0, 1, 2, 3], c: getC(p[0], p[1]) + getC(p[2], p[3]) },
-      { order: [0, 2, 1, 3], c: getC(p[0], p[2]) + getC(p[1], p[3]) },
-      { order: [0, 3, 1, 2], c: getC(p[0], p[3]) + getC(p[1], p[2]) }
-    ].sort((a, b) => a.c - b.c || Math.random() - 0.5);
+    const fixedPairs = units.filter(u => u.type === 'pair' && selectedMembers.includes(u.members[0]));
+    let p1, p2, p3, p4;
+    
+    if (fixedPairs.length === 2) {
+      p1 = fixedPairs[0].members[0];
+      p2 = fixedPairs[0].members[1];
+      p3 = fixedPairs[1].members[0];
+      p4 = fixedPairs[1].members[1];
+    } else if (fixedPairs.length === 1) {
+      const pair = fixedPairs[0].members;
+      const others = selectedMembers.filter(m => !pair.includes(m));
+      p1 = pair[0];
+      p2 = pair[1];
+      p3 = others[0];
+      p4 = others[1];
+    } else {
+      const p = selectedMembers;
+      const getC = (m1: Member, m2: Member) => m1.matchHistory[m2.id] || 0;
+      const costs = [
+        { order: [0, 1, 2, 3], c: getC(p[0], p[1]) + getC(p[2], p[3]) },
+        { order: [0, 2, 1, 3], c: getC(p[0], p[2]) + getC(p[1], p[3]) },
+        { order: [0, 3, 1, 2], c: getC(p[0], p[3]) + getC(p[1], p[2]) }
+      ].sort((a, b) => a.c - b.c || Math.random() - 0.5);
+      const o = costs[0].order;
+      p1 = p[o[0]]; p2 = p[o[1]]; p3 = p[o[2]]; p4 = p[o[3]];
+    }
 
-    const o = costs[0].order;
-    return { p1: p[o[0]].id, p2: p[o[1]].id, p3: p[o[2]].id, p4: p[o[3]].id, level: matchLevel };
+    const matchLevel = config.levelStrict ? p1.level : undefined;
+    return { p1: p1.id, p2: p2.id, p3: p3.id, p4: p4.id, level: matchLevel };
   };
 
   const generateNextMatch = (courtId: number) => {
     const match = getMatchForCourt(courts, members);
-    if (!match) return alert('待機メンバーが足りません');
+    if (!match) return alert('待機メンバーが足りません（条件に合うメンバーがいません）');
     
-    // 割当（開始）のタイミングで履歴に追加
     const ids = [match.p1, match.p2, match.p3, match.p4];
     const names = ids.map(id => members.find(m => m.id === id)?.name || '?');
     setMatchHistory(prev => [{
@@ -180,34 +347,33 @@ export default function DoublesMatchupApp() {
   };
 
   const finishMatch = (courtId: number) => {
-    setCourts(prevCourts => {
-      // 終了時はコートを空にするだけ（履歴追加は開始時に移動済み）
-      return prevCourts.map(c => c.id === courtId ? { ...c, match: null } : c);
-    });
+    setCourts(prevCourts => prevCourts.map(c => c.id === courtId ? { ...c, match: null } : c));
   };
 
   const handleBulkAction = () => {
-    // 1. 進行中の試合をすべて終了
     setCourts(prev => prev.map(c => ({ ...c, match: null })));
-
-    // 2. 順次新しい試合を割り当て（履歴追加を含む）
     setTimeout(() => {
       setCourts(prev => {
         let current = [...prev];
+        let tempMembers = JSON.parse(JSON.stringify(members)) as Member[];
         for (let i = 0; i < current.length; i++) {
           if (!current[i].match) {
-            const match = getMatchForCourt(current, members);
+            const match = getMatchForCourt(current, tempMembers);
             if (match) {
               const ids = [match.p1, match.p2, match.p3, match.p4];
               const names = ids.map(id => members.find(m => m.id === id)?.name || '?');
-              
               setMatchHistory(prevH => [{
                 id: Date.now().toString() + current[i].id,
                 timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                 courtId: current[i].id, players: names, playerIds: ids, level: match.level
               }, ...prevH]);
-
               current[i] = { ...current[i], match };
+              const now = Date.now();
+              const updateLocal = (list: Member[]) => list.map(m => {
+                if (!ids.includes(m.id)) return m;
+                return { ...m, playCount: m.playCount + 1, lastPlayedTime: now };
+              });
+              tempMembers = updateLocal(tempMembers);
               applyMatchToMembers(ids);
             }
           }
@@ -215,6 +381,13 @@ export default function DoublesMatchupApp() {
         return current;
       });
     }, 200);
+  };
+
+  const changeZoom = (delta: number) => {
+    setConfig(prev => ({
+      ...prev,
+      zoomLevel: Math.max(0.5, Math.min(2.0, prev.zoomLevel + delta))
+    }));
   };
 
   const getLevelBadge = (l?: Level) => {
@@ -230,11 +403,14 @@ export default function DoublesMatchupApp() {
   };
 
   const getDynamicFontSize = (name: string = '') => {
+    const isAscii = /^[\x20-\x7E]*$/.test(name);
     const len = name.length;
-    if (len <= 2) return 'clamp(1.4rem, 9vw, 3.5rem)';
-    if (len <= 4) return 'clamp(1.1rem, 7vw, 2.8rem)';
-    if (len <= 6) return 'clamp(0.9rem, 5vw, 2rem)';
-    if (len <= 8) return 'clamp(0.8rem, 4.5vw, 1.6rem)';
+    const effectiveLen = isAscii ? len * 0.6 : len;
+
+    if (effectiveLen <= 2) return 'clamp(1.4rem, 9vw, 3.5rem)';
+    if (effectiveLen <= 4) return 'clamp(1.1rem, 7vw, 2.8rem)';
+    if (effectiveLen <= 6) return 'clamp(0.9rem, 5vw, 2rem)';
+    if (effectiveLen <= 8) return 'clamp(0.8rem, 4.5vw, 1.6rem)';
     return 'clamp(0.7rem, 4vw, 1.3rem)';
   };
 
@@ -242,22 +418,34 @@ export default function DoublesMatchupApp() {
     <div className="min-h-screen bg-gray-100 text-gray-900 pb-20 font-sans overflow-x-hidden">
       <header className="bg-blue-800 text-white px-4 py-3 shadow flex justify-between items-center sticky top-0 z-20">
         <h1 className="text-xl font-bold flex items-center gap-2"><Trophy size={20} /> ダブルスメーカー</h1>
-        {activeTab === 'dashboard' && (
-          <button onClick={handleBulkAction} className="bg-orange-500 text-white px-4 py-2 rounded-full text-xs font-bold shadow-md active:scale-95 transition-transform">
-            一括更新
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {activeTab === 'dashboard' && (
+            <div className="flex items-center bg-blue-900/50 rounded-lg p-0.5 mr-2">
+              <button onClick={() => changeZoom(-0.1)} className="p-1.5 hover:bg-blue-800 rounded"><ZoomOut size={16}/></button>
+              <button onClick={() => changeZoom(0.1)} className="p-1.5 hover:bg-blue-800 rounded"><ZoomIn size={16}/></button>
+            </div>
+          )}
+          {activeTab === 'dashboard' && (
+            <button onClick={handleBulkAction} className="bg-orange-500 text-white px-4 py-2 rounded-full text-xs font-bold shadow-md active:scale-95 transition-transform">
+              一括更新
+            </button>
+          )}
+        </div>
       </header>
 
       <main className="p-2 w-full max-w-[1400px] mx-auto">
         {activeTab === 'dashboard' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 landscape:grid-cols-2 lg:grid-cols-2 gap-3">
             {courts.map(court => (
-              <div key={court.id} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col min-h-[160px]">
+              <div 
+                key={court.id} 
+                className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col"
+                style={{ height: `${180 * config.zoomLevel}px` }}
+              >
                 <div className="bg-gray-50 px-4 py-1.5 border-b flex justify-between items-center shrink-0">
                   <span className="font-bold text-xs text-gray-500 uppercase tracking-widest">Court {court.id} {getLevelBadge(court.match?.level)}</span>
                 </div>
-                <div className="flex-1 p-3 flex flex-col justify-center">
+                <div className="flex-1 p-3 flex flex-col justify-center h-full">
                   {court.match ? (
                     <div className="flex items-center gap-2 h-full">
                       <div className="flex-1 grid grid-cols-2 gap-2 h-full">
@@ -278,10 +466,10 @@ export default function DoublesMatchupApp() {
                           </div>
                         </div>
                       </div>
-                      <button onClick={() => finishMatch(court.id)} className="bg-gray-800 text-white px-5 h-full min-h-[80px] rounded-lg font-bold text-sm lg:text-lg shrink-0 flex items-center shadow-inner">終了</button>
+                      <button onClick={() => finishMatch(court.id)} className="bg-gray-800 text-white px-5 h-full rounded-lg font-bold text-sm lg:text-lg shrink-0 flex items-center shadow-inner">終了</button>
                     </div>
                   ) : (
-                    <button onClick={() => generateNextMatch(court.id)} className="w-full min-h-[100px] border-2 border-dashed border-gray-300 text-gray-400 font-bold text-xl rounded-xl flex items-center justify-center gap-3 hover:bg-gray-50 transition-colors">
+                    <button onClick={() => generateNextMatch(court.id)} className="w-full h-full border-2 border-dashed border-gray-300 text-gray-400 font-bold text-xl rounded-xl flex items-center justify-center gap-3 hover:bg-gray-50 transition-colors">
                       <Play size={28} /> 割当
                     </button>
                   )}
@@ -294,30 +482,89 @@ export default function DoublesMatchupApp() {
         {activeTab === 'members' && (
           <div className="space-y-3 max-w-2xl mx-auto">
             <div className="flex justify-between items-center p-2">
-              <h2 className="font-bold text-xl text-gray-700">名簿 ({members.length})</h2>
+              <h2 className="font-bold text-xl text-gray-700">名簿 ({members.filter(m => m.isActive).length}/{members.length})</h2>
               <button onClick={addMember} className="bg-green-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-1 shadow-lg"><Plus size={20} />選手追加</button>
             </div>
-            <div className="bg-white rounded-2xl shadow-sm divide-y overflow-hidden">
+            <div className="bg-white rounded-2xl shadow-sm divide-y overflow-hidden relative">
               {members.map(m => (
                 <div key={m.id} className={`p-4 flex items-center gap-4 ${!m.isActive ? 'bg-gray-50 opacity-40' : ''}`}>
                   <div className="flex-1">
                     <input value={m.name} onChange={e => setMembers(prev => prev.map(x => x.id === m.id ? { ...x, name: e.target.value } : x))} className="w-full font-bold text-xl bg-transparent outline-none focus:text-blue-600" />
-                    <div className="flex items-center gap-4 mt-1">
+                    <div className="flex items-center gap-3 mt-1 flex-wrap">
                       <button 
-                        onClick={() => setMembers(prev => prev.map(x => x.id === m.id ? { ...x, level: toggleLevel(m.level) } : x))}
+                        onClick={() => handleLevelChange(m.id)}
                         className={`text-xs font-bold rounded-md px-3 py-1 text-white transition-colors ${m.level === 'A' ? 'bg-blue-600' : m.level === 'B' ? 'bg-yellow-500' : 'bg-red-500'}`}
                       >
                         レベル{m.level}
                       </button>
-                      <span className="text-xs text-gray-400 font-bold tracking-wider">試合数: {m.playCount}</span>
+                      
+                      <button 
+                        onClick={() => setEditingPairMemberId(m.id)}
+                        className={`flex items-center gap-1 text-xs font-bold px-2 py-1 rounded border ${m.fixedPairMemberId ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'text-gray-400 border-dashed border-gray-300'}`}
+                      >
+                        {m.fixedPairMemberId ? (
+                          <>
+                            <LinkIcon size={12} />
+                            {members.find(x => x.id === m.fixedPairMemberId)?.name}
+                          </>
+                        ) : (
+                          <>
+                            <Unlink size={12} />
+                            ペアなし
+                          </>
+                        )}
+                      </button>
+
+                      <span className="text-xs text-gray-400 font-bold tracking-wider">
+                        試合数: {m.playCount}
+                        {m.imputedPlayCount > 0 && <span className="text-gray-300 ml-1">({m.imputedPlayCount})</span>}
+                      </span>
                     </div>
                   </div>
                   <button onClick={() => setMembers(prev => prev.map(x => x.id === m.id ? { ...x, isActive: !x.isActive } : x))} className={`px-4 py-2 rounded-xl font-bold border-2 transition-all ${m.isActive ? 'border-blue-600 text-blue-600 bg-blue-50' : 'border-gray-200 text-gray-300'}`}>
-                    {m.isActive ? '参加中' : '休み'}
+                    {m.isActive ? '参加' : '休み'}
                   </button>
                   <button onClick={() => {if(confirm(`${m.name}を削除？`)) setMembers(prev => prev.filter(x => x.id !== m.id))}} className="text-gray-200 hover:text-red-500 transition-colors px-2"><Trash2 size={24} /></button>
                 </div>
               ))}
+
+              {editingPairMemberId && (
+                <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setEditingPairMemberId(null)}>
+                  <div className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden" onClick={e => e.stopPropagation()}>
+                    <div className="bg-gray-100 px-4 py-3 flex justify-between items-center border-b">
+                      <h3 className="font-bold text-lg">ペアを選択 (同レベルのみ)</h3>
+                      <button onClick={() => setEditingPairMemberId(null)} className="text-gray-500"><X size={20}/></button>
+                    </div>
+                    <div className="max-h-[60vh] overflow-y-auto p-2">
+                      <button 
+                        onClick={() => updateFixedPair(editingPairMemberId, null)}
+                        className="w-full text-left px-4 py-3 hover:bg-red-50 text-red-600 font-bold border-b border-gray-100 flex items-center gap-2"
+                      >
+                        <Unlink size={16} /> ペアを解消（なし）
+                      </button>
+                      {members
+                        .filter(m => m.id !== editingPairMemberId && m.isActive)
+                        .filter(m => !m.fixedPairMemberId || m.fixedPairMemberId === editingPairMemberId)
+                        .filter(m => m.level === members.find(x => x.id === editingPairMemberId)?.level)
+                        .map(candidate => (
+                          <button
+                            key={candidate.id}
+                            onClick={() => updateFixedPair(editingPairMemberId, candidate.id)}
+                            className={`w-full text-left px-4 py-3 hover:bg-blue-50 font-bold border-b border-gray-100 flex items-center gap-2 ${members.find(x => x.id === editingPairMemberId)?.fixedPairMemberId === candidate.id ? 'bg-blue-50 text-blue-700' : 'text-gray-700'}`}
+                          >
+                            <LinkIcon size={16} className="text-gray-400" />
+                            {candidate.name}
+                            <span className="text-xs text-gray-400 ml-auto font-normal">Level {candidate.level}</span>
+                          </button>
+                        ))}
+                      {members.filter(m => m.id !== editingPairMemberId && m.isActive && (!m.fixedPairMemberId || m.fixedPairMemberId === editingPairMemberId) && m.level === members.find(x => x.id === editingPairMemberId)?.level).length === 0 && (
+                        <div className="px-4 py-3 text-gray-400 text-sm text-center">選択可能なメンバーがいません</div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
             </div>
           </div>
         )}
