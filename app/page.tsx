@@ -326,7 +326,6 @@ export default function DoublesMatchupApp() {
       p1 = p[o[0]]; p2 = p[o[1]]; p3 = p[o[2]]; p4 = p[o[3]];
     }
 
-    // 厳格モードの時だけレベル情報をセットする
     const matchLevel = config.levelStrict ? p1.level : undefined;
     return { p1: p1.id, p2: p2.id, p3: p3.id, p4: p4.id, level: matchLevel };
   };
@@ -392,7 +391,6 @@ export default function DoublesMatchupApp() {
   };
 
   const getLevelBadge = (l?: Level) => {
-    // 厳格モードの設定にかかわらず、データにレベル情報がある場合のみ表示する
     if (!l) return null;
     const c = { A: 'bg-blue-600', B: 'bg-yellow-500', C: 'bg-red-500' };
     return <span className={`ml-2 px-2 py-0.5 rounded text-[10px] text-white ${c[l]}`}>{l}</span>;
@@ -507,7 +505,7 @@ export default function DoublesMatchupApp() {
                         {m.fixedPairMemberId ? (
                           <>
                             <LinkIcon size={12} />
-                            {members.find(x => x.id === m.fixedPairMemberId)?.name}とペア
+                            {members.find(x => x.id === m.fixedPairMemberId)?.name}
                           </>
                         ) : (
                           <>
@@ -532,7 +530,7 @@ export default function DoublesMatchupApp() {
 
               {editingPairMemberId && (
                 <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setEditingPairMemberId(null)}>
-                  <div className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden" onClick={e => e.stopPropagation()}>
+                  <div className="bg-white rounded-xl shadow-xl w-full max-sm overflow-hidden" onClick={e => e.stopPropagation()}>
                     <div className="bg-gray-100 px-4 py-3 flex justify-between items-center border-b">
                       <h3 className="font-bold text-lg">ペアを選択 (同レベルのみ)</h3>
                       <button onClick={() => setEditingPairMemberId(null)} className="text-gray-500"><X size={20}/></button>
