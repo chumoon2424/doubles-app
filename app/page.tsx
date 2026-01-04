@@ -56,7 +56,7 @@ interface MatchRecord {
 interface AppConfig {
   courtCount: number;
   levelStrict: boolean;
-  zoomLevel: number; // カードの高さ倍率
+  zoomLevel: number;
 }
 
 export default function DoublesMatchupApp() {
@@ -73,21 +73,60 @@ export default function DoublesMatchupApp() {
   const [isInitialized, setIsInitialized] = useState(false);
   const [editingPairMemberId, setEditingPairMemberId] = useState<number | null>(null);
 
+  // データ読み込みと移行ロジック
   useEffect(() => {
-    const savedData = localStorage.getItem('doubles-app-data-v14');
-    if (savedData) {
-      const data = JSON.parse(savedData);
+    // 1. 最新バージョンのデータ確認
+    const savedDataV14 = localStorage.getItem('doubles-app-data-v14');
+    
+    if (savedDataV14) {
+      // 最新データがあればそのまま使う
+      const data = JSON.parse(savedDataV14);
       setMembers(data.members || []);
       setCourts(data.courts || []);
       setMatchHistory(data.matchHistory || []);
       setConfig(prev => ({ ...prev, ...(data.config || {}) }));
       setNextMemberId(data.nextMemberId || 1);
     } else {
-      initializeCourts(4);
+      // 2. 最新がない場合、古いデータ(v8)からの移行を試みる
+      const savedDataV8 = localStorage.getItem('doubles-app-data-v8');
+      if (savedDataV8) {
+        try {
+          const oldData = JSON.parse(savedDataV8);
+          
+          // メンバーデータの変換（不足しているプロパティを補完）
+          const migratedMembers = (oldData.members || []).map((m: any) => ({
+            ...m,
+            // 新機能用のプロパティがなければ初期値をセット
+            imputedPlayCount: m.imputedPlayCount || 0,
+            lastPlayedTime: m.lastPlayedTime || 0,
+            fixedPairMemberId: m.fixedPairMemberId || null,
+            matchHistory: m.matchHistory || {}
+          }));
+
+          setMembers(migratedMembers);
+          // コート数設定などは引き継ぐ
+          if (oldData.config) {
+            setConfig(prev => ({ ...prev, courtCount: oldData.config.courtCount || 4, levelStrict: oldData.config.levelStrict || false }));
+          }
+          setNextMemberId(oldData.nextMemberId || 1);
+          
+          // 履歴やコート状況は不整合を防ぐためリセット扱いで空にする（安全策）
+          setCourts(Array.from({ length: oldData.config?.courtCount || 4 }, (_, i) => ({ id: i + 1, match: null })));
+          setMatchHistory([]);
+          
+        } catch (e) {
+          console.error("Migration failed", e);
+          initializeCourts(4);
+        }
+      } else {
+        // 3. データが全くない場合（初回）
+        initializeCourts(4);
+      }
     }
     setIsInitialized(true);
   }, []);
 
+  // データ保存（常に最新キー v14 に保存）
   useEffect(() => {
     if (!isInitialized) return;
     const data = { members, courts, matchHistory, config, nextMemberId };
@@ -118,22 +157,20 @@ export default function DoublesMatchupApp() {
         lastPlayedTime: 0, 
         matchHistory: {} 
       })));
-      setMatchHistory([]); // 履歴もクリア
+      setMatchHistory([]);
     }
   };
 
   const addMember = () => {
     const activeMembers = members.filter(m => m.isActive);
     const avgPlay = activeMembers.length > 0 ? Math.floor(activeMembers.reduce((s, m) => s + m.playCount, 0) / activeMembers.length) : 0;
-    // 新規メンバーは最初から平均値を持った状態（＝みなし回数）とするか、0からか。
-    // 仕様「途中追加はその時点の平均回数分は入っていると仮定」
     const newMember: Member = { 
       id: nextMemberId, 
       name: `${nextMemberId}`, 
       level: 'A', 
       isActive: true, 
       playCount: avgPlay, 
-      imputedPlayCount: avgPlay, // 最初から平均値を持たせる＝みなし
+      imputedPlayCount: avgPlay,
       lastPlayedTime: 0, 
       matchHistory: {},
       fixedPairMemberId: null
@@ -182,11 +219,9 @@ export default function DoublesMatchupApp() {
     });
   };
 
-  // 試合開始時の更新処理（参加者カウントUP ＆ 休憩者の底上げ）
   const applyMatchToMembers = (playerIds: number[]) => {
     const now = Date.now();
     setMembers(prev => {
-      // 1. まず参加者のカウントを更新
       const updatedMembers = prev.map(m => {
         if (!playerIds.includes(m.id)) return m;
         const newH = { ...m.matchHistory };
@@ -194,14 +229,12 @@ export default function DoublesMatchupApp() {
         return { ...m, playCount: m.playCount + 1, lastPlayedTime: now, matchHistory: newH };
       });
 
-      // 2. 「参加中(Active)」メンバーの平均試合数を計算
       const activeMembers = updatedMembers.filter(m => m.isActive);
       if (activeMembers.length === 0) return updatedMembers;
       
       const totalPlays = activeMembers.reduce((sum, m) => sum + m.playCount, 0);
       const avgPlays = Math.floor(totalPlays / activeMembers.length);
 
-      // 3. 「休憩中(Inactive)」メンバーの試合数が平均より低ければ底上げ（みなし加算）
       return updatedMembers.map(m => {
         if (!m.isActive && m.playCount < avgPlays) {
           const diff = avgPlays - m.playCount;
@@ -369,6 +402,7 @@ export default function DoublesMatchupApp() {
   };
 
   const getLevelBadge = (l?: Level) => {
+    if (!config.levelStrict) return null; // 厳格モードOFFなら非表示
     if (!l) return null;
     const c = { A: 'bg-blue-600', B: 'bg-yellow-500', C: 'bg-red-500' };
     return <span className={`ml-2 px-2 py-0.5 rounded text-[10px] text-white ${c[l]}`}>{l}</span>;
@@ -380,11 +414,9 @@ export default function DoublesMatchupApp() {
     return 'A';
   };
 
-  // 半角文字かどうか判定してフォントサイズ補正
   const getDynamicFontSize = (name: string = '') => {
     const isAscii = /^[\x20-\x7E]*$/.test(name);
     const len = name.length;
-    // 半角のみの場合は、文字数を0.6掛けして判定するイメージで緩和
     const effectiveLen = isAscii ? len * 0.6 : len;
 
     if (effectiveLen <= 2) return 'clamp(1.4rem, 9vw, 3.5rem)';
@@ -415,13 +447,12 @@ export default function DoublesMatchupApp() {
 
       <main className="p-2 w-full max-w-[1400px] mx-auto">
         {activeTab === 'dashboard' && (
-          // landscape:grid-cols-2 を追加し、横向きなら必ず2列にする
           <div className="grid grid-cols-1 landscape:grid-cols-2 lg:grid-cols-2 gap-3">
             {courts.map(court => (
               <div 
                 key={court.id} 
                 className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col"
-                style={{ height: `${180 * config.zoomLevel}px` }} // 高さを固定・ズーム対応
+                style={{ height: `${180 * config.zoomLevel}px` }}
               >
                 <div className="bg-gray-50 px-4 py-1.5 border-b flex justify-between items-center shrink-0">
                   <span className="font-bold text-xs text-gray-500 uppercase tracking-widest">Court {court.id} {getLevelBadge(court.match?.level)}</span>
