@@ -86,24 +86,25 @@ export default function DoublesMatchupApp() {
       setConfig(prev => ({ ...prev, ...(data.config || {}) }));
       setNextMemberId(data.nextMemberId || 1);
     } else {
-      // --- 古いデータ形式すべてを検索して引き継ぐロジック ---
+      // 古いバージョン（v14以前、v8含む）のデータを探索
       let legacyData = null;
-      const keys = [
+      const legacyKeys = [
         'doubles-app-data-v14',
         'doubles-app-data-v13',
         'doubles-app-data-v12',
         'doubles-app-data-v11',
         'doubles-app-data-v10',
-        'doubles-app-data', // 初期バージョン
-        'badminton-doubles-manager' // 別名の可能性
+        'doubles-app-data-v9',
+        'doubles-app-data-v8',
+        'doubles-app-data', // 初期のキー
+        'badminton-doubles-manager' // さらに古いキー
       ];
 
-      for (const key of keys) {
+      for (const key of legacyKeys) {
         const found = localStorage.getItem(key);
         if (found) {
           try {
             legacyData = JSON.parse(found);
-            console.log(`Migrating data from ${key}`);
             break;
           } catch (e) {
             continue;
@@ -113,10 +114,12 @@ export default function DoublesMatchupApp() {
 
       if (legacyData) {
         try {
-          const migratedMembers = (legacyData.members || legacyData.players || []).map((m: any) => ({
+          // メンバーデータの抽出（players または members キーから取得）
+          const rawMembers = legacyData.members || legacyData.players || [];
+          const migratedMembers = rawMembers.map((m: any) => ({
             id: m.id,
-            name: m.name || `${m.id}`,
-            level: m.level || 'A',
+            name: m.name || `選手${m.id}`,
+            level: (m.level === 'A' || m.level === 'B' || m.level === 'C') ? m.level : 'A',
             isActive: m.isActive !== undefined ? m.isActive : true,
             playCount: m.playCount || 0,
             imputedPlayCount: m.imputedPlayCount || 0,
@@ -128,6 +131,7 @@ export default function DoublesMatchupApp() {
 
           setMembers(migratedMembers);
           
+          // 設定の移行
           const courtCount = legacyData.config?.courtCount || legacyData.courtCount || 4;
           setConfig(prev => ({ 
             ...prev, 
@@ -135,8 +139,11 @@ export default function DoublesMatchupApp() {
             levelStrict: legacyData.config?.levelStrict || legacyData.levelStrict || false 
           }));
           
-          setNextMemberId(legacyData.nextMemberId || (migratedMembers.length > 0 ? Math.max(...migratedMembers.map((m: any) => m.id)) + 1 : 1));
-          setCourts(Array.from({ length: courtCount }, (_, i) => ({ id: i + 1, match: null })));
+          // 次のID設定
+          const maxId = migratedMembers.length > 0 ? Math.max(...migratedMembers.map((m: any) => m.id)) : 0;
+          setNextMemberId((legacyData.nextMemberId || maxId) + 1);
+          
+          initializeCourts(courtCount);
           setMatchHistory([]);
         } catch (e) {
           console.error("Migration failed", e);
@@ -300,7 +307,6 @@ export default function DoublesMatchupApp() {
     const candidates = currentMembers.filter(m => m.isActive && !playingIds.has(m.id));
     if (candidates.length < 4) return null;
 
-    // 1. ユニット（固定ペアまたは個人）の作成
     type Unit = { type: 'pair', members: Member[], avgPlay: number, lastTime: number } | { type: 'single', members: Member[], avgPlay: number, lastTime: number };
     const units: Unit[] = [];
     const processedIds = new Set<number>();
@@ -328,22 +334,17 @@ export default function DoublesMatchupApp() {
       }
     });
 
-    // 2. 出場優先順位でソート（試合数優先、次に待ち時間、最後に重複回避のための計画的シャッフル）
     const sortedUnits = units.sort((a, b) => {
       if (a.avgPlay !== b.avgPlay) return a.avgPlay - b.avgPlay;
       if (Math.abs(a.lastTime - b.lastTime) > 1000) return a.lastTime - b.lastTime;
-      // 試合数が並んでいる場合、後述のコスト計算のためにランダム性を加味
       return Math.random() - 0.5;
     });
 
-    // 3. 最優先の4人を決定（レベル厳密モード考慮）
     let bestSelection: Member[] = [];
     if (config.levelStrict) {
-      // レベルごとに候補を分ける
       const byLevel = { A: [] as Member[], B: [] as Member[], C: [] as Member[] };
       sortedUnits.forEach(u => u.members.forEach(m => byLevel[m.level].push(m)));
       
-      // 最も試合数が少なく、かつ4人以上揃っているレベルを探す
       const levels: Level[] = ['A', 'B', 'C'];
       for (const l of levels) {
         if (byLevel[l].length >= 4) {
@@ -353,7 +354,6 @@ export default function DoublesMatchupApp() {
       }
     }
 
-    // レベル厳密で決まらなかった場合、またはOFFの場合は通常の先頭4人
     if (bestSelection.length < 4) {
       let currentCount = 0;
       for (const unit of sortedUnits) {
@@ -367,7 +367,6 @@ export default function DoublesMatchupApp() {
 
     if (bestSelection.length < 4) return null;
 
-    // 4. 選ばれた4人の中で「過去の重複」が最小になる組み合わせ（ペア・対戦相手）を決定
     const p = bestSelection;
     const combinations = [
       { p1: p[0], p2: p[1], p3: p[2], p4: p[3] },
@@ -376,7 +375,6 @@ export default function DoublesMatchupApp() {
     ];
 
     const bestComb = combinations.map(c => {
-      // スコアが高いほど「組んだことがある/戦ったことがある」ので避けるべき
       const pairCost = (c.p1.pairHistory[c.p2.id] || 0) + (c.p3.pairHistory[c.p4.id] || 0);
       const matchCost = (c.p1.matchHistory[c.p3.id] || 0) + (c.p1.matchHistory[c.p4.id] || 0) + 
                         (c.p2.matchHistory[c.p3.id] || 0) + (c.p2.matchHistory[c.p4.id] || 0);
@@ -436,7 +434,6 @@ export default function DoublesMatchupApp() {
                 if (!ids.includes(m.id)) return m;
                 const newMatchH = { ...m.matchHistory };
                 const newPairH = { ...m.pairHistory };
-                // 内部シミュレーション用履歴更新
                 let p1=match.p1, p2=match.p2, p3=match.p3, p4=match.p4;
                 let partnerId = 0; let opponents: number[] = [];
                 if (m.id === p1) { partnerId = p2; opponents = [p3, p4]; }
