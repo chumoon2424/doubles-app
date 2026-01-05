@@ -510,48 +510,52 @@ export default function DoublesMatchupApp() {
       <main className="p-2 w-full max-w-[1400px] mx-auto">
         {activeTab === 'dashboard' && (
           <div className="grid grid-cols-1 landscape:grid-cols-2 gap-3">
-            {courts.map(court => (
-              <div 
-                key={court.id} 
-                className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col"
-                style={{ height: `calc((100vw > 100vh ? 40vh : 20vh) * ${config.zoomLevel})` }}
-              >
-                <div className="bg-gray-50 px-4 py-1.5 border-b flex justify-between items-center shrink-0">
-                  <span className="font-bold text-xs text-gray-500 uppercase tracking-widest">Court {court.id} {getLevelBadge(court.match?.level)}</span>
-                </div>
-                <div className="flex-1 p-3 flex flex-col">
-                  {court.match ? (
-                    <div className="flex items-center gap-2 flex-1">
-                      <div className="flex-1 grid grid-cols-2 gap-2 h-full">
-                        <div className="bg-blue-50 rounded-lg flex flex-col justify-center items-center border border-blue-100 px-2 overflow-hidden py-1">
-                          <div className="w-full text-center leading-tight mb-1 font-black text-blue-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p1)?.name) }}>
-                            {members.find(m => m.id === court.match?.p1)?.name}
+            {courts.map(court => {
+              // ★高さ調整の修正: ズーム倍率が即時反映されるようpxベースの計算に固定
+              const baseHeight = 180; 
+              const calculatedHeight = baseHeight * config.zoomLevel;
+
+              return (
+                <div 
+                  key={court.id} 
+                  className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col"
+                  style={{ height: `${calculatedHeight}px`, minHeight: `${calculatedHeight}px` }}
+                >
+                  <div className="bg-gray-50 px-4 py-1.5 border-b flex justify-between items-center shrink-0">
+                    <span className="font-bold text-xs text-gray-500 uppercase tracking-widest">Court {court.id} {getLevelBadge(court.match?.level)}</span>
+                  </div>
+                  <div className="flex-1 p-3 flex flex-col justify-center overflow-hidden">
+                    {court.match ? (
+                      <div className="flex items-center gap-2 h-full overflow-hidden">
+                        <div className="flex-1 grid grid-cols-2 gap-2 h-full">
+                          <div className="bg-blue-50 rounded-lg flex flex-col justify-center items-center border border-blue-100 px-2 overflow-hidden py-1">
+                            <div className="w-full text-center leading-tight mb-1 font-black text-blue-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p1)?.name) }}>
+                              {members.find(m => m.id === court.match?.p1)?.name}
+                            </div>
+                            <div className="w-full text-center leading-tight font-black text-blue-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p2)?.name) }}>
+                              {members.find(m => m.id === court.match?.p2)?.name}
+                            </div>
                           </div>
-                          <div className="w-full text-center leading-tight font-black text-blue-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p2)?.name) }}>
-                            {members.find(m => m.id === court.match?.p2)?.name}
+                          <div className="bg-red-50 rounded-lg flex flex-col justify-center items-center border border-red-100 px-2 overflow-hidden py-1">
+                            <div className="w-full text-center leading-tight mb-1 font-black text-red-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p3)?.name) }}>
+                              {members.find(m => m.id === court.match?.p3)?.name}
+                            </div>
+                            <div className="w-full text-center leading-tight font-black text-red-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p4)?.name) }}>
+                              {members.find(m => m.id === court.match?.p4)?.name}
+                            </div>
                           </div>
                         </div>
-                        <div className="bg-red-50 rounded-lg flex flex-col justify-center items-center border border-red-100 px-2 overflow-hidden py-1">
-                          <div className="w-full text-center leading-tight mb-1 font-black text-red-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p3)?.name) }}>
-                            {members.find(m => m.id === court.match?.p3)?.name}
-                          </div>
-                          <div className="w-full text-center leading-tight font-black text-red-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p4)?.name) }}>
-                            {members.find(m => m.id === court.match?.p4)?.name}
-                          </div>
-                        </div>
+                        <button onClick={() => finishMatch(court.id)} className="bg-gray-800 text-white px-5 h-full rounded-lg font-bold text-sm lg:text-lg shrink-0 flex items-center shadow-inner">終了</button>
                       </div>
-                      <button onClick={() => finishMatch(court.id)} className="bg-gray-800 text-white px-5 h-full rounded-lg font-bold text-sm lg:text-lg shrink-0 flex items-center shadow-inner">終了</button>
-                    </div>
-                  ) : (
-                    <div className="flex-1">
+                    ) : (
                       <button onClick={() => generateNextMatch(court.id)} className="w-full h-full border-2 border-dashed border-gray-300 text-gray-400 font-bold text-xl rounded-xl flex items-center justify-center gap-3 hover:bg-gray-50 transition-colors">
                         <Play size={28} /> 割当
                       </button>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
