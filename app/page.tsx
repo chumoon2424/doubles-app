@@ -509,7 +509,8 @@ export default function DoublesMatchupApp() {
 
       <main className="p-2 w-full max-w-[1400px] mx-auto">
         {activeTab === 'dashboard' && (
-          <div className="grid grid-cols-1 landscape:grid-cols-2 lg:grid-cols-2 gap-3">
+          /* 修正箇所: 横長画面(landscape)で2列、それ以外（縦長）で1列を指定 */
+          <div className="grid grid-cols-1 landscape:grid-cols-2 gap-3">
             {courts.map(court => (
               <div 
                 key={court.id} 
