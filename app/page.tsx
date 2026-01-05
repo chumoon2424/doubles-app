@@ -519,10 +519,10 @@ export default function DoublesMatchupApp() {
                 <div className="bg-gray-50 px-4 py-1.5 border-b flex justify-between items-center shrink-0">
                   <span className="font-bold text-xs text-gray-500 uppercase tracking-widest">Court {court.id} {getLevelBadge(court.match?.level)}</span>
                 </div>
-                {/* 修正：min-h-0 を付与し、高さを 100% 維持するコンテナ */}
-                <div className="flex-1 flex flex-col min-h-0 relative">
+                {/* 修正：flex-1 で残りの高さを全て使い切り、中身も flex-col で 100% 埋める */}
+                <div className="flex-1 flex flex-col p-3 overflow-hidden">
                   {court.match ? (
-                    <div className="absolute inset-0 p-3 flex items-center gap-2">
+                    <div className="flex-1 flex items-center gap-2 overflow-hidden">
                       <div className="flex-1 grid grid-cols-2 gap-2 h-full">
                         <div className="bg-blue-50 rounded-lg flex flex-col justify-center items-center border border-blue-100 px-2 overflow-hidden py-1">
                           <div className="w-full text-center leading-tight mb-1 font-black text-blue-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p1)?.name) }}>
@@ -544,8 +544,8 @@ export default function DoublesMatchupApp() {
                       <button onClick={() => finishMatch(court.id)} className="bg-gray-800 text-white px-5 h-full rounded-lg font-bold text-sm lg:text-lg shrink-0 flex items-center shadow-inner">終了</button>
                     </div>
                   ) : (
-                    <div className="absolute inset-0 p-3">
-                      <button onClick={() => generateNextMatch(court.id)} className="w-full h-full border-2 border-dashed border-gray-300 text-gray-400 font-bold text-xl rounded-xl flex items-center justify-center gap-3 hover:bg-gray-50 transition-all">
+                    <div className="flex-1 flex flex-col">
+                      <button onClick={() => generateNextMatch(court.id)} className="flex-1 w-full h-full border-2 border-dashed border-gray-300 text-gray-400 font-bold text-xl rounded-xl flex items-center justify-center gap-3 hover:bg-gray-50 transition-all active:scale-[0.98]">
                         <Play size={28} /> 割当
                       </button>
                     </div>
