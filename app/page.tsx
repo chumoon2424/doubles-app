@@ -86,27 +86,58 @@ export default function DoublesMatchupApp() {
       setConfig(prev => ({ ...prev, ...(data.config || {}) }));
       setNextMemberId(data.nextMemberId || 1);
     } else {
-      const savedDataV14 = localStorage.getItem('doubles-app-data-v14');
-      if (savedDataV14) {
+      // --- 古いデータ形式すべてを検索して引き継ぐロジック ---
+      let legacyData = null;
+      const keys = [
+        'doubles-app-data-v14',
+        'doubles-app-data-v13',
+        'doubles-app-data-v12',
+        'doubles-app-data-v11',
+        'doubles-app-data-v10',
+        'doubles-app-data', // 初期バージョン
+        'badminton-doubles-manager' // 別名の可能性
+      ];
+
+      for (const key of keys) {
+        const found = localStorage.getItem(key);
+        if (found) {
+          try {
+            legacyData = JSON.parse(found);
+            console.log(`Migrating data from ${key}`);
+            break;
+          } catch (e) {
+            continue;
+          }
+        }
+      }
+
+      if (legacyData) {
         try {
-          const oldData = JSON.parse(savedDataV14);
-          const migratedMembers = (oldData.members || []).map((m: any) => ({
-            ...m,
-            pairHistory: m.pairHistory || {},
+          const migratedMembers = (legacyData.members || legacyData.players || []).map((m: any) => ({
+            id: m.id,
+            name: m.name || `${m.id}`,
+            level: m.level || 'A',
+            isActive: m.isActive !== undefined ? m.isActive : true,
+            playCount: m.playCount || 0,
             imputedPlayCount: m.imputedPlayCount || 0,
             lastPlayedTime: m.lastPlayedTime || 0,
-            fixedPairMemberId: m.fixedPairMemberId || null,
-            matchHistory: m.matchHistory || {}
+            matchHistory: m.matchHistory || {},
+            pairHistory: m.pairHistory || {},
+            fixedPairMemberId: m.fixedPairMemberId || null
           }));
 
           setMembers(migratedMembers);
-          if (oldData.config) {
-            setConfig(prev => ({ ...prev, courtCount: oldData.config.courtCount || 4, levelStrict: oldData.config.levelStrict || false }));
-          }
-          setNextMemberId(oldData.nextMemberId || 1);
-          setCourts(Array.from({ length: oldData.config?.courtCount || 4 }, (_, i) => ({ id: i + 1, match: null })));
-          setMatchHistory([]);
           
+          const courtCount = legacyData.config?.courtCount || legacyData.courtCount || 4;
+          setConfig(prev => ({ 
+            ...prev, 
+            courtCount: courtCount, 
+            levelStrict: legacyData.config?.levelStrict || legacyData.levelStrict || false 
+          }));
+          
+          setNextMemberId(legacyData.nextMemberId || (migratedMembers.length > 0 ? Math.max(...migratedMembers.map((m: any) => m.id)) + 1 : 1));
+          setCourts(Array.from({ length: courtCount }, (_, i) => ({ id: i + 1, match: null })));
+          setMatchHistory([]);
         } catch (e) {
           console.error("Migration failed", e);
           initializeCourts(4);
