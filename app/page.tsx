@@ -86,7 +86,6 @@ export default function DoublesMatchupApp() {
       setConfig(prev => ({ ...prev, ...(data.config || {}) }));
       setNextMemberId(data.nextMemberId || 1);
     } else {
-      // 古いバージョン（v14以前、v8含む）のデータを探索
       let legacyData = null;
       const legacyKeys = [
         'doubles-app-data-v14',
@@ -96,8 +95,8 @@ export default function DoublesMatchupApp() {
         'doubles-app-data-v10',
         'doubles-app-data-v9',
         'doubles-app-data-v8',
-        'doubles-app-data', // 初期のキー
-        'badminton-doubles-manager' // さらに古いキー
+        'doubles-app-data',
+        'badminton-doubles-manager'
       ];
 
       for (const key of legacyKeys) {
@@ -114,7 +113,6 @@ export default function DoublesMatchupApp() {
 
       if (legacyData) {
         try {
-          // メンバーデータの抽出（players または members キーから取得）
           const rawMembers = legacyData.members || legacyData.players || [];
           const migratedMembers = rawMembers.map((m: any) => ({
             id: m.id,
@@ -131,7 +129,6 @@ export default function DoublesMatchupApp() {
 
           setMembers(migratedMembers);
           
-          // 設定の移行
           const courtCount = legacyData.config?.courtCount || legacyData.courtCount || 4;
           setConfig(prev => ({ 
             ...prev, 
@@ -139,7 +136,6 @@ export default function DoublesMatchupApp() {
             levelStrict: legacyData.config?.levelStrict || legacyData.levelStrict || false 
           }));
           
-          // 次のID設定
           const maxId = migratedMembers.length > 0 ? Math.max(...migratedMembers.map((m: any) => m.id)) : 0;
           setNextMemberId((legacyData.nextMemberId || maxId) + 1);
           
@@ -345,8 +341,15 @@ export default function DoublesMatchupApp() {
       const byLevel = { A: [] as Member[], B: [] as Member[], C: [] as Member[] };
       sortedUnits.forEach(u => u.members.forEach(m => byLevel[m.level].push(m)));
       
-      const levels: Level[] = ['A', 'B', 'C'];
-      for (const l of levels) {
+      const priorityLevels: Level[] = [];
+      for (const unit of sortedUnits) {
+        const level = unit.members[0].level;
+        if (!priorityLevels.includes(level)) {
+          priorityLevels.push(level);
+        }
+      }
+
+      for (const l of priorityLevels) {
         if (byLevel[l].length >= 4) {
           bestSelection = byLevel[l].slice(0, 4);
           break;
@@ -625,7 +628,6 @@ export default function DoublesMatchupApp() {
                           >
                             <LinkIcon size={16} className="text-gray-400" />
                             {candidate.name}
-                            <span className="text-xs text-gray-400 ml-auto font-normal">Level {candidate.level}</span>
                           </button>
                         ))}
                       {members.filter(m => m.id !== editingPairMemberId && m.isActive && (!m.fixedPairMemberId || m.fixedPairMemberId === editingPairMemberId) && m.level === members.find(x => x.id === editingPairMemberId)?.level).length === 0 && (
