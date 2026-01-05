@@ -519,8 +519,7 @@ export default function DoublesMatchupApp() {
                 <div className="bg-gray-50 px-4 py-1.5 border-b flex justify-between items-center shrink-0">
                   <span className="font-bold text-xs text-gray-500 uppercase tracking-widest">Court {court.id} {getLevelBadge(court.match?.level)}</span>
                 </div>
-                {/* 修正：flex-1 h-full を付与して中身が常に親の100%になるよう確保 */}
-                <div className="flex-1 p-3 flex flex-col h-full overflow-hidden">
+                <div className="flex-1 p-3 flex flex-col min-h-0">
                   {court.match ? (
                     <div className="flex items-center gap-2 h-full">
                       <div className="flex-1 grid grid-cols-2 gap-2 h-full">
@@ -544,10 +543,11 @@ export default function DoublesMatchupApp() {
                       <button onClick={() => finishMatch(court.id)} className="bg-gray-800 text-white px-5 h-full rounded-lg font-bold text-sm lg:text-lg shrink-0 flex items-center shadow-inner">終了</button>
                     </div>
                   ) : (
-                    /* 修正：ボタンを h-full にすることで、割当前でもカードいっぱいに表示し高さを維持 */
-                    <button onClick={() => generateNextMatch(court.id)} className="w-full h-full border-2 border-dashed border-gray-300 text-gray-400 font-bold text-xl rounded-xl flex items-center justify-center gap-3 hover:bg-gray-50 transition-colors">
-                      <Play size={28} /> 割当
-                    </button>
+                    <div className="h-full">
+                      <button onClick={() => generateNextMatch(court.id)} className="w-full h-full border-2 border-dashed border-gray-300 text-gray-400 font-bold text-xl rounded-xl flex items-center justify-center gap-3 hover:bg-gray-50 transition-colors">
+                        <Play size={28} /> 割当
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>
