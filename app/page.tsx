@@ -516,17 +516,17 @@ export default function DoublesMatchupApp() {
                 className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"
                 style={{ 
                   height: `calc((100vw > 100vh ? 40vh : 22vh) * ${config.zoomLevel})`,
-                  display: 'flex',
-                  flexDirection: 'column'
+                  display: 'grid',
+                  gridTemplateRows: '32px 1fr' // ヘッダー固定 + 残り全部
                 }}
               >
-                {/* ヘッダー部分は高さを固定(shrink-0) */}
-                <div className="bg-gray-50 px-4 py-1.5 border-b flex justify-between items-center shrink-0 h-[32px]">
+                {/* 1行目: ヘッダー */}
+                <div className="bg-gray-50 px-4 flex justify-between items-center border-b">
                   <span className="font-bold text-xs text-gray-500 uppercase tracking-widest">Court {court.id} {getLevelBadge(court.match?.level)}</span>
                 </div>
 
-                {/* メインエリア：ここを h-full にして親の残りを強制的に埋める */}
-                <div className="h-full flex flex-col p-3 overflow-hidden">
+                {/* 2行目: コンテンツ（ここが絶対に潰れない Grid セル） */}
+                <div className="p-3 overflow-hidden">
                   {court.match ? (
                     <div className="h-full flex items-center gap-2">
                       <div className="flex-1 grid grid-cols-2 gap-2 h-full">
