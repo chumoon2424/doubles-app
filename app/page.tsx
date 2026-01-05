@@ -509,13 +509,13 @@ export default function DoublesMatchupApp() {
 
       <main className="p-2 w-full max-w-[1400px] mx-auto">
         {activeTab === 'dashboard' && (
-          /* 修正箇所: 横長画面(landscape)で2列、それ以外（縦長）で1列を指定 */
           <div className="grid grid-cols-1 landscape:grid-cols-2 gap-3">
             {courts.map(court => (
               <div 
                 key={court.id} 
                 className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col"
-                style={{ height: `${180 * config.zoomLevel}px` }}
+                /* 修正箇所: 1列(20vh)・2列(40vh)いずれも画面内に概ね4コート分収まる高さをデフォルトに設定 */
+                style={{ height: `calc((100vw > 100vh ? 40vh : 20vh) * ${config.zoomLevel})` }}
               >
                 <div className="bg-gray-50 px-4 py-1.5 border-b flex justify-between items-center shrink-0">
                   <span className="font-bold text-xs text-gray-500 uppercase tracking-widest">Court {court.id} {getLevelBadge(court.match?.level)}</span>
