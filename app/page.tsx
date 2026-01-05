@@ -390,7 +390,7 @@ export default function DoublesMatchupApp() {
     }).sort((a, b) => a.totalCost - b.totalCost || Math.random() - 0.5)[0];
 
     const matchLevel = config.levelStrict ? bestComb.p1.level : undefined;
-    return { p1: bestComb.p1.id, p2: bestComb.p2.id, p3: bestComb.p3.id, p4: bestComb.p4.id, level: matchLevel };
+    return { p1: bestComb.p1.id, p2: bestComb.p2.id, p3: bestComb.p4.id, p4: bestComb.p4.id, level: matchLevel };
   };
 
   const generateNextMatch = (courtId: number) => {
@@ -543,11 +543,9 @@ export default function DoublesMatchupApp() {
                       <button onClick={() => finishMatch(court.id)} className="bg-gray-800 text-white px-5 h-full rounded-lg font-bold text-sm lg:text-lg shrink-0 flex items-center shadow-inner">終了</button>
                     </div>
                   ) : (
-                    <div className="flex-1 h-full">
-                      <button onClick={() => generateNextMatch(court.id)} className="w-full h-full border-2 border-dashed border-gray-300 text-gray-400 font-bold text-xl rounded-xl flex items-center justify-center gap-3 hover:bg-gray-50 transition-colors">
-                        <Play size={28} /> 割当
-                      </button>
-                    </div>
+                    <button onClick={() => generateNextMatch(court.id)} className="flex-1 w-full border-2 border-dashed border-gray-300 text-gray-400 font-bold text-xl rounded-xl flex items-center justify-center gap-3 hover:bg-gray-50 transition-colors">
+                      <Play size={28} /> 割当
+                    </button>
                   )}
                 </div>
               </div>
