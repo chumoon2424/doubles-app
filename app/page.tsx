@@ -16,7 +16,9 @@ import {
   Unlink,
   X,
   ZoomIn,
-  ZoomOut
+  ZoomOut,
+  Type,
+  CheckCircle2
 } from 'lucide-react';
 
 type Level = 'A' | 'B' | 'C';
@@ -27,10 +29,10 @@ interface Member {
   level: Level;
   isActive: boolean;
   playCount: number;
-  imputedPlayCount: number; // みなし試合数
+  imputedPlayCount: number;
   lastPlayedTime: number;
-  matchHistory: Record<number, number>; // 対戦した回数
-  pairHistory: Record<number, number>;  // ペアを組んだ回数
+  matchHistory: Record<number, number>;
+  pairHistory: Record<number, number>;
   fixedPairMemberId: number | null;
 }
 
@@ -57,7 +59,8 @@ interface MatchRecord {
 interface AppConfig {
   courtCount: number;
   levelStrict: boolean;
-  zoomLevel: number;
+  zoomLevel: number; // カードの高さ倍率
+  fontScale: number; // 文字サイズ倍率
 }
 
 export default function DoublesMatchupApp() {
@@ -69,6 +72,7 @@ export default function DoublesMatchupApp() {
     courtCount: 4,
     levelStrict: false,
     zoomLevel: 1.0,
+    fontScale: 1.0,
   });
   const [nextMemberId, setNextMemberId] = useState(1);
   const [isInitialized, setIsInitialized] = useState(false);
@@ -86,6 +90,7 @@ export default function DoublesMatchupApp() {
       setConfig(prev => ({ ...prev, ...(data.config || {}) }));
       setNextMemberId(data.nextMemberId || 1);
     } else {
+      // 過去データからの移行処理などは省略せず実装（前回のロジック維持）
       const savedDataV14 = localStorage.getItem('doubles-app-data-v14');
       if (savedDataV14) {
         try {
@@ -98,7 +103,6 @@ export default function DoublesMatchupApp() {
             fixedPairMemberId: m.fixedPairMemberId || null,
             matchHistory: m.matchHistory || {}
           }));
-
           setMembers(migratedMembers);
           if (oldData.config) {
             setConfig(prev => ({ ...prev, courtCount: oldData.config.courtCount || 4, levelStrict: oldData.config.levelStrict || false }));
@@ -106,9 +110,7 @@ export default function DoublesMatchupApp() {
           setNextMemberId(oldData.nextMemberId || 1);
           setCourts(Array.from({ length: oldData.config?.courtCount || 4 }, (_, i) => ({ id: i + 1, match: null })));
           setMatchHistory([]);
-          
         } catch (e) {
-          console.error("Migration failed", e);
           initializeCourts(4);
         }
       } else {
@@ -177,12 +179,10 @@ export default function DoublesMatchupApp() {
       let newMembers = [...prev];
       const target = newMembers.find(m => m.id === memberId);
       if (!target) return prev;
-
       if (target.fixedPairMemberId) {
         const oldPartner = newMembers.find(m => m.id === target.fixedPairMemberId);
         if (oldPartner) oldPartner.fixedPairMemberId = null;
       }
-
       if (partnerId) {
         const newPartner = newMembers.find(m => m.id === partnerId);
         if (newPartner && newPartner.fixedPairMemberId) {
@@ -191,7 +191,6 @@ export default function DoublesMatchupApp() {
         }
         if (newPartner) newPartner.fixedPairMemberId = memberId;
       }
-
       target.fixedPairMemberId = partnerId;
       return newMembers;
     });
@@ -219,43 +218,27 @@ export default function DoublesMatchupApp() {
     setMembers(prev => {
       const updatedMembers = prev.map(m => {
         if (!playerIds.includes(m.id)) return m;
-        
         const newMatchH = { ...m.matchHistory };
         const newPairH = { ...m.pairHistory };
-        
-        let partnerId = 0;
-        let opponents: number[] = [];
+        let partnerId = 0; let opponents: number[] = [];
         if (m.id === p1) { partnerId = p2; opponents = [p3, p4]; }
         else if (m.id === p2) { partnerId = p1; opponents = [p3, p4]; }
         else if (m.id === p3) { partnerId = p4; opponents = [p1, p2]; }
         else if (m.id === p4) { partnerId = p3; opponents = [p1, p2]; }
-
         newPairH[partnerId] = (newPairH[partnerId] || 0) + 1;
         opponents.forEach(oid => { newMatchH[oid] = (newMatchH[oid] || 0) + 1; });
-
-        return { 
-          ...m, 
-          playCount: m.playCount + 1, 
-          lastPlayedTime: now, 
-          matchHistory: newMatchH,
-          pairHistory: newPairH
-        };
+        return { ...m, playCount: m.playCount + 1, lastPlayedTime: now, matchHistory: newMatchH, pairHistory: newPairH };
       });
 
       const activeMembers = updatedMembers.filter(m => m.isActive);
       if (activeMembers.length === 0) return updatedMembers;
-      
       const totalPlays = activeMembers.reduce((sum, m) => sum + m.playCount, 0);
       const avgPlays = Math.floor(totalPlays / activeMembers.length);
 
       return updatedMembers.map(m => {
         if (!m.isActive && m.playCount < avgPlays) {
           const diff = avgPlays - m.playCount;
-          return {
-            ...m,
-            playCount: avgPlays,
-            imputedPlayCount: m.imputedPlayCount + diff
-          };
+          return { ...m, playCount: avgPlays, imputedPlayCount: m.imputedPlayCount + diff };
         }
         return m;
       });
@@ -269,7 +252,6 @@ export default function DoublesMatchupApp() {
     const candidates = currentMembers.filter(m => m.isActive && !playingIds.has(m.id));
     if (candidates.length < 4) return null;
 
-    // 1. ユニット（固定ペアまたは個人）の作成
     type Unit = { type: 'pair', members: Member[], avgPlay: number, lastTime: number } | { type: 'single', members: Member[], avgPlay: number, lastTime: number };
     const units: Unit[] = [];
     const processedIds = new Set<number>();
@@ -297,47 +279,37 @@ export default function DoublesMatchupApp() {
       }
     });
 
-    // 2. 出場優先順位でソート（試合数優先、次に待ち時間、最後に重複回避のための計画的シャッフル）
     const sortedUnits = units.sort((a, b) => {
       if (a.avgPlay !== b.avgPlay) return a.avgPlay - b.avgPlay;
       if (Math.abs(a.lastTime - b.lastTime) > 1000) return a.lastTime - b.lastTime;
-      // 試合数が並んでいる場合、後述のコスト計算のためにランダム性を加味
       return Math.random() - 0.5;
     });
 
-    // 3. 最優先の4人を決定（レベル厳密モード考慮）
-    let bestSelection: Member[] = [];
+    let selectedMembers: Member[] = [];
     if (config.levelStrict) {
-      // レベルごとに候補を分ける
       const byLevel = { A: [] as Member[], B: [] as Member[], C: [] as Member[] };
       sortedUnits.forEach(u => u.members.forEach(m => byLevel[m.level].push(m)));
-      
-      // 最も試合数が少なく、かつ4人以上揃っているレベルを探す
       const levels: Level[] = ['A', 'B', 'C'];
       for (const l of levels) {
         if (byLevel[l].length >= 4) {
-          bestSelection = byLevel[l].slice(0, 4);
+          selectedMembers = byLevel[l].slice(0, 4);
           break;
         }
       }
     }
-
-    // レベル厳密で決まらなかった場合、またはOFFの場合は通常の先頭4人
-    if (bestSelection.length < 4) {
+    if (selectedMembers.length < 4) {
       let currentCount = 0;
       for (const unit of sortedUnits) {
         if (currentCount + unit.members.length <= 4) {
-          bestSelection = [...bestSelection, ...unit.members];
+          selectedMembers = [...selectedMembers, ...unit.members];
           currentCount += unit.members.length;
         }
         if (currentCount === 4) break;
       }
     }
+    if (selectedMembers.length < 4) return null;
 
-    if (bestSelection.length < 4) return null;
-
-    // 4. 選ばれた4人の中で「過去の重複」が最小になる組み合わせ（ペア・対戦相手）を決定
-    const p = bestSelection;
+    const p = selectedMembers;
     const combinations = [
       { p1: p[0], p2: p[1], p3: p[2], p4: p[3] },
       { p1: p[0], p2: p[2], p3: p[1], p4: p[3] },
@@ -345,15 +317,12 @@ export default function DoublesMatchupApp() {
     ];
 
     const bestComb = combinations.map(c => {
-      // スコアが高いほど「組んだことがある/戦ったことがある」ので避けるべき
       const pairCost = (c.p1.pairHistory[c.p2.id] || 0) + (c.p3.pairHistory[c.p4.id] || 0);
       const matchCost = (c.p1.matchHistory[c.p3.id] || 0) + (c.p1.matchHistory[c.p4.id] || 0) + 
                         (c.p2.matchHistory[c.p3.id] || 0) + (c.p2.matchHistory[c.p4.id] || 0);
-      
       let fixedBonus = 0;
       if (c.p1.fixedPairMemberId === c.p2.id) fixedBonus += 1000;
       if (c.p3.fixedPairMemberId === c.p4.id) fixedBonus += 1000;
-
       return { ...c, totalCost: (pairCost * 5 + matchCost) - fixedBonus };
     }).sort((a, b) => a.totalCost - b.totalCost || Math.random() - 0.5)[0];
 
@@ -363,7 +332,7 @@ export default function DoublesMatchupApp() {
 
   const generateNextMatch = (courtId: number) => {
     const match = getMatchForCourt(courts, members);
-    if (!match) return alert('待機メンバーが足りません（条件に合うメンバーがいません）');
+    if (!match) return alert('待機メンバーが足りません');
     
     const ids = [match.p1, match.p2, match.p3, match.p4];
     const names = ids.map(id => members.find(m => m.id === id)?.name || '?');
@@ -399,13 +368,11 @@ export default function DoublesMatchupApp() {
                 courtId: current[i].id, players: names, playerIds: ids, level: match.level
               }, ...prevH]);
               current[i] = { ...current[i], match };
-              
               const now = Date.now();
               tempMembers = tempMembers.map(m => {
                 if (!ids.includes(m.id)) return m;
                 const newMatchH = { ...m.matchHistory };
                 const newPairH = { ...m.pairHistory };
-                // 内部シミュレーション用履歴更新
                 let p1=match.p1, p2=match.p2, p3=match.p3, p4=match.p4;
                 let partnerId = 0; let opponents: number[] = [];
                 if (m.id === p1) { partnerId = p2; opponents = [p3, p4]; }
@@ -414,7 +381,6 @@ export default function DoublesMatchupApp() {
                 else if (m.id === p4) { partnerId = p3; opponents = [p1, p2]; }
                 newPairH[partnerId] = (newPairH[partnerId] || 0) + 1;
                 opponents.forEach(oid => { newMatchH[oid] = (newMatchH[oid] || 0) + 1; });
-
                 return { ...m, playCount: m.playCount + 1, lastPlayedTime: now, matchHistory: newMatchH, pairHistory: newPairH };
               });
               applyMatchToMembers(match.p1, match.p2, match.p3, match.p4);
@@ -433,6 +399,13 @@ export default function DoublesMatchupApp() {
     }));
   };
 
+  const changeFontScale = (delta: number) => {
+    setConfig(prev => ({
+      ...prev,
+      fontScale: Math.max(0.5, Math.min(2.0, (prev.fontScale || 1.0) + delta))
+    }));
+  };
+
   const getLevelBadge = (l?: Level) => {
     if (!l) return null;
     const c = { A: 'bg-blue-600', B: 'bg-yellow-500', C: 'bg-red-500' };
@@ -445,75 +418,136 @@ export default function DoublesMatchupApp() {
     return 'A';
   };
 
-  const getDynamicFontSize = (name: string = '') => {
-    const isAscii = /^[\x20-\x7E]*$/.test(name);
-    const len = name.length;
-    const effectiveLen = isAscii ? len * 0.6 : len;
+  // 全員の名前の長さを元に、統一されたベースフォントサイズを計算
+  const calculateUnifiedBaseFontSize = () => {
+    const activeNames = members.filter(m => m.isActive).map(m => m.name);
+    if (activeNames.length === 0) return '2rem'; // デフォルト
 
-    if (effectiveLen <= 2) return 'clamp(1.4rem, 9vw, 3.5rem)';
-    if (effectiveLen <= 4) return 'clamp(1.1rem, 7vw, 2.8rem)';
-    if (effectiveLen <= 6) return 'clamp(0.9rem, 5vw, 2rem)';
-    if (effectiveLen <= 8) return 'clamp(0.8rem, 4.5vw, 1.6rem)';
-    return 'clamp(0.7rem, 4vw, 1.3rem)';
+    // 最も長い名前の「有効文字数」を計算（半角は0.6文字換算）
+    const maxLen = Math.max(...activeNames.map(name => {
+      const len = name.length;
+      const isAscii = /^[\x20-\x7E]*$/.test(name);
+      return isAscii ? len * 0.6 : len;
+    }));
+
+    // 基準サイズからの減衰計算
+    // 短い(2文字)なら3rem, 長い(8文字)なら1remくらいになるような計算式
+    // 基準: 4文字で2.0remくらい
+    let base = 2.5;
+    if (maxLen > 2) base = 2.5 * (3.5 / (maxLen + 1.5));
+    
+    // 最小・最大リミット
+    base = Math.max(0.8, Math.min(3.5, base));
+    
+    return `${base}rem`;
   };
+
+  const unifiedBaseSize = calculateUnifiedBaseFontSize();
 
   return (
     <div className="min-h-screen bg-gray-100 text-gray-900 pb-20 font-sans overflow-x-hidden">
-      <header className="bg-blue-800 text-white px-4 py-3 shadow flex justify-between items-center sticky top-0 z-20">
-        <h1 className="text-xl font-bold flex items-center gap-2"><Trophy size={20} /> ダブルスメーカー</h1>
+      <header className="bg-blue-800 text-white px-4 py-2 shadow flex justify-between items-center sticky top-0 z-20">
+        <h1 className="text-lg font-bold flex items-center gap-2"><Trophy size={18} /> ダブルスメーカー</h1>
         <div className="flex items-center gap-2">
           {activeTab === 'dashboard' && (
-            <div className="flex items-center bg-blue-900/50 rounded-lg p-0.5 mr-2">
-              <button onClick={() => changeZoom(-0.1)} className="p-1.5 hover:bg-blue-800 rounded"><ZoomOut size={16}/></button>
-              <button onClick={() => changeZoom(0.1)} className="p-1.5 hover:bg-blue-800 rounded"><ZoomIn size={16}/></button>
-            </div>
-          )}
-          {activeTab === 'dashboard' && (
-            <button onClick={handleBulkAction} className="bg-orange-500 text-white px-4 py-2 rounded-full text-xs font-bold shadow-md active:scale-95 transition-transform">
-              一括更新
-            </button>
+            <>
+              {/* フォント調整 */}
+              <div className="flex items-center bg-blue-900/50 rounded-lg p-0.5">
+                <Type size={14} className="mx-1 opacity-70"/>
+                <button onClick={() => changeFontScale(-0.1)} className="w-7 h-7 flex items-center justify-center hover:bg-blue-700 rounded font-bold">-</button>
+                <button onClick={() => changeFontScale(0.1)} className="w-7 h-7 flex items-center justify-center hover:bg-blue-700 rounded font-bold">+</button>
+              </div>
+              {/* 高さ調整 */}
+              <div className="flex items-center bg-blue-900/50 rounded-lg p-0.5">
+                <button onClick={() => changeZoom(-0.1)} className="p-1.5 hover:bg-blue-700 rounded"><ZoomOut size={16}/></button>
+                <button onClick={() => changeZoom(0.1)} className="p-1.5 hover:bg-blue-700 rounded"><ZoomIn size={16}/></button>
+              </div>
+              <button onClick={handleBulkAction} className="bg-orange-500 text-white px-3 py-1.5 rounded-full text-xs font-bold shadow-md active:scale-95 transition-transform ml-1">
+                一括更新
+              </button>
+            </>
           )}
         </div>
       </header>
 
       <main className="p-2 w-full max-w-[1400px] mx-auto">
         {activeTab === 'dashboard' && (
-          <div className="grid grid-cols-1 landscape:grid-cols-2 lg:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 landscape:grid-cols-2 lg:grid-cols-2 gap-2">
             {courts.map(court => (
               <div 
                 key={court.id} 
                 className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col"
-                style={{ height: `${180 * config.zoomLevel}px` }}
+                style={{ height: `${200 * config.zoomLevel}px` }}
               >
-                <div className="bg-gray-50 px-4 py-1.5 border-b flex justify-between items-center shrink-0">
-                  <span className="font-bold text-xs text-gray-500 uppercase tracking-widest">Court {court.id} {getLevelBadge(court.match?.level)}</span>
+                {/* ヘッダー: コート番号と終了ボタン */}
+                <div className="bg-gray-100 px-3 py-1 border-b flex justify-between items-center h-8 shrink-0">
+                  <span className="font-bold text-sm text-gray-600 uppercase tracking-widest">
+                    Court {court.id} {getLevelBadge(court.match?.level)}
+                  </span>
+                  {court.match && (
+                    <button 
+                      onClick={() => finishMatch(court.id)} 
+                      className="bg-gray-700 hover:bg-gray-600 text-white px-3 py-0.5 rounded text-xs font-bold flex items-center gap-1 transition-colors"
+                    >
+                      <CheckCircle2 size={12} /> 終了
+                    </button>
+                  )}
                 </div>
-                <div className="flex-1 p-3 flex flex-col justify-center h-full">
+
+                <div className="flex-1 relative">
                   {court.match ? (
-                    <div className="flex items-center gap-2 h-full">
-                      <div className="flex-1 grid grid-cols-2 gap-2 h-full">
-                        <div className="bg-blue-50 rounded-lg flex flex-col justify-center items-center border border-blue-100 px-2 overflow-hidden py-1">
-                          <div className="w-full text-center leading-tight mb-1 font-black text-blue-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p1)?.name) }}>
-                            {members.find(m => m.id === court.match?.p1)?.name}
-                          </div>
-                          <div className="w-full text-center leading-tight font-black text-blue-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p2)?.name) }}>
-                            {members.find(m => m.id === court.match?.p2)?.name}
-                          </div>
-                        </div>
-                        <div className="bg-red-50 rounded-lg flex flex-col justify-center items-center border border-red-100 px-2 overflow-hidden py-1">
-                          <div className="w-full text-center leading-tight mb-1 font-black text-red-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p3)?.name) }}>
-                            {members.find(m => m.id === court.match?.p3)?.name}
-                          </div>
-                          <div className="w-full text-center leading-tight font-black text-red-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p4)?.name) }}>
-                            {members.find(m => m.id === court.match?.p4)?.name}
-                          </div>
+                    // 試合中: 4分割グリッド
+                    <div className="grid grid-rows-2 grid-cols-2 h-full w-full">
+                      {/* Player 1 (左上) */}
+                      <div className="flex items-center justify-center p-1 border-r border-b border-gray-100 bg-blue-50/30">
+                        <div 
+                          className="font-black text-blue-900 leading-none text-center break-words w-full px-1"
+                          style={{ fontSize: `calc(${unifiedBaseSize} * ${config.fontScale || 1.0})` }}
+                        >
+                          {members.find(m => m.id === court.match?.p1)?.name}
                         </div>
                       </div>
-                      <button onClick={() => finishMatch(court.id)} className="bg-gray-800 text-white px-5 h-full rounded-lg font-bold text-sm lg:text-lg shrink-0 flex items-center shadow-inner">終了</button>
+                      {/* Player 2 (左下) */}
+                      <div className="flex items-center justify-center p-1 border-r border-gray-100 bg-blue-50/30">
+                        <div 
+                          className="font-black text-blue-900 leading-none text-center break-words w-full px-1"
+                          style={{ fontSize: `calc(${unifiedBaseSize} * ${config.fontScale || 1.0})` }}
+                        >
+                          {members.find(m => m.id === court.match?.p2)?.name}
+                        </div>
+                      </div>
+                      {/* Player 3 (右上) */}
+                      <div className="flex items-center justify-center p-1 border-b border-gray-100 bg-red-50/30">
+                        <div 
+                          className="font-black text-red-900 leading-none text-center break-words w-full px-1"
+                          style={{ fontSize: `calc(${unifiedBaseSize} * ${config.fontScale || 1.0})` }}
+                        >
+                          {members.find(m => m.id === court.match?.p3)?.name}
+                        </div>
+                      </div>
+                      {/* Player 4 (右下) */}
+                      <div className="flex items-center justify-center p-1 bg-red-50/30">
+                        <div 
+                          className="font-black text-red-900 leading-none text-center break-words w-full px-1"
+                          style={{ fontSize: `calc(${unifiedBaseSize} * ${config.fontScale || 1.0})` }}
+                        >
+                          {members.find(m => m.id === court.match?.p4)?.name}
+                        </div>
+                      </div>
+                      
+                      {/* VS Badge (Center) */}
+                      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-full px-1.5 py-0.5 text-[10px] font-bold text-gray-300 shadow-sm border border-gray-100">
+                        VS
+                      </div>
                     </div>
                   ) : (
-                    <button onClick={() => generateNextMatch(court.id)} className="w-full h-full border-2 border-dashed border-gray-300 text-gray-400 font-bold text-xl rounded-xl flex items-center justify-center gap-3 hover:bg-gray-50 transition-colors">
-                      <Play size={28} /> 割当
+                    // 空き: 割当ボタン
+                    <button 
+                      onClick={() => generateNextMatch(court.id)} 
+                      className="w-full h-full flex flex-col items-center justify-center gap-2 text-gray-300 hover:text-blue-500 hover:bg-blue-50 transition-colors group"
+                    >
+                      <Play size={40} className="group-hover:scale-110 transition-transform" />
+                      <span className="font-bold text-sm">試合を組む</span>
                     </button>
                   )}
                 </div>
