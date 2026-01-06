@@ -328,40 +328,61 @@ export default function DoublesMatchupApp() {
       const x = currentSelection[1];
       const y = currentSelection[2];
 
-      // 固定ペアの強制選出
-      // 2-1 & 4-1: 相方が休み中でない（candidatesに含まれる）場合のみ確定させる
-      if (step === 'X' && w && w.fixedPairMemberId) {
-        const partner = remaining.find(m => m.id === w.fixedPairMemberId);
-        if (partner) return partner; 
-      }
-      if (step === 'Z' && y && y.fixedPairMemberId) {
-        const partner = remaining.find(m => m.id === y.fixedPairMemberId);
-        if (partner) return partner;
-      }
-
       const score = (m: Member): number[] => {
         const criteria: number[] = [];
         if (step === 'W') {
-          // 相方が休みの場合は一時的に固定ペアではないとみなすため、
-          // 相方が不参加/他コートなら通常の選出対象にする
+          // 1-1. 試合数が最少
           criteria.push(m.playCount);
+          // 1-2. セットが最古
           criteria.push(m.lastPlayedTime);
         } else if (step === 'X') {
+          // 2-1. Wに休み中でない固定ペアがいる場合は、その固定ペア
+          if (w.fixedPairMemberId) {
+            const isPartnerAvailable = candidates.some(c => c.id === w.fixedPairMemberId);
+            criteria.push(isPartnerAvailable && m.id === w.fixedPairMemberId ? 0 : 1);
+          } else {
+            criteria.push(1);
+          }
+          // 2-2. 固定ペアがいない人
+          criteria.push(m.fixedPairMemberId === null ? 0 : 1);
+          // 2-3. レベル厳格モードなら、Wと同じレベル
           if (config.levelStrict) criteria.push(m.level === w.level ? 0 : 1);
+          // 2-4. 試合数最少 or セット最古
           criteria.push((m.playCount === minPlayCount || m.lastPlayedTime === minLastTime) ? 0 : 1);
+          // 2-5. Wとペア回数最少
           criteria.push(w.pairHistory[m.id] || 0);
+          // 2-6. Wと対戦回数最少
           criteria.push(w.matchHistory[m.id] || 0);
         } else if (step === 'Y') {
+          // 3-1. レベル厳格モードなら、Wと同じレベル
           if (config.levelStrict) criteria.push(m.level === w.level ? 0 : 1);
+          // 3-2. 試合数最少 or セット最古
           criteria.push((m.playCount === minPlayCount || m.lastPlayedTime === minLastTime) ? 0 : 1);
+          // 3-3. Wとペア組＋対戦が最少
           criteria.push((w.pairHistory[m.id] || 0) + (w.matchHistory[m.id] || 0));
+          // 3-4. Xとペア組＋対戦が最少
           criteria.push((x.pairHistory[m.id] || 0) + (x.matchHistory[m.id] || 0));
         } else if (step === 'Z') {
+          // 4-1. Yに休み中でない固定ペアがいる場合は、その固定ペア
+          if (y.fixedPairMemberId) {
+            const isPartnerAvailable = candidates.some(c => c.id === y.fixedPairMemberId);
+            criteria.push(isPartnerAvailable && m.id === y.fixedPairMemberId ? 0 : 1);
+          } else {
+            criteria.push(1);
+          }
+          // 4-2. 固定ペアがいない人
+          criteria.push(m.fixedPairMemberId === null ? 0 : 1);
+          // 4-3. レベル厳格モードなら、Wと同じレベル
           if (config.levelStrict) criteria.push(m.level === w.level ? 0 : 1);
+          // 4-4. 試合数最少 or セット最古
           criteria.push((m.playCount === minPlayCount || m.lastPlayedTime === minLastTime) ? 0 : 1);
+          // 4-5. Yとペア回数最少
           criteria.push(y.pairHistory[m.id] || 0);
+          // 4-6. Yと対戦回数最少
           criteria.push(y.matchHistory[m.id] || 0);
+          // 4-7. Wとペア組＋対戦が最少
           criteria.push((w.pairHistory[m.id] || 0) + (w.matchHistory[m.id] || 0));
+          // 4-8. Xとペア組＋対戦が最少
           criteria.push((x.pairHistory[m.id] || 0) + (x.matchHistory[m.id] || 0));
         }
         return criteria;
@@ -373,14 +394,17 @@ export default function DoublesMatchupApp() {
         for (let i = 0; i < scoreA.length; i++) {
           if (scoreA[i] !== scoreB[i]) return scoreA[i] - scoreB[i];
         }
-        return Math.random() - 0.5;
+        return 0; // ここでのランダムは下の patterns 全体でのシャッフルに委ねる
       });
 
       return sorted[0];
     };
 
     const patterns: Member[][] = [];
+    // 6. 1から4をあと3回繰り返し、合計4パターンをキープする
     for (let i = 0; i < 4; i++) {
+      // 各パターンの起点(W)を少しバラけさせるため、i回目はi番目に良い候補をWにする等の処理も考えられますが、
+      // ここでは仕様通り単純に4回生成を試みます（内部の同スコア時ランダム要素でバラけます）
       const selection: Member[] = [];
       const W = pickMember(selection, 'W');
       if (W) selection.push(W); else continue;
@@ -396,15 +420,16 @@ export default function DoublesMatchupApp() {
 
     if (patterns.length === 0) return null;
 
+    // 7. ペアを組んだ回数＋対戦した回数の合計が最少となるパターンを採用
     const getPatternCost = (p: Member[]) => {
       let total = 0;
       const combs = [[0, 1], [0, 2], [0, 3], [1, 2], [1, 3], [2, 3]];
       combs.forEach(([i, j]) => {
         const m1 = p[i];
         const m2 = p[j];
-        // 相方が参加中であれば固定ペア分をコスト計算から除く
-        const isCurrentlyFixed = m1.fixedPairMemberId === m2.id && candidates.some(c => c.id === m1.id) && candidates.some(c => c.id === m2.id);
-        if (!isCurrentlyFixed) {
+        // 固定ペアの組み合わせ（w-x, y-zが現在有効な固定ペアの場合）はカウントから除く
+        const isCurrentFixedPair = (m1.fixedPairMemberId === m2.id && candidates.some(c => c.id === m1.id) && candidates.some(c => c.id === m2.id));
+        if (!isCurrentFixedPair) {
           total += (m1.pairHistory[m2.id] || 0) + (m1.matchHistory[m2.id] || 0);
         }
       });
@@ -412,6 +437,7 @@ export default function DoublesMatchupApp() {
     };
 
     const bestPattern = patterns.reduce((prev, curr) => {
+      // 同じ場合は先に作成した方を採用（< を使用）
       return getPatternCost(curr) < getPatternCost(prev) ? curr : prev;
     });
 
