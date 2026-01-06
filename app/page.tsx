@@ -330,30 +330,51 @@ export default function DoublesMatchupApp() {
       const score = (m: Member): number[] => {
         const criteria: number[] = [];
         if (step === 'W') {
+          // 1-1. 試合数が最少の人
           criteria.push(m.playCount);
-          criteria.push(-m.lastPlayedTime);
+          // 1-2. セット（時間）が最古の人
+          criteria.push(m.lastPlayedTime);
         } else if (step === 'X') {
+          // 2-1. 固定ペア
           criteria.push(w.fixedPairMemberId === m.id ? 0 : 1);
+          // 2-2. 同レベル
           if (config.levelStrict) criteria.push(m.level === w.level ? 0 : 1);
+          // 2-3. セットが最古の人
+          criteria.push(m.lastPlayedTime);
+          // 2-4. 試合数が最少または最少+1
           criteria.push(m.playCount <= minPlayCount + 1 ? 0 : 1);
+          // 2-5. ペア組んだ回数最少
           criteria.push(w.pairHistory[m.id] || 0);
+          // 2-6. 対戦回数最少
           criteria.push(w.matchHistory[m.id] || 0);
-          criteria.push(-m.lastPlayedTime);
         } else if (step === 'Y') {
+          // 3-1. 同レベル
           if (config.levelStrict) criteria.push(m.level === w.level ? 0 : 1);
+          // 3-2. 試合数が最少または最少+1
           criteria.push(m.playCount <= minPlayCount + 1 ? 0 : 1);
+          // 3-3. セットが最古の人
+          criteria.push(m.lastPlayedTime);
+          // 3-4. Wとの合計回数最少
           criteria.push((w.pairHistory[m.id] || 0) + (w.matchHistory[m.id] || 0));
+          // 3-5. Xとの合計回数最少
           criteria.push((x.pairHistory[m.id] || 0) + (x.matchHistory[m.id] || 0));
-          criteria.push(-m.lastPlayedTime);
         } else if (step === 'Z') {
+          // 4-1. 固定ペア
           criteria.push(y.fixedPairMemberId === m.id ? 0 : 1);
+          // 4-2. 同レベル
           if (config.levelStrict) criteria.push(m.level === w.level ? 0 : 1);
+          // 4-3. 試合数が最少または最少+1
           criteria.push(m.playCount <= minPlayCount + 1 ? 0 : 1);
+          // 4-4. セットが最古の人
+          criteria.push(m.lastPlayedTime);
+          // 4-5. Yとのペア回数最少
           criteria.push(y.pairHistory[m.id] || 0);
+          // 4-6. Yとの対戦回数最少
           criteria.push(y.matchHistory[m.id] || 0);
+          // 4-7. Wとの合計回数最少
           criteria.push((w.pairHistory[m.id] || 0) + (w.matchHistory[m.id] || 0));
+          // 4-8. Xとの合計回数最少
           criteria.push((x.pairHistory[m.id] || 0) + (x.matchHistory[m.id] || 0));
-          criteria.push(-m.lastPlayedTime);
         }
         return criteria;
       };
@@ -364,6 +385,7 @@ export default function DoublesMatchupApp() {
         for (let i = 0; i < scoreA.length; i++) {
           if (scoreA[i] !== scoreB[i]) return scoreA[i] - scoreB[i];
         }
+        // ランダム
         return Math.random() - 0.5;
       });
 
@@ -399,7 +421,11 @@ export default function DoublesMatchupApp() {
       return total;
     };
 
-    const bestPattern = patterns.sort((a, b) => getPatternCost(a) - getPatternCost(b))[0];
+    // 7. 合計が最少となるパターンを採用（同値は先勝ち）
+    const bestPattern = patterns.reduce((prev, curr) => {
+      return getPatternCost(curr) < getPatternCost(prev) ? curr : prev;
+    });
+
     return { p1: bestPattern[0].id, p2: bestPattern[1].id, p3: bestPattern[2].id, p4: bestPattern[3].id, level: config.levelStrict ? bestPattern[0].level : undefined };
   };
 
