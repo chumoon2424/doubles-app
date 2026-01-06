@@ -328,40 +328,41 @@ export default function DoublesMatchupApp() {
       const x = currentSelection[1];
       const y = currentSelection[2];
 
-      // 固定ペアの即時確定判定
+      // 固定ペアの強制選出
+      // 2-1 & 4-1: 相方が休み中でない（candidatesに含まれる）場合のみ確定させる
       if (step === 'X' && w && w.fixedPairMemberId) {
         const partner = remaining.find(m => m.id === w.fixedPairMemberId);
-        if (partner) return partner; // 2-1 休み中でない固定ペアなら確定
+        if (partner) return partner; 
       }
       if (step === 'Z' && y && y.fixedPairMemberId) {
         const partner = remaining.find(m => m.id === y.fixedPairMemberId);
-        if (partner) return partner; // 4-1 休み中でない固定ペアなら確定
+        if (partner) return partner;
       }
 
       const score = (m: Member): number[] => {
         const criteria: number[] = [];
         if (step === 'W') {
-          criteria.push(m.playCount); // 1-1
-          criteria.push(m.lastPlayedTime); // 1-2
+          // 相方が休みの場合は一時的に固定ペアではないとみなすため、
+          // 相方が不参加/他コートなら通常の選出対象にする
+          criteria.push(m.playCount);
+          criteria.push(m.lastPlayedTime);
         } else if (step === 'X') {
-          // 2-1は上記で処理済み
-          if (config.levelStrict) criteria.push(m.level === w.level ? 0 : 1); // 2-2
-          criteria.push((m.playCount === minPlayCount || m.lastPlayedTime === minLastTime) ? 0 : 1); // 2-3
-          criteria.push(w.pairHistory[m.id] || 0); // 2-4
-          criteria.push(w.matchHistory[m.id] || 0); // 2-5
+          if (config.levelStrict) criteria.push(m.level === w.level ? 0 : 1);
+          criteria.push((m.playCount === minPlayCount || m.lastPlayedTime === minLastTime) ? 0 : 1);
+          criteria.push(w.pairHistory[m.id] || 0);
+          criteria.push(w.matchHistory[m.id] || 0);
         } else if (step === 'Y') {
-          if (config.levelStrict) criteria.push(m.level === w.level ? 0 : 1); // 3-1
-          criteria.push((m.playCount === minPlayCount || m.lastPlayedTime === minLastTime) ? 0 : 1); // 3-2
-          criteria.push((w.pairHistory[m.id] || 0) + (w.matchHistory[m.id] || 0)); // 3-3
-          criteria.push((x.pairHistory[m.id] || 0) + (x.matchHistory[m.id] || 0)); // 3-4
+          if (config.levelStrict) criteria.push(m.level === w.level ? 0 : 1);
+          criteria.push((m.playCount === minPlayCount || m.lastPlayedTime === minLastTime) ? 0 : 1);
+          criteria.push((w.pairHistory[m.id] || 0) + (w.matchHistory[m.id] || 0));
+          criteria.push((x.pairHistory[m.id] || 0) + (x.matchHistory[m.id] || 0));
         } else if (step === 'Z') {
-          // 4-1は上記で処理済み
-          if (config.levelStrict) criteria.push(m.level === w.level ? 0 : 1); // 4-2
-          criteria.push((m.playCount === minPlayCount || m.lastPlayedTime === minLastTime) ? 0 : 1); // 4-3
-          criteria.push(y.pairHistory[m.id] || 0); // 4-4
-          criteria.push(y.matchHistory[m.id] || 0); // 4-5
-          criteria.push((w.pairHistory[m.id] || 0) + (w.matchHistory[m.id] || 0)); // 4-6
-          criteria.push((x.pairHistory[m.id] || 0) + (x.matchHistory[m.id] || 0)); // 4-7
+          if (config.levelStrict) criteria.push(m.level === w.level ? 0 : 1);
+          criteria.push((m.playCount === minPlayCount || m.lastPlayedTime === minLastTime) ? 0 : 1);
+          criteria.push(y.pairHistory[m.id] || 0);
+          criteria.push(y.matchHistory[m.id] || 0);
+          criteria.push((w.pairHistory[m.id] || 0) + (w.matchHistory[m.id] || 0));
+          criteria.push((x.pairHistory[m.id] || 0) + (x.matchHistory[m.id] || 0));
         }
         return criteria;
       };
@@ -372,7 +373,7 @@ export default function DoublesMatchupApp() {
         for (let i = 0; i < scoreA.length; i++) {
           if (scoreA[i] !== scoreB[i]) return scoreA[i] - scoreB[i];
         }
-        return Math.random() - 0.5; // ランダム
+        return Math.random() - 0.5;
       });
 
       return sorted[0];
@@ -397,20 +398,19 @@ export default function DoublesMatchupApp() {
 
     const getPatternCost = (p: Member[]) => {
       let total = 0;
-      const combinations = [[0, 1], [0, 2], [0, 3], [1, 2], [1, 3], [2, 3]];
-      combinations.forEach(([i, j]) => {
+      const combs = [[0, 1], [0, 2], [0, 3], [1, 2], [1, 3], [2, 3]];
+      combs.forEach(([i, j]) => {
         const m1 = p[i];
         const m2 = p[j];
-        // 7. 4人の組み合わせ（固定ペアの分を除く）
-        const isFixedPair = (m1.fixedPairMemberId === m2.id);
-        if (!isFixedPair) {
+        // 相方が参加中であれば固定ペア分をコスト計算から除く
+        const isCurrentlyFixed = m1.fixedPairMemberId === m2.id && candidates.some(c => c.id === m1.id) && candidates.some(c => c.id === m2.id);
+        if (!isCurrentlyFixed) {
           total += (m1.pairHistory[m2.id] || 0) + (m1.matchHistory[m2.id] || 0);
         }
       });
       return total;
     };
 
-    // 7. 合計が最少となるパターンを採用（同値は先勝ち）
     const bestPattern = patterns.reduce((prev, curr) => {
       return getPatternCost(curr) < getPatternCost(prev) ? curr : prev;
     });
