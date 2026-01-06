@@ -331,16 +331,16 @@ export default function DoublesMatchupApp() {
       const score = (m: Member): number[] => {
         const criteria: number[] = [];
         if (step === 'W') {
-          // 1-1. 試合数が最少の人
+          // 1-1. 試合数が最少
           criteria.push(m.playCount);
-          // 1-2. 最後に試合をしたセットが最も古い人
+          // 1-2. セットが最古
           criteria.push(m.lastPlayedTime);
         } else if (step === 'X') {
           // 2-1. 固定ペア
           criteria.push(w.fixedPairMemberId === m.id ? 0 : 1);
           // 2-2. 同レベル
           if (config.levelStrict) criteria.push(m.level === w.level ? 0 : 1);
-          // 2-3. 試合数が最少、またはセットが最も古い人
+          // 2-3. 試合数最少 or セット最古
           criteria.push((m.playCount === minPlayCount || m.lastPlayedTime === minLastTime) ? 0 : 1);
           // 2-4. Wとペア回数最少
           criteria.push(w.pairHistory[m.id] || 0);
@@ -349,26 +349,26 @@ export default function DoublesMatchupApp() {
         } else if (step === 'Y') {
           // 3-1. 同レベル
           if (config.levelStrict) criteria.push(m.level === w.level ? 0 : 1);
-          // 3-2. 試合数が最少、またはセットが最も古い人
+          // 3-2. 試合数最少 or セット最古
           criteria.push((m.playCount === minPlayCount || m.lastPlayedTime === minLastTime) ? 0 : 1);
-          // 3-3. Wとの合計回数最少
+          // 3-3. Wとの合計最少
           criteria.push((w.pairHistory[m.id] || 0) + (w.matchHistory[m.id] || 0));
-          // 3-4. Xとの合計回数最少
+          // 3-4. Xとの合計最少
           criteria.push((x.pairHistory[m.id] || 0) + (x.matchHistory[m.id] || 0));
         } else if (step === 'Z') {
           // 4-1. 固定ペア
           criteria.push(y.fixedPairMemberId === m.id ? 0 : 1);
           // 4-2. 同レベル
           if (config.levelStrict) criteria.push(m.level === w.level ? 0 : 1);
-          // 4-3. 試合数が最少、またはセットが最も古い人
+          // 4-3. 試合数最少 or セット最古
           criteria.push((m.playCount === minPlayCount || m.lastPlayedTime === minLastTime) ? 0 : 1);
           // 4-4. Yとペア回数最少
           criteria.push(y.pairHistory[m.id] || 0);
           // 4-5. Yと対戦回数最少
           criteria.push(y.matchHistory[m.id] || 0);
-          // 4-6. Wとの合計回数最少
+          // 4-6. Wとの合計最少
           criteria.push((w.pairHistory[m.id] || 0) + (w.matchHistory[m.id] || 0));
-          // 4-7. Xとの合計回数最少
+          // 4-7. Xとの合計最少
           criteria.push((x.pairHistory[m.id] || 0) + (x.matchHistory[m.id] || 0));
         }
         return criteria;
@@ -380,7 +380,7 @@ export default function DoublesMatchupApp() {
         for (let i = 0; i < scoreA.length; i++) {
           if (scoreA[i] !== scoreB[i]) return scoreA[i] - scoreB[i];
         }
-        return Math.random() - 0.5; // ランダム
+        return Math.random() - 0.5;
       });
 
       return sorted[0];
@@ -407,15 +407,24 @@ export default function DoublesMatchupApp() {
 
     const getPatternCost = (p: Member[]) => {
       let total = 0;
-      for (let i = 0; i < 4; i++) {
-        for (let j = i + 1; j < 4; j++) {
-          total += (p[i].pairHistory[p[j].id] || 0) + (p[i].matchHistory[p[j].id] || 0);
+      const w = p[0];
+      const x = p[1];
+      const y = p[2];
+      const z = p[3];
+      
+      const pairs = [[0, 1], [0, 2], [0, 3], [1, 2], [1, 3], [2, 3]];
+      pairs.forEach(([i, j]) => {
+        const m1 = p[i];
+        const m2 = p[j];
+        // 固定ペアの組み合わせ（w-x, y-zが固定ペアの場合）はカウントから除く
+        const isFixedPair = (m1.fixedPairMemberId === m2.id);
+        if (!isFixedPair) {
+          total += (m1.pairHistory[m2.id] || 0) + (m1.matchHistory[m2.id] || 0);
         }
-      }
+      });
       return total;
     };
 
-    // 7. 合計が最少となるパターンを採用（同値は先勝ち）
     const bestPattern = patterns.reduce((prev, curr) => {
       return getPatternCost(curr) < getPatternCost(prev) ? curr : prev;
     });
