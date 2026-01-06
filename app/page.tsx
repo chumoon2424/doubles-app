@@ -88,7 +88,6 @@ export default function DoublesMatchupApp() {
     } else {
       let legacyData = null;
       const legacyKeys = [
-        'doubles-app-data-v15',
         'doubles-app-data-v14',
         'doubles-app-data-v13',
         'doubles-app-data-v12',
@@ -512,8 +511,6 @@ export default function DoublesMatchupApp() {
         {activeTab === 'dashboard' && (
           <div className="grid grid-cols-1 landscape:grid-cols-2 gap-3">
             {courts.map(court => {
-              // ★ガチガチの固定レイアウト修正: 
-              // 基準高さをpxで定義し、zoomLevelを直接掛け合わせます。
               const baseHeight = 180; 
               const calculatedHeight = baseHeight * config.zoomLevel;
 
@@ -523,10 +520,19 @@ export default function DoublesMatchupApp() {
                   className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col"
                   style={{ height: `${calculatedHeight}px`, minHeight: `${calculatedHeight}px` }}
                 >
-                  <div className="bg-gray-50 px-4 py-1.5 border-b flex justify-between items-center shrink-0">
+                  <div className="bg-gray-50 px-4 py-1 border-b flex justify-between items-center shrink-0">
                     <span className="font-bold text-xs text-gray-500 uppercase tracking-widest">Court {court.id} {getLevelBadge(court.match?.level)}</span>
+                    {/* ★終了ボタンをヘッダー右側に移動 */}
+                    {court.match && (
+                      <button 
+                        onClick={() => finishMatch(court.id)} 
+                        className="bg-gray-800 text-white px-3 py-1 rounded-md font-bold text-xs shadow-sm hover:bg-gray-700 transition-colors"
+                      >
+                        終了
+                      </button>
+                    )}
                   </div>
-                  <div className="flex-1 p-3 flex flex-col justify-center overflow-hidden">
+                  <div className="flex-1 p-2 flex flex-col justify-center overflow-hidden">
                     {court.match ? (
                       <div className="flex items-center gap-2 h-full overflow-hidden">
                         <div className="flex-1 grid grid-cols-2 gap-2 h-full">
@@ -547,7 +553,6 @@ export default function DoublesMatchupApp() {
                             </div>
                           </div>
                         </div>
-                        <button onClick={() => finishMatch(court.id)} className="bg-gray-800 text-white px-5 h-full rounded-lg font-bold text-sm lg:text-lg shrink-0 flex items-center shadow-inner">終了</button>
                       </div>
                     ) : (
                       <button onClick={() => generateNextMatch(court.id)} className="w-full h-full border-2 border-dashed border-gray-300 text-gray-400 font-bold text-xl rounded-xl flex items-center justify-center gap-3 hover:bg-gray-50 transition-colors">
