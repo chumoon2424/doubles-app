@@ -508,7 +508,7 @@ export default function DoublesMatchupApp() {
   return (
     <div className="min-h-screen bg-gray-200 text-gray-900 pb-20 font-sans overflow-x-hidden">
       <header className="bg-blue-900 text-white px-4 py-3 shadow-md flex justify-between items-center sticky top-0 z-20">
-        <h1 className="text-xl font-bold flex items-center gap-2"><Trophy size={20} /> ダブルスメーカー</h1>
+        <h1 className="text-xl font-bold flex items-center gap-2"><Trophy size={20} /> D Maker</h1>
         <div className="flex items-center gap-2">
           {activeTab === 'dashboard' && (
             <>
@@ -561,19 +561,19 @@ export default function DoublesMatchupApp() {
                     {court.match ? (
                       <div className="flex items-center gap-2 h-full overflow-hidden">
                         <div className="flex-1 grid grid-cols-2 gap-3 h-full">
-                          <div className="bg-blue-50/80 rounded-lg flex flex-col justify-center items-center border-2 border-blue-200 px-2 overflow-hidden py-1 shadow-sm">
-                            <div className="w-full text-center leading-tight mb-1 font-black text-blue-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p1)?.name, config.nameFontSizeModifier) }}>
+                          <div className="bg-blue-50/80 rounded-lg flex flex-col justify-center items-stretch border-2 border-blue-200 px-3 overflow-hidden py-1 shadow-sm">
+                            <div className="w-full text-left leading-tight mb-1 font-black text-blue-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p1)?.name, config.nameFontSizeModifier) }}>
                               {members.find(m => m.id === court.match?.p1)?.name}
                             </div>
-                            <div className="w-full text-center leading-tight font-black text-blue-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p2)?.name, config.nameFontSizeModifier) }}>
+                            <div className="w-full text-right leading-tight font-black text-blue-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p2)?.name, config.nameFontSizeModifier) }}>
                               {members.find(m => m.id === court.match?.p2)?.name}
                             </div>
                           </div>
-                          <div className="bg-red-50/80 rounded-lg flex flex-col justify-center items-center border-2 border-red-200 px-2 overflow-hidden py-1 shadow-sm">
-                            <div className="w-full text-center leading-tight mb-1 font-black text-red-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p3)?.name, config.nameFontSizeModifier) }}>
+                          <div className="bg-red-50/80 rounded-lg flex flex-col justify-center items-stretch border-2 border-red-200 px-3 overflow-hidden py-1 shadow-sm">
+                            <div className="w-full text-left leading-tight mb-1 font-black text-red-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p3)?.name, config.nameFontSizeModifier) }}>
                               {members.find(m => m.id === court.match?.p3)?.name}
                             </div>
-                            <div className="w-full text-center leading-tight font-black text-red-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p4)?.name, config.nameFontSizeModifier) }}>
+                            <div className="w-full text-right leading-tight font-black text-red-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p4)?.name, config.nameFontSizeModifier) }}>
                               {members.find(m => m.id === court.match?.p4)?.name}
                             </div>
                           </div>
