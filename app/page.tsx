@@ -16,7 +16,8 @@ import {
   Unlink,
   X,
   ZoomIn,
-  ZoomOut
+  ZoomOut,
+  Type
 } from 'lucide-react';
 
 type Level = 'A' | 'B' | 'C';
@@ -58,6 +59,7 @@ interface AppConfig {
   courtCount: number;
   levelStrict: boolean;
   zoomLevel: number;
+  nameFontSizeModifier: number; // 一括フォントサイズ調整用
 }
 
 export default function DoublesMatchupApp() {
@@ -69,6 +71,7 @@ export default function DoublesMatchupApp() {
     courtCount: 4,
     levelStrict: false,
     zoomLevel: 1.0,
+    nameFontSizeModifier: 1.0,
   });
   const [nextMemberId, setNextMemberId] = useState(1);
   const [isInitialized, setIsInitialized] = useState(false);
@@ -83,7 +86,11 @@ export default function DoublesMatchupApp() {
       setMembers(data.members || []);
       setCourts(data.courts || []);
       setMatchHistory(data.matchHistory || []);
-      setConfig(prev => ({ ...prev, ...(data.config || {}) }));
+      setConfig(prev => ({ 
+        ...prev, 
+        ...(data.config || {}),
+        nameFontSizeModifier: data.config?.nameFontSizeModifier || 1.0 
+      }));
       setNextMemberId(data.nextMemberId || 1);
     } else {
       let legacyData = null;
@@ -464,6 +471,13 @@ export default function DoublesMatchupApp() {
     }));
   };
 
+  const changeNameFontSize = (delta: number) => {
+    setConfig(prev => ({
+      ...prev,
+      nameFontSizeModifier: Math.max(0.5, Math.min(2.0, prev.nameFontSizeModifier + delta))
+    }));
+  };
+
   const getLevelBadge = (l?: Level) => {
     if (!l) return null;
     const c = { A: 'bg-blue-600', B: 'bg-yellow-500', C: 'bg-red-500' };
@@ -476,31 +490,43 @@ export default function DoublesMatchupApp() {
     return 'A';
   };
 
-  const getDynamicFontSize = (name: string = '') => {
+  const getDynamicFontSize = (name: string = '', modifier: number = 1.0) => {
     const isAscii = /^[\x20-\x7E]*$/.test(name);
     const len = name.length;
     const effectiveLen = isAscii ? len * 0.6 : len;
 
-    if (effectiveLen <= 2) return 'clamp(1.4rem, 9vw, 3.5rem)';
-    if (effectiveLen <= 4) return 'clamp(1.1rem, 7vw, 2.8rem)';
-    if (effectiveLen <= 6) return 'clamp(0.9rem, 5vw, 2rem)';
-    if (effectiveLen <= 8) return 'clamp(0.8rem, 4.5vw, 1.6rem)';
-    return 'clamp(0.7rem, 4vw, 1.3rem)';
+    let baseSize = '';
+    if (effectiveLen <= 2) baseSize = '3.5rem';
+    else if (effectiveLen <= 4) baseSize = '2.8rem';
+    else if (effectiveLen <= 6) baseSize = '2rem';
+    else if (effectiveLen <= 8) baseSize = '1.6rem';
+    else baseSize = '1.3rem';
+
+    return `calc(${baseSize} * ${modifier})`;
   };
 
   return (
-    <div className="min-h-screen bg-gray-100 text-gray-900 pb-20 font-sans overflow-x-hidden">
-      <header className="bg-blue-800 text-white px-4 py-3 shadow flex justify-between items-center sticky top-0 z-20">
-        <h1 className="text-xl font-bold flex items-center gap-2"><Trophy size={20} /> ダブルスメーカー</h1>
+    <div className="min-h-screen bg-gray-200 text-gray-900 pb-20 font-sans overflow-x-hidden">
+      <header className="bg-blue-900 text-white px-4 py-3 shadow-md flex justify-between items-center sticky top-0 z-20">
+        <h1 className="text-xl font-bold flex items-center gap-2"><Trophy size={20} /> D Maker</h1>
         <div className="flex items-center gap-2">
           {activeTab === 'dashboard' && (
-            <div className="flex items-center bg-blue-900/50 rounded-lg p-0.5 mr-2">
-              <button onClick={() => changeZoom(-0.1)} className="p-1.5 hover:bg-blue-800 rounded"><ZoomOut size={16}/></button>
-              <button onClick={() => changeZoom(0.1)} className="p-1.5 hover:bg-blue-800 rounded"><ZoomIn size={16}/></button>
-            </div>
+            <>
+              {/* コート高さ調整 */}
+              <div className="flex items-center bg-black/20 rounded-lg p-0.5 mr-1">
+                <button onClick={() => changeZoom(-0.1)} title="コート高さを縮小" className="p-1.5 hover:bg-white/10 rounded"><ZoomOut size={16}/></button>
+                <button onClick={() => changeZoom(0.1)} title="コート高さを拡大" className="p-1.5 hover:bg-white/10 rounded"><ZoomIn size={16}/></button>
+              </div>
+              {/* 選手名フォントサイズ一括調整 */}
+              <div className="flex items-center bg-black/20 rounded-lg p-0.5 mr-2">
+                <button onClick={() => changeNameFontSize(-0.1)} title="文字サイズを縮小" className="p-1.5 hover:bg-white/10 rounded"><ZoomOut size={16}/></button>
+                <div className="px-0.5 text-white/50"><Type size={14} /></div>
+                <button onClick={() => changeNameFontSize(0.1)} title="文字サイズを拡大" className="p-1.5 hover:bg-white/10 rounded"><ZoomIn size={16}/></button>
+              </div>
+            </>
           )}
           {activeTab === 'dashboard' && (
-            <button onClick={handleBulkAction} className="bg-orange-500 text-white px-4 py-2 rounded-full text-xs font-bold shadow-md active:scale-95 transition-transform">
+            <button onClick={handleBulkAction} className="bg-orange-600 text-white px-4 py-2 rounded-full text-xs font-black shadow-lg active:scale-95 transition-transform border border-orange-400">
               一括更新
             </button>
           )}
@@ -509,47 +535,53 @@ export default function DoublesMatchupApp() {
 
       <main className="p-2 w-full max-w-[1400px] mx-auto">
         {activeTab === 'dashboard' && (
-          <div className="grid grid-cols-1 landscape:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 landscape:grid-cols-2 gap-4">
             {courts.map(court => {
-              // ★高さ調整の修正: ズーム倍率が即時反映されるようpxベースの計算に固定
               const baseHeight = 180; 
               const calculatedHeight = baseHeight * config.zoomLevel;
 
               return (
                 <div 
                   key={court.id} 
-                  className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col"
+                  className="bg-white rounded-xl shadow-md border border-gray-300 overflow-hidden flex flex-col"
                   style={{ height: `${calculatedHeight}px`, minHeight: `${calculatedHeight}px` }}
                 >
-                  <div className="bg-gray-50 px-4 py-1.5 border-b flex justify-between items-center shrink-0">
-                    <span className="font-bold text-xs text-gray-500 uppercase tracking-widest">Court {court.id} {getLevelBadge(court.match?.level)}</span>
+                  <div className="bg-gray-100 px-4 py-1.5 border-b border-gray-300 flex justify-between items-center shrink-0">
+                    <span className="font-black text-sm text-gray-600 uppercase tracking-tighter">COURT {court.id} {getLevelBadge(court.match?.level)}</span>
+                    {court.match && (
+                      <button 
+                        onClick={() => finishMatch(court.id)} 
+                        className="bg-gray-900 text-white px-4 py-1 rounded-md font-black text-xs shadow hover:bg-black transition-colors"
+                      >
+                        終了
+                      </button>
+                    )}
                   </div>
-                  <div className="flex-1 p-3 flex flex-col justify-center overflow-hidden">
+                  <div className="flex-1 p-2 flex flex-col justify-center overflow-hidden bg-gray-50/50">
                     {court.match ? (
                       <div className="flex items-center gap-2 h-full overflow-hidden">
-                        <div className="flex-1 grid grid-cols-2 gap-2 h-full">
-                          <div className="bg-blue-50 rounded-lg flex flex-col justify-center items-center border border-blue-100 px-2 overflow-hidden py-1">
-                            <div className="w-full text-center leading-tight mb-1 font-black text-blue-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p1)?.name) }}>
+                        <div className="flex-1 grid grid-cols-2 gap-3 h-full">
+                          <div className="bg-blue-50/80 rounded-lg flex flex-col justify-center items-stretch border-2 border-blue-200 px-3 overflow-hidden py-1 shadow-sm">
+                            <div className="w-full text-left leading-tight mb-1 font-black text-blue-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p1)?.name, config.nameFontSizeModifier) }}>
                               {members.find(m => m.id === court.match?.p1)?.name}
                             </div>
-                            <div className="w-full text-center leading-tight font-black text-blue-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p2)?.name) }}>
+                            <div className="w-full text-right leading-tight font-black text-blue-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p2)?.name, config.nameFontSizeModifier) }}>
                               {members.find(m => m.id === court.match?.p2)?.name}
                             </div>
                           </div>
-                          <div className="bg-red-50 rounded-lg flex flex-col justify-center items-center border border-red-100 px-2 overflow-hidden py-1">
-                            <div className="w-full text-center leading-tight mb-1 font-black text-red-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p3)?.name) }}>
+                          <div className="bg-red-50/80 rounded-lg flex flex-col justify-center items-stretch border-2 border-red-200 px-3 overflow-hidden py-1 shadow-sm">
+                            <div className="w-full text-left leading-tight mb-1 font-black text-red-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p3)?.name, config.nameFontSizeModifier) }}>
                               {members.find(m => m.id === court.match?.p3)?.name}
                             </div>
-                            <div className="w-full text-center leading-tight font-black text-red-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p4)?.name) }}>
+                            <div className="w-full text-right leading-tight font-black text-red-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p4)?.name, config.nameFontSizeModifier) }}>
                               {members.find(m => m.id === court.match?.p4)?.name}
                             </div>
                           </div>
                         </div>
-                        <button onClick={() => finishMatch(court.id)} className="bg-gray-800 text-white px-5 h-full rounded-lg font-bold text-sm lg:text-lg shrink-0 flex items-center shadow-inner">終了</button>
                       </div>
                     ) : (
-                      <button onClick={() => generateNextMatch(court.id)} className="w-full h-full border-2 border-dashed border-gray-300 text-gray-400 font-bold text-xl rounded-xl flex items-center justify-center gap-3 hover:bg-gray-50 transition-colors">
-                        <Play size={28} /> 割当
+                      <button onClick={() => generateNextMatch(court.id)} className="w-full h-full border-4 border-dashed border-gray-400 text-gray-500 font-black text-2xl rounded-xl flex items-center justify-center gap-3 hover:bg-white hover:text-blue-600 hover:border-blue-400 transition-all">
+                        <Play size={32} fill="currentColor" /> 割当
                       </button>
                     )}
                   </div>
@@ -692,16 +724,16 @@ export default function DoublesMatchupApp() {
         )}
       </main>
 
-      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 flex justify-around pb-safe z-30 shadow-[0_-5px_20px_rgba(0,0,0,0.03)]">
+      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-300 flex justify-around pb-safe z-30 shadow-[0_-5px_20px_rgba(0,0,0,0.1)]">
         {[
           { id: 'dashboard', icon: Play, label: '試合' },
           { id: 'members', icon: Users, label: '名簿' },
           { id: 'history', icon: History, label: '履歴' },
           { id: 'settings', icon: Settings, label: '設定' }
         ].map(tab => (
-          <button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`flex flex-col items-center py-3 px-8 transition-colors ${activeTab === tab.id ? 'text-blue-600 scale-110' : 'text-gray-300'}`}>
-            <tab.icon size={26} strokeWidth={activeTab === tab.id ? 2.5 : 2} />
-            <span className="text-[10px] font-bold mt-1.5">{tab.label}</span>
+          <button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`flex flex-col items-center py-3 px-8 transition-colors ${activeTab === tab.id ? 'text-blue-700 scale-110' : 'text-gray-400'}`}>
+            <tab.icon size={26} strokeWidth={activeTab === tab.id ? 3 : 2} />
+            <span className="text-[10px] font-black mt-1.5">{tab.label}</span>
           </button>
         ))}
       </nav>
