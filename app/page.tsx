@@ -535,19 +535,19 @@ export default function DoublesMatchupApp() {
                     {court.match ? (
                       <div className="flex items-center gap-2 h-full overflow-hidden">
                         <div className="flex-1 grid grid-cols-2 gap-3 h-full">
-                          <div className="bg-blue-600 rounded-lg flex flex-col justify-center items-center border-2 border-blue-800 px-2 overflow-hidden py-1 shadow-sm">
-                            <div className="w-full text-center leading-tight mb-1 font-black text-white whitespace-nowrap overflow-hidden text-ellipsis drop-shadow-sm" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p1)?.name) }}>
+                          <div className="bg-blue-50/80 rounded-lg flex flex-col justify-center items-center border-2 border-blue-200 px-2 overflow-hidden py-1 shadow-sm">
+                            <div className="w-full text-center leading-tight mb-1 font-black text-blue-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p1)?.name) }}>
                               {members.find(m => m.id === court.match?.p1)?.name}
                             </div>
-                            <div className="w-full text-center leading-tight font-black text-white whitespace-nowrap overflow-hidden text-ellipsis drop-shadow-sm" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p2)?.name) }}>
+                            <div className="w-full text-center leading-tight font-black text-blue-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p2)?.name) }}>
                               {members.find(m => m.id === court.match?.p2)?.name}
                             </div>
                           </div>
-                          <div className="bg-red-600 rounded-lg flex flex-col justify-center items-center border-2 border-red-800 px-2 overflow-hidden py-1 shadow-sm">
-                            <div className="w-full text-center leading-tight mb-1 font-black text-white whitespace-nowrap overflow-hidden text-ellipsis drop-shadow-sm" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p3)?.name) }}>
+                          <div className="bg-red-50/80 rounded-lg flex flex-col justify-center items-center border-2 border-red-200 px-2 overflow-hidden py-1 shadow-sm">
+                            <div className="w-full text-center leading-tight mb-1 font-black text-red-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p3)?.name) }}>
                               {members.find(m => m.id === court.match?.p3)?.name}
                             </div>
-                            <div className="w-full text-center leading-tight font-black text-white whitespace-nowrap overflow-hidden text-ellipsis drop-shadow-sm" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p4)?.name) }}>
+                            <div className="w-full text-center leading-tight font-black text-red-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p4)?.name) }}>
                               {members.find(m => m.id === court.match?.p4)?.name}
                             </div>
                           </div>
