@@ -37,7 +37,6 @@ interface Member {
 
 interface Court {
   id: number;
-  fontSizeModifier: number; // フォントサイズ調整用
   match: {
     p1: number;
     p2: number;
@@ -60,6 +59,7 @@ interface AppConfig {
   courtCount: number;
   levelStrict: boolean;
   zoomLevel: number;
+  nameFontSizeModifier: number; // 一括フォントサイズ調整用
 }
 
 export default function DoublesMatchupApp() {
@@ -71,6 +71,7 @@ export default function DoublesMatchupApp() {
     courtCount: 4,
     levelStrict: false,
     zoomLevel: 1.0,
+    nameFontSizeModifier: 1.0,
   });
   const [nextMemberId, setNextMemberId] = useState(1);
   const [isInitialized, setIsInitialized] = useState(false);
@@ -83,10 +84,13 @@ export default function DoublesMatchupApp() {
     if (savedDataV15) {
       const data = JSON.parse(savedDataV15);
       setMembers(data.members || []);
-      // 既存データにfontSizeModifierがない場合は1.0をセット
-      setCourts((data.courts || []).map((c: any) => ({ ...c, fontSizeModifier: c.fontSizeModifier || 1.0 })));
+      setCourts(data.courts || []);
       setMatchHistory(data.matchHistory || []);
-      setConfig(prev => ({ ...prev, ...(data.config || {}) }));
+      setConfig(prev => ({ 
+        ...prev, 
+        ...(data.config || {}),
+        nameFontSizeModifier: data.config?.nameFontSizeModifier || 1.0 
+      }));
       setNextMemberId(data.nextMemberId || 1);
     } else {
       let legacyData = null;
@@ -162,14 +166,14 @@ export default function DoublesMatchupApp() {
   }, [members, courts, matchHistory, config, nextMemberId, isInitialized]);
 
   const initializeCourts = (count: number) => {
-    setCourts(Array.from({ length: count }, (_, i) => ({ id: i + 1, match: null, fontSizeModifier: 1.0 })));
+    setCourts(Array.from({ length: count }, (_, i) => ({ id: i + 1, match: null })));
   };
 
   const handleCourtCountChange = (count: number) => {
     setConfig(prev => ({ ...prev, courtCount: count }));
     setCourts(prev => {
       if (count > prev.length) {
-        const added = Array.from({ length: count - prev.length }, (_, i) => ({ id: prev.length + i + 1, match: null, fontSizeModifier: 1.0 }));
+        const added = Array.from({ length: count - prev.length }, (_, i) => ({ id: prev.length + i + 1, match: null }));
         return [...prev, ...added];
       }
       return prev.slice(0, count);
@@ -467,8 +471,11 @@ export default function DoublesMatchupApp() {
     }));
   };
 
-  const updateCourtFontSize = (courtId: number, delta: number) => {
-    setCourts(prev => prev.map(c => c.id === courtId ? { ...c, fontSizeModifier: Math.max(0.5, Math.min(2.0, c.fontSizeModifier + delta)) } : c));
+  const changeNameFontSize = (delta: number) => {
+    setConfig(prev => ({
+      ...prev,
+      nameFontSizeModifier: Math.max(0.5, Math.min(2.0, prev.nameFontSizeModifier + delta))
+    }));
   };
 
   const getLevelBadge = (l?: Level) => {
@@ -504,10 +511,19 @@ export default function DoublesMatchupApp() {
         <h1 className="text-xl font-bold flex items-center gap-2"><Trophy size={20} /> ダブルスメーカー</h1>
         <div className="flex items-center gap-2">
           {activeTab === 'dashboard' && (
-            <div className="flex items-center bg-black/20 rounded-lg p-0.5 mr-2">
-              <button onClick={() => changeZoom(-0.1)} className="p-1.5 hover:bg-white/10 rounded"><ZoomOut size={16}/></button>
-              <button onClick={() => changeZoom(0.1)} className="p-1.5 hover:bg-white/10 rounded"><ZoomIn size={16}/></button>
-            </div>
+            <>
+              {/* コート高さ調整 */}
+              <div className="flex items-center bg-black/20 rounded-lg p-0.5 mr-1">
+                <button onClick={() => changeZoom(-0.1)} title="コート高さを縮小" className="p-1.5 hover:bg-white/10 rounded"><ZoomOut size={16}/></button>
+                <button onClick={() => changeZoom(0.1)} title="コート高さを拡大" className="p-1.5 hover:bg-white/10 rounded"><ZoomIn size={16}/></button>
+              </div>
+              {/* 選手名フォントサイズ一括調整 */}
+              <div className="flex items-center bg-black/20 rounded-lg p-0.5 mr-2">
+                <button onClick={() => changeNameFontSize(-0.1)} title="文字サイズを縮小" className="p-1.5 hover:bg-white/10 rounded"><ZoomOut size={16}/></button>
+                <div className="px-0.5 text-white/50"><Type size={14} /></div>
+                <button onClick={() => changeNameFontSize(0.1)} title="文字サイズを拡大" className="p-1.5 hover:bg-white/10 rounded"><ZoomIn size={16}/></button>
+              </div>
+            </>
           )}
           {activeTab === 'dashboard' && (
             <button onClick={handleBulkAction} className="bg-orange-600 text-white px-4 py-2 rounded-full text-xs font-black shadow-lg active:scale-95 transition-transform border border-orange-400">
@@ -527,46 +543,37 @@ export default function DoublesMatchupApp() {
               return (
                 <div 
                   key={court.id} 
-                  className="bg-white rounded-xl shadow-md border border-gray-300 overflow-hidden flex flex-col relative"
+                  className="bg-white rounded-xl shadow-md border border-gray-300 overflow-hidden flex flex-col"
                   style={{ height: `${calculatedHeight}px`, minHeight: `${calculatedHeight}px` }}
                 >
                   <div className="bg-gray-100 px-4 py-1.5 border-b border-gray-300 flex justify-between items-center shrink-0">
                     <span className="font-black text-sm text-gray-600 uppercase tracking-tighter">COURT {court.id} {getLevelBadge(court.match?.level)}</span>
-                    <div className="flex items-center gap-2">
-                      {court.match && (
-                        <>
-                          <div className="flex items-center bg-gray-200 rounded px-1 text-gray-500 mr-2">
-                            <button onClick={() => updateCourtFontSize(court.id, -0.1)} className="p-1 hover:text-black"><ZoomOut size={14}/></button>
-                            <Type size={12} className="mx-1" />
-                            <button onClick={() => updateCourtFontSize(court.id, 0.1)} className="p-1 hover:text-black"><ZoomIn size={14}/></button>
-                          </div>
-                          <button 
-                            onClick={() => finishMatch(court.id)} 
-                            className="bg-gray-900 text-white px-4 py-1 rounded-md font-black text-xs shadow hover:bg-black transition-colors"
-                          >
-                            終了
-                          </button>
-                        </>
-                      )}
-                    </div>
+                    {court.match && (
+                      <button 
+                        onClick={() => finishMatch(court.id)} 
+                        className="bg-gray-900 text-white px-4 py-1 rounded-md font-black text-xs shadow hover:bg-black transition-colors"
+                      >
+                        終了
+                      </button>
+                    )}
                   </div>
                   <div className="flex-1 p-2 flex flex-col justify-center overflow-hidden bg-gray-50/50">
                     {court.match ? (
                       <div className="flex items-center gap-2 h-full overflow-hidden">
                         <div className="flex-1 grid grid-cols-2 gap-3 h-full">
                           <div className="bg-blue-50/80 rounded-lg flex flex-col justify-center items-center border-2 border-blue-200 px-2 overflow-hidden py-1 shadow-sm">
-                            <div className="w-full text-center leading-tight mb-1 font-black text-blue-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p1)?.name, court.fontSizeModifier) }}>
+                            <div className="w-full text-center leading-tight mb-1 font-black text-blue-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p1)?.name, config.nameFontSizeModifier) }}>
                               {members.find(m => m.id === court.match?.p1)?.name}
                             </div>
-                            <div className="w-full text-center leading-tight font-black text-blue-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p2)?.name, court.fontSizeModifier) }}>
+                            <div className="w-full text-center leading-tight font-black text-blue-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p2)?.name, config.nameFontSizeModifier) }}>
                               {members.find(m => m.id === court.match?.p2)?.name}
                             </div>
                           </div>
                           <div className="bg-red-50/80 rounded-lg flex flex-col justify-center items-center border-2 border-red-200 px-2 overflow-hidden py-1 shadow-sm">
-                            <div className="w-full text-center leading-tight mb-1 font-black text-red-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p3)?.name, court.fontSizeModifier) }}>
+                            <div className="w-full text-center leading-tight mb-1 font-black text-red-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p3)?.name, config.nameFontSizeModifier) }}>
                               {members.find(m => m.id === court.match?.p3)?.name}
                             </div>
-                            <div className="w-full text-center leading-tight font-black text-red-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p4)?.name, court.fontSizeModifier) }}>
+                            <div className="w-full text-center leading-tight font-black text-red-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p4)?.name, config.nameFontSizeModifier) }}>
                               {members.find(m => m.id === court.match?.p4)?.name}
                             </div>
                           </div>
