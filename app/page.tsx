@@ -124,6 +124,7 @@ export default function DoublesMatchupApp() {
     localStorage.setItem('doubles-app-data-v16', JSON.stringify(data));
   }, [members, courts, nextMatches, matchHistory, config, nextMemberId, isInitialized]);
 
+  // タブ切り替え時の再計算ロジック
   useEffect(() => {
     if (isInitialized && activeTab === 'dashboard' && config.bulkOnlyMode) {
       if (lastFingerprint !== memberFingerprint) {
@@ -132,18 +133,29 @@ export default function DoublesMatchupApp() {
           if (c.match) [c.match.p1, c.match.p2, c.match.p3, c.match.p4].forEach(id => plannedIds.add(id));
         });
 
+        // 再計算が必要な変更があるかチェック
         const hasRelevantChange = members.some(m => {
           const prev = prevMembersRef.current.find(p => p.id === m.id);
           if (!prev) return false;
-          const isChanged = prev.isActive !== m.isActive || 
-                            prev.fixedPairMemberId !== m.fixedPairMemberId || 
-                            prev.level !== m.level;
-          if (!isChanged) return false;
+          
+          const isActiveChanged = prev.isActive !== m.isActive;
+          const isFixedPairChanged = prev.fixedPairMemberId !== m.fixedPairMemberId;
+          const isLevelChanged = prev.level !== m.level;
 
+          // 1. 固定ペアの変更は、誰であっても（予定外でも）常に再計算が必要
+          if (isFixedPairChanged) return true;
+
+          // 2. 予定メンバーに関する変更の判定
           if (plannedIds.has(m.id)) {
-            if (prev.isActive !== m.isActive || prev.fixedPairMemberId !== m.fixedPairMemberId) return true;
-            if (config.levelStrict && prev.level !== m.level) return true;
+            // 休み状態の変化は再計算
+            if (isActiveChanged) return true;
+            // レベルの変化は「厳格モード」の時のみ再計算
+            if (config.levelStrict && isLevelChanged) return true;
           }
+
+          // 3. 予定外メンバーが「参加（休み解除）」になった場合は、組み合わせが変わる可能性があるので再計算
+          if (!plannedIds.has(m.id) && isActiveChanged && m.isActive) return true;
+
           return false;
         });
 
@@ -162,6 +174,8 @@ export default function DoublesMatchupApp() {
       }
     }
   }, [activeTab, isInitialized, memberFingerprint, config.bulkOnlyMode, config.levelStrict, config.courtCount]);
+
+  // --- 以降、アルゴリズム・JSX（変更なし） ---
 
   const handleCourtCountChange = (count: number) => {
     setConfig(prev => ({ ...prev, courtCount: count }));
