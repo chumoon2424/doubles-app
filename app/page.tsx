@@ -331,52 +331,32 @@ export default function DoublesMatchupApp() {
       const score = (m: Member): number[] => {
         const criteria: number[] = [];
         if (step === 'W') {
-          // 1-1. 試合数が最少
           criteria.push(m.playCount);
-          // 1-2. セットが最古
           criteria.push(m.lastPlayedTime);
         } else if (step === 'X') {
-          // 2-1. Wに休み中でない固定ペアがいる場合は、その固定ペア
           const wFixedPartner = candidates.find(c => c.id === w.fixedPairMemberId);
           criteria.push(wFixedPartner && m.id === w.fixedPairMemberId ? 0 : 1);
-          // 2-2. 固定ペアがいない人、または固定ペアが休み中の人
           const mFixedPartnerIsActive = m.fixedPairMemberId ? candidates.some(c => c.id === m.fixedPairMemberId) : false;
           criteria.push(!mFixedPartnerIsActive ? 0 : 1);
-          // 2-3. レベル厳格モードなら、Wと同じレベル
           if (config.levelStrict) criteria.push(m.level === w.level ? 0 : 1);
-          // 2-4. 試合数最少 or セット最古
           criteria.push((m.playCount === minPlayCount || m.lastPlayedTime === minLastTime) ? 0 : 1);
-          // 2-5. Wとペア回数最少
           criteria.push(w.pairHistory[m.id] || 0);
-          // 2-6. Wと対戦回数最少
           criteria.push(w.matchHistory[m.id] || 0);
         } else if (step === 'Y') {
-          // 3-1. 同レベル
           if (config.levelStrict) criteria.push(m.level === w.level ? 0 : 1);
-          // 3-2. 試合数最少 or セット最古
           criteria.push((m.playCount === minPlayCount || m.lastPlayedTime === minLastTime) ? 0 : 1);
-          // 3-3. Wとの合計最少
           criteria.push((w.pairHistory[m.id] || 0) + (w.matchHistory[m.id] || 0));
-          // 3-4. Xとの合計最少
           criteria.push((x.pairHistory[m.id] || 0) + (x.matchHistory[m.id] || 0));
         } else if (step === 'Z') {
-          // 4-1. Yに休み中でない固定ペアがいる場合は、その固定ペア
           const yFixedPartner = candidates.find(c => c.id === y.fixedPairMemberId);
           criteria.push(yFixedPartner && m.id === y.fixedPairMemberId ? 0 : 1);
-          // 4-2. 固定ペアがいない人、または固定ペアが休み中の人
           const mFixedPartnerIsActive = m.fixedPairMemberId ? candidates.some(c => c.id === m.fixedPairMemberId) : false;
           criteria.push(!mFixedPartnerIsActive ? 0 : 1);
-          // 4-3. 同レベル
           if (config.levelStrict) criteria.push(m.level === w.level ? 0 : 1);
-          // 4-4. 試合数最少 or セット最古
           criteria.push((m.playCount === minPlayCount || m.lastPlayedTime === minLastTime) ? 0 : 1);
-          // 4-5. Yとペア回数最少
           criteria.push(y.pairHistory[m.id] || 0);
-          // 4-6. Yと対戦回数最少
           criteria.push(y.matchHistory[m.id] || 0);
-          // 4-7. Wとの合計最少
           criteria.push((w.pairHistory[m.id] || 0) + (w.matchHistory[m.id] || 0));
-          // 4-8. Xとの合計最少
           criteria.push((x.pairHistory[m.id] || 0) + (x.matchHistory[m.id] || 0));
         }
         return criteria;
@@ -388,10 +368,9 @@ export default function DoublesMatchupApp() {
         for (let i = 0; i < scoreA.length; i++) {
           if (scoreA[i] !== scoreB[i]) return scoreA[i] - scoreB[i];
         }
-        return 0; // 全く同じスコア
+        return 0;
       });
 
-      // 1-3, 2-7, 3-5, 4-9. ランダム要素の適用
       const topScore = score(sorted[0]);
       const topCandidates = sorted.filter(m => {
         const s = score(m);
@@ -426,7 +405,6 @@ export default function DoublesMatchupApp() {
       combs.forEach(([i, j]) => {
         const m1 = p[i];
         const m2 = p[j];
-        // 固定ペアの分（現在有効なもの）を除く
         const isCurrentFixedPair = (m1.fixedPairMemberId === m2.id && candidates.some(c => c.id === m1.id) && candidates.some(c => c.id === m2.id));
         if (!isCurrentFixedPair) {
           total += (m1.pairHistory[m2.id] || 0) + (m1.matchHistory[m2.id] || 0);
@@ -436,7 +414,6 @@ export default function DoublesMatchupApp() {
     };
 
     const bestPattern = patterns.reduce((prev, curr) => {
-      // 7. 同じ場合は先に作成したパターンを採用
       return getPatternCost(curr) < getPatternCost(prev) ? curr : prev;
     });
 
@@ -534,7 +511,6 @@ export default function DoublesMatchupApp() {
   };
 
   const getDynamicFontSize = (name: string = '', modifier: number = 1.0) => {
-    // 1文字ずつ判定して有効長を計算 (半角0.6, 全角1.0)
     const effectiveLen = name.split('').reduce((acc, char) => {
       return acc + (/[\x20-\x7E]/.test(char) ? 0.6 : 1.0);
     }, 0);
@@ -556,12 +532,10 @@ export default function DoublesMatchupApp() {
         <div className="flex items-center gap-2">
           {activeTab === 'dashboard' && (
             <>
-              {/* コート高さ調整 */}
               <div className="flex items-center bg-black/20 rounded-lg p-0.5 mr-1">
                 <button onClick={() => changeZoom(-0.1)} title="コート高さを縮小" className="p-1.5 hover:bg-white/10 rounded"><ZoomOut size={16}/></button>
                 <button onClick={() => changeZoom(0.1)} title="コート高さを拡大" className="p-1.5 hover:bg-white/10 rounded"><ZoomIn size={16}/></button>
               </div>
-              {/* 選手名フォントサイズ一括調整 */}
               <div className="flex items-center bg-black/20 rounded-lg p-0.5 mr-2">
                 <button onClick={() => changeNameFontSize(-0.1)} title="文字サイズを縮小" className="p-1.5 hover:bg-white/10 rounded"><ZoomOut size={16}/></button>
                 <div className="px-0.5 text-white/50"><Type size={14} /></div>
@@ -605,20 +579,30 @@ export default function DoublesMatchupApp() {
                     {court.match ? (
                       <div className="flex items-center gap-2 h-full overflow-hidden">
                         <div className="flex-1 grid grid-cols-2 gap-3 h-full">
-                          <div className="bg-blue-50/80 rounded-lg flex flex-col justify-between items-stretch border-2 border-blue-200 px-3 overflow-hidden py-1 shadow-sm">
-                            <div className="w-full text-left leading-tight font-black text-blue-900 whitespace-nowrap overflow-hidden text-ellipsis self-start" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p1)?.name, config.nameFontSizeModifier) }}>
-                              {members.find(m => m.id === court.match?.p1)?.name}
+                          {/* ペア1 */}
+                          <div className="bg-blue-50/80 rounded-lg flex flex-col justify-center items-stretch border-2 border-blue-200 px-3 overflow-hidden shadow-sm">
+                            <div className="h-1/2 flex items-center">
+                              <div className="w-full text-left leading-tight font-black text-blue-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p1)?.name, config.nameFontSizeModifier) }}>
+                                {members.find(m => m.id === court.match?.p1)?.name}
+                              </div>
                             </div>
-                            <div className="w-full text-right leading-tight font-black text-blue-900 whitespace-nowrap overflow-hidden text-ellipsis self-end" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p2)?.name, config.nameFontSizeModifier) }}>
-                              {members.find(m => m.id === court.match?.p2)?.name}
+                            <div className="h-1/2 flex items-center">
+                              <div className="w-full text-right leading-tight font-black text-blue-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p2)?.name, config.nameFontSizeModifier) }}>
+                                {members.find(m => m.id === court.match?.p2)?.name}
+                              </div>
                             </div>
                           </div>
-                          <div className="bg-red-50/80 rounded-lg flex flex-col justify-between items-stretch border-2 border-red-200 px-3 overflow-hidden py-1 shadow-sm">
-                            <div className="w-full text-left leading-tight font-black text-red-900 whitespace-nowrap overflow-hidden text-ellipsis self-start" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p3)?.name, config.nameFontSizeModifier) }}>
-                              {members.find(m => m.id === court.match?.p3)?.name}
+                          {/* ペア2 */}
+                          <div className="bg-red-50/80 rounded-lg flex flex-col justify-center items-stretch border-2 border-red-200 px-3 overflow-hidden shadow-sm">
+                            <div className="h-1/2 flex items-center">
+                              <div className="w-full text-left leading-tight font-black text-red-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p3)?.name, config.nameFontSizeModifier) }}>
+                                {members.find(m => m.id === court.match?.p3)?.name}
+                              </div>
                             </div>
-                            <div className="w-full text-right leading-tight font-black text-red-900 whitespace-nowrap overflow-hidden text-ellipsis self-end" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p4)?.name, config.nameFontSizeModifier) }}>
-                              {members.find(m => m.id === court.match?.p4)?.name}
+                            <div className="h-1/2 flex items-center">
+                              <div className="w-full text-right leading-tight font-black text-red-900 whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontSize: getDynamicFontSize(members.find(m => m.id === court.match?.p4)?.name, config.nameFontSizeModifier) }}>
+                                {members.find(m => m.id === court.match?.p4)?.name}
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -719,7 +703,6 @@ export default function DoublesMatchupApp() {
                   </div>
                 </div>
               )}
-
             </div>
           </div>
         )}
