@@ -80,9 +80,10 @@ export default function DoublesMatchupApp() {
   const [editingPairMemberId, setEditingPairMemberId] = useState<number | null>(null);
   const [showScheduleNotice, setShowScheduleNotice] = useState(false);
 
+  // 監視対象を拡張：isActive, fixedPairMemberId, levelStrict を含める
   const memberFingerprint = useMemo(() => {
-    return `${members.map(m => `${m.id}-${m.isActive}-${m.level}-${m.fixedPairMemberId}`).join('|')}_C${config.courtCount}_B${config.bulkOnlyMode}`;
-  }, [members, config.courtCount, config.bulkOnlyMode]);
+    return `${members.map(m => `${m.id}-${m.isActive}-${m.level}-${m.fixedPairMemberId}`).join('|')}_C${config.courtCount}_B${config.bulkOnlyMode}_S${config.levelStrict}`;
+  }, [members, config.courtCount, config.bulkOnlyMode, config.levelStrict]);
 
   const [lastFingerprint, setLastFingerprint] = useState('');
 
@@ -414,7 +415,6 @@ export default function DoublesMatchupApp() {
   const CourtCard = ({ court, isPlanned = false }: { court: Court, isPlanned?: boolean }) => {
     const calculatedHeight = (config.bulkOnlyMode ? 140 : 180) * config.zoomLevel;
     
-    // 一括進行モード用の配色（案1：モノトーン）
     const borderClass = isPlanned ? 'border-gray-400' : 'border-slate-900';
     const bgClass = isPlanned ? 'bg-gray-50' : 'bg-white';
     const numberTextClass = isPlanned ? 'text-gray-400' : 'text-slate-900';
@@ -425,7 +425,6 @@ export default function DoublesMatchupApp() {
         style={{ height: `${calculatedHeight}px`, minHeight: `${calculatedHeight}px` }}
       >
         {config.bulkOnlyMode ? (
-          /* 一括進行モード：サイドバー形式 */
           <>
             <div className={`w-10 shrink-0 flex flex-col items-center justify-center border-r border-gray-100 ${isPlanned ? 'bg-gray-100/50' : 'bg-slate-50'}`}>
               <span className={`font-black text-2xl ${numberTextClass}`}>{court.id}</span>
@@ -458,7 +457,6 @@ export default function DoublesMatchupApp() {
             </div>
           </>
         ) : (
-          /* 通常モード：ヘッダー形式 */
           <>
             <div className={`px-4 py-1.5 border-b flex justify-between items-center shrink-0 ${isPlanned ? 'bg-orange-50 border-orange-100' : 'bg-gray-100 border-gray-300'}`}>
               <span className={`font-black text-sm uppercase tracking-tighter ${isPlanned ? 'text-orange-600' : 'text-gray-600'}`}>
