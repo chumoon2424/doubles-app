@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Users, 
   Settings, 
@@ -19,48 +19,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 
-type Level = 'A' | 'B' | 'C';
-
-interface Member {
-  id: number;
-  name: string;
-  level: Level;
-  isActive: boolean;
-  playCount: number;
-  imputedPlayCount: number;
-  lastPlayedTime: number;
-  matchHistory: Record<number, number>;
-  pairHistory: Record<number, number>;
-  fixedPairMemberId: number | null;
-}
-
-interface Court {
-  id: number;
-  match: {
-    p1: number;
-    p2: number;
-    p3: number;
-    p4: number;
-    level?: Level;
-  } | null;
-}
-
-interface MatchRecord {
-  id: string;
-  timestamp: string;
-  courtId: number;
-  players: string[];
-  playerIds: number[];
-  level?: Level;
-}
-
-interface AppConfig {
-  courtCount: number;
-  levelStrict: boolean;
-  zoomLevel: number;
-  nameFontSizeModifier: number;
-  bulkOnlyMode: boolean;
-}
+// ... (Type定義、Interfaceは変更なしのため中略)
 
 export default function DoublesMatchupApp() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'members' | 'history' | 'settings'>('dashboard');
@@ -80,58 +39,31 @@ export default function DoublesMatchupApp() {
   const [editingPairMemberId, setEditingPairMemberId] = useState<number | null>(null);
   const [showScheduleNotice, setShowScheduleNotice] = useState(false);
 
-  // 次回の予定に含まれているメンバーのIDセットを作成
-  const plannedMemberIds = useMemo(() => {
-    const ids = new Set<number>();
-    nextMatches.forEach(c => {
-      if (c.match) {
-        ids.add(c.match.p1);
-        ids.add(c.match.p2);
-        ids.add(c.match.p3);
-        ids.add(c.match.p4);
-      }
-    });
-    return ids;
-  }, [nextMatches]);
-
-  // 指紋生成：予定に含まれるメンバーの状態、および設定変更を監視
-  const memberFingerprint = useMemo(() => {
-    const plannedStatus = members
-      .filter(m => plannedMemberIds.has(m.id))
-      .map(m => `${m.id}-${m.isActive}-${m.level}-${m.fixedPairMemberId}`)
-      .join('|');
-    return `${plannedStatus}_C${config.courtCount}_B${config.bulkOnlyMode}_S${config.levelStrict}`;
-  }, [members, plannedMemberIds, config.courtCount, config.bulkOnlyMode, config.levelStrict]);
-
+  const prevMembersRef = useRef<Member[]>([]);
   const [lastFingerprint, setLastFingerprint] = useState('');
+
+  const memberFingerprint = useMemo(() => {
+    const status = members.map(m => `${m.id}-${m.isActive}-${m.level}-${m.fixedPairMemberId}`).join('|');
+    return `${status}_C${config.courtCount}_S${config.levelStrict}_B${config.bulkOnlyMode}`;
+  }, [members, config.courtCount, config.levelStrict, config.bulkOnlyMode]);
 
   useEffect(() => {
     const versions = ['v16', 'v15', 'v14', 'v13', 'v12', 'v11', 'v10', 'v9', 'v8'];
     let loadedData = null;
-
     for (const v of versions) {
       const saved = localStorage.getItem(`doubles-app-data-${v}`);
       if (saved) {
-        try {
-          loadedData = JSON.parse(saved);
-          break;
-        } catch (e) {
-          console.error(`Failed to parse data from ${v}`);
-        }
+        try { loadedData = JSON.parse(saved); break; } catch (e) {}
       }
     }
-
     if (loadedData) {
       setMembers(loadedData.members || []);
       setCourts(loadedData.courts || []);
       setNextMatches(loadedData.nextMatches || []);
-      setConfig(prev => ({ 
-        ...prev, 
-        ...(loadedData.config || {}),
-        bulkOnlyMode: loadedData.config?.bulkOnlyMode ?? prev.bulkOnlyMode 
-      }));
+      setConfig(prev => ({ ...prev, ...(loadedData.config || {}) }));
       setNextMemberId(loadedData.nextMemberId || 1);
       setMatchHistory(loadedData.matchHistory || []);
+      prevMembersRef.current = loadedData.members || [];
     } else {
       initializeCourts(4);
     }
@@ -144,18 +76,53 @@ export default function DoublesMatchupApp() {
     localStorage.setItem('doubles-app-data-v16', JSON.stringify(data));
   }, [members, courts, nextMatches, matchHistory, config, nextMemberId, isInitialized]);
 
+  // タブ切り替え時の再計算ロジック
   useEffect(() => {
     if (isInitialized && activeTab === 'dashboard' && config.bulkOnlyMode) {
       if (lastFingerprint !== memberFingerprint) {
-        regeneratePlannedMatches();
-        setLastFingerprint(memberFingerprint);
-        if (lastFingerprint !== '') {
-          setShowScheduleNotice(true);
-          setTimeout(() => setShowScheduleNotice(false), 3000);
+        const plannedIds = new Set<number>();
+        nextMatches.forEach(c => {
+          if (c.match) [c.match.p1, c.match.p2, c.match.p3, c.match.p4].forEach(id => plannedIds.add(id));
+        });
+
+        // 状態が変化したメンバーのうち、再計算が必要な変更があるかチェック
+        const hasRelevantChange = members.some(m => {
+          const prev = prevMembersRef.current.find(p => p.id === m.id);
+          if (!prev) return false;
+          
+          // 変更がない場合はスキップ
+          const isChanged = prev.isActive !== m.isActive || 
+                            prev.fixedPairMemberId !== m.fixedPairMemberId || 
+                            prev.level !== m.level;
+          if (!isChanged) return false;
+
+          // 変更があった場合、それが「予定メンバー」かつ「アルゴリズムに影響する項目」か判定
+          if (plannedIds.has(m.id)) {
+            // 休み状態の変化、または固定ペアの変化は常に再計算
+            if (prev.isActive !== m.isActive || prev.fixedPairMemberId !== m.fixedPairMemberId) return true;
+            // レベルの変化は「厳格モード」の時のみ再計算
+            if (config.levelStrict && prev.level !== m.level) return true;
+          }
+          return false;
+        });
+
+        const configChanged = !lastFingerprint.endsWith(`_C${config.courtCount}_S${config.levelStrict}_B${config.bulkOnlyMode}`);
+
+        if (configChanged || hasRelevantChange || lastFingerprint === '') {
+          regeneratePlannedMatches();
+          if (lastFingerprint !== '') {
+            setShowScheduleNotice(true);
+            setTimeout(() => setShowScheduleNotice(false), 3000);
+          }
         }
+        
+        setLastFingerprint(memberFingerprint);
+        prevMembersRef.current = members;
       }
     }
-  }, [activeTab, isInitialized, memberFingerprint, config.bulkOnlyMode, lastFingerprint]);
+  }, [activeTab, isInitialized, memberFingerprint, config.bulkOnlyMode, config.levelStrict, config.courtCount]);
+
+  // ... (中略：以下のアルゴリズム中核部やJSXは変更なし)
 
   const initializeCourts = (count: number) => {
     const newCourts = Array.from({ length: count }, (_, i) => ({ id: i + 1, match: null }));
@@ -388,6 +355,7 @@ export default function DoublesMatchupApp() {
         setMembers(currentMembersState);
         setCourts(matchesToApply);
         regeneratePlannedMatches(currentMembersState);
+        prevMembersRef.current = currentMembersState;
       }, 200);
     } else {
       setCourts(prev => prev.map(c => ({ ...c, match: null })));
@@ -432,11 +400,9 @@ export default function DoublesMatchupApp() {
 
   const CourtCard = ({ court, isPlanned = false }: { court: Court, isPlanned?: boolean }) => {
     const calculatedHeight = (config.bulkOnlyMode ? 140 : 180) * config.zoomLevel;
-    
     const borderClass = isPlanned ? 'border-gray-400' : 'border-slate-900';
     const bgClass = isPlanned ? 'bg-gray-50' : 'bg-white';
     const numberTextClass = isPlanned ? 'text-gray-400' : 'text-slate-900';
-
     return (
       <div 
         className={`relative rounded-xl shadow-md border overflow-hidden flex ${config.bulkOnlyMode ? `border-l-8 ${borderClass} ${bgClass}` : 'flex-col border-gray-300 bg-white'} ${isPlanned && !config.bulkOnlyMode ? 'opacity-80 border-orange-200 bg-orange-50/50' : ''}`}
