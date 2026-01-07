@@ -87,8 +87,9 @@ export default function DoublesMatchupApp() {
   const prevMembersRef = useRef<Member[]>([]);
   const [lastFingerprint, setLastFingerprint] = useState('');
 
+  // メンバーの状態を監視するフィンガープリント
   const memberFingerprint = useMemo(() => {
-    const status = members.map(m => `${m.id}-${m.isActive}-${m.level}-${m.fixedPairMemberId}`).join('|');
+    const status = members.map(m => `${m.id}-${m.isActive}-${m.level}-${m.fixedPairMemberId || 'none'}`).join('|');
     return `${status}_C${config.courtCount}_S${config.levelStrict}_B${config.bulkOnlyMode}`;
   }, [members, config.courtCount, config.levelStrict, config.bulkOnlyMode]);
 
@@ -124,7 +125,6 @@ export default function DoublesMatchupApp() {
     localStorage.setItem('doubles-app-data-v16', JSON.stringify(data));
   }, [members, courts, nextMatches, matchHistory, config, nextMemberId, isInitialized]);
 
-  // タブ切り替え時の再計算ロジック
   useEffect(() => {
     if (isInitialized && activeTab === 'dashboard' && config.bulkOnlyMode) {
       if (lastFingerprint !== memberFingerprint) {
@@ -133,27 +133,22 @@ export default function DoublesMatchupApp() {
           if (c.match) [c.match.p1, c.match.p2, c.match.p3, c.match.p4].forEach(id => plannedIds.add(id));
         });
 
-        // 再計算が必要な変更があるかチェック
         const hasRelevantChange = members.some(m => {
           const prev = prevMembersRef.current.find(p => p.id === m.id);
           if (!prev) return false;
-          
+
+          // 1. 固定ペアが変更された場合は、誰であっても再計算
+          if (prev.fixedPairMemberId !== m.fixedPairMemberId) return true;
+
           const isActiveChanged = prev.isActive !== m.isActive;
-          const isFixedPairChanged = prev.fixedPairMemberId !== m.fixedPairMemberId;
-          const isLevelChanged = prev.level !== m.level;
 
-          // 1. 固定ペアの変更は、誰であっても（予定外でも）常に再計算が必要
-          if (isFixedPairChanged) return true;
-
-          // 2. 予定メンバーに関する変更の判定
+          // 2. 予定されているメンバーの状態に変更があった場合
           if (plannedIds.has(m.id)) {
-            // 休み状態の変化は再計算
             if (isActiveChanged) return true;
-            // レベルの変化は「厳格モード」の時のみ再計算
-            if (config.levelStrict && isLevelChanged) return true;
+            if (config.levelStrict && prev.level !== m.level) return true;
           }
 
-          // 3. 予定外メンバーが「参加（休み解除）」になった場合は、組み合わせが変わる可能性があるので再計算
+          // 3. 予定外のメンバーが「休み解除（参加）」になった場合も、組み合わせが変わる可能性があるため再計算
           if (!plannedIds.has(m.id) && isActiveChanged && m.isActive) return true;
 
           return false;
@@ -174,8 +169,6 @@ export default function DoublesMatchupApp() {
       }
     }
   }, [activeTab, isInitialized, memberFingerprint, config.bulkOnlyMode, config.levelStrict, config.courtCount]);
-
-  // --- 以降、アルゴリズム・JSX（変更なし） ---
 
   const handleCourtCountChange = (count: number) => {
     setConfig(prev => ({ ...prev, courtCount: count }));
@@ -225,20 +218,24 @@ export default function DoublesMatchupApp() {
       let newMembers = [...prev];
       const target = newMembers.find(m => m.id === memberId);
       if (!target) return prev;
+      
       if (target.fixedPairMemberId) {
         const oldPartner = newMembers.find(m => m.id === target.fixedPairMemberId);
         if (oldPartner) oldPartner.fixedPairMemberId = null;
       }
+      
       if (partnerId) {
         const newPartner = newMembers.find(m => m.id === partnerId);
-        if (newPartner && newPartner.fixedPairMemberId) {
-          const partnersOldPartner = newMembers.find(m => m.id === newPartner.fixedPairMemberId);
-          if (partnersOldPartner) partnersOldPartner.fixedPairMemberId = null;
+        if (newPartner) {
+          if (newPartner.fixedPairMemberId) {
+            const partnersOldPartner = newMembers.find(m => m.id === newPartner.fixedPairMemberId);
+            if (partnersOldPartner) partnersOldPartner.fixedPairMemberId = null;
+          }
+          newPartner.fixedPairMemberId = memberId;
         }
-        if (newPartner) newPartner.fixedPairMemberId = memberId;
       }
       target.fixedPairMemberId = partnerId;
-      return newMembers;
+      return [...newMembers];
     });
     setEditingPairMemberId(null);
   };
