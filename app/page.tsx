@@ -354,7 +354,12 @@ export default function DoublesMatchupApp() {
     if (config.bulkOnlyMode) {
       const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       const matchesToApply = [...nextMatches];
+      
+      // 1. 現在の対戦と次回の予定を両方一旦クリア
       setCourts(prev => prev.map(c => ({ ...c, match: null })));
+      setNextMatches(prev => prev.map(c => ({ ...c, match: null })));
+
+      // 2. 200ms後に反映
       setTimeout(() => {
         let currentMembersState = [...members];
         let newHistoryEntries: MatchRecord[] = [];
@@ -393,7 +398,7 @@ export default function DoublesMatchupApp() {
   };
 
   const generateNextMatch = (courtId: number) => {
-    if (config.bulkOnlyMode) return; // 一括進行モード時は個別割当をガード
+    if (config.bulkOnlyMode) return;
     const match = getMatchForCourt(courts, members);
     if (!match) return alert('待機メンバーが足りません');
     const ids = [match.p1, match.p2, match.p3, match.p4], names = ids.map(id => members.find(m => m.id === id)?.name || '?');
@@ -402,7 +407,10 @@ export default function DoublesMatchupApp() {
     setCourts(prev => prev.map(c => c.id === courtId ? { ...c, match } : c));
   };
 
-  const finishMatch = (courtId: number) => setCourts(prev => prev.map(c => c.id === courtId ? { ...c, match: null } : c));
+  const finishMatch = (courtId: number) => setCourts(prev => prev.map(c => {
+    if (c.id === courtId) return { ...c, match: null };
+    return c;
+  }));
   const changeZoom = (d: number) => setConfig(p => ({ ...p, zoomLevel: Math.max(0.5, Math.min(2.0, p.zoomLevel + d)) }));
   const changeNameFontSize = (d: number) => setConfig(p => ({ ...p, nameFontSizeModifier: Math.max(0.5, Math.min(2.0, p.nameFontSizeModifier + d)) }));
 
@@ -445,7 +453,7 @@ export default function DoublesMatchupApp() {
               </div>
             </div>
           ) : (
-            !isPlanned && !config.bulkOnlyMode && ( // 一括進行モード時は「割当」を表示しない
+            !isPlanned && !config.bulkOnlyMode && (
               <button onClick={() => generateNextMatch(court.id)} className="w-full h-full border-4 border-dashed border-gray-400 text-gray-500 font-black text-2xl rounded-xl flex items-center justify-center gap-3"><Play size={32} fill="currentColor" /> 割当</button>
             )
           )}
