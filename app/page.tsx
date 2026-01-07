@@ -80,13 +80,14 @@ export default function DoublesMatchupApp() {
   const [editingPairMemberId, setEditingPairMemberId] = useState<number | null>(null);
   const [showScheduleNotice, setShowScheduleNotice] = useState(false);
 
+  // メンバー構成やコート数、モードの変更を検知するための指紋
   const memberFingerprint = useMemo(() => {
-    return members.map(m => `${m.id}-${m.isActive}-${m.level}-${m.fixedPairMemberId}`).join('|');
-  }, [members]);
+    return `${members.map(m => `${m.id}-${m.isActive}-${m.level}-${m.fixedPairMemberId}`).join('|')}_C${config.courtCount}_B${config.bulkOnlyMode}`;
+  }, [members, config.courtCount, config.bulkOnlyMode]);
 
   const [lastFingerprint, setLastFingerprint] = useState('');
 
-  // 過去データ引き継ぎ（v16〜v8）
+  // 過去データ引き継ぎ
   useEffect(() => {
     const versions = ['v16', 'v15', 'v14', 'v13', 'v12', 'v11', 'v10', 'v9', 'v8'];
     let loadedData = null;
@@ -126,6 +127,7 @@ export default function DoublesMatchupApp() {
     localStorage.setItem('doubles-app-data-v16', JSON.stringify(data));
   }, [members, courts, nextMatches, matchHistory, config, nextMemberId, isInitialized]);
 
+  // 試合画面（dashboard）に戻った際に、不整合があれば予定を組み直す
   useEffect(() => {
     if (isInitialized && activeTab === 'dashboard' && config.bulkOnlyMode) {
       if (lastFingerprint !== memberFingerprint) {
@@ -137,7 +139,7 @@ export default function DoublesMatchupApp() {
         }
       }
     }
-  }, [activeTab, isInitialized, memberFingerprint, config.bulkOnlyMode]);
+  }, [activeTab, isInitialized, memberFingerprint, config.bulkOnlyMode, lastFingerprint]);
 
   const initializeCourts = (count: number) => {
     const newCourts = Array.from({ length: count }, (_, i) => ({ id: i + 1, match: null }));
@@ -354,12 +356,8 @@ export default function DoublesMatchupApp() {
     if (config.bulkOnlyMode) {
       const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       const matchesToApply = [...nextMatches];
-      
-      // 1. 現在の対戦と次回の予定を両方一旦クリア
       setCourts(prev => prev.map(c => ({ ...c, match: null })));
       setNextMatches(prev => prev.map(c => ({ ...c, match: null })));
-
-      // 2. 200ms後に反映
       setTimeout(() => {
         let currentMembersState = [...members];
         let newHistoryEntries: MatchRecord[] = [];
@@ -407,10 +405,7 @@ export default function DoublesMatchupApp() {
     setCourts(prev => prev.map(c => c.id === courtId ? { ...c, match } : c));
   };
 
-  const finishMatch = (courtId: number) => setCourts(prev => prev.map(c => {
-    if (c.id === courtId) return { ...c, match: null };
-    return c;
-  }));
+  const finishMatch = (courtId: number) => setCourts(prev => prev.map(c => c.id === courtId ? { ...c, match: null } : c));
   const changeZoom = (d: number) => setConfig(p => ({ ...p, zoomLevel: Math.max(0.5, Math.min(2.0, p.zoomLevel + d)) }));
   const changeNameFontSize = (d: number) => setConfig(p => ({ ...p, nameFontSizeModifier: Math.max(0.5, Math.min(2.0, p.nameFontSizeModifier + d)) }));
 
@@ -489,7 +484,7 @@ export default function DoublesMatchupApp() {
           <div className="space-y-6">
             {showScheduleNotice && (
               <div className="bg-orange-100 border border-orange-200 text-orange-800 px-4 py-2 rounded-lg flex items-center gap-2 animate-bounce">
-                <AlertCircle size={18} /> <span className="text-sm font-bold">メンバー変更に合わせて予定を更新しました</span>
+                <AlertCircle size={18} /> <span className="text-sm font-bold">状況に合わせて予定を更新しました</span>
               </div>
             )}
             <section className="grid grid-cols-1 landscape:grid-cols-2 gap-4">
