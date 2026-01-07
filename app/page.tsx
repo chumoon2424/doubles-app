@@ -534,9 +534,10 @@ export default function DoublesMatchupApp() {
   };
 
   const getDynamicFontSize = (name: string = '', modifier: number = 1.0) => {
-    const isAscii = /^[\x20-\x7E]*$/.test(name);
-    const len = name.length;
-    const effectiveLen = isAscii ? len * 0.6 : len;
+    // 1文字ずつ判定して有効長を計算 (半角0.6, 全角1.0)
+    const effectiveLen = name.split('').reduce((acc, char) => {
+      return acc + (/[\x20-\x7E]/.test(char) ? 0.6 : 1.0);
+    }, 0);
 
     let baseSize = '';
     if (effectiveLen <= 2) baseSize = '3.5rem';
