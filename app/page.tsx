@@ -80,10 +80,28 @@ export default function DoublesMatchupApp() {
   const [editingPairMemberId, setEditingPairMemberId] = useState<number | null>(null);
   const [showScheduleNotice, setShowScheduleNotice] = useState(false);
 
-  // 監視対象を拡張：isActive, fixedPairMemberId, levelStrict を含める
+  // 次回の予定に含まれているメンバーのIDセットを作成
+  const plannedMemberIds = useMemo(() => {
+    const ids = new Set<number>();
+    nextMatches.forEach(c => {
+      if (c.match) {
+        ids.add(c.match.p1);
+        ids.add(c.match.p2);
+        ids.add(c.match.p3);
+        ids.add(c.match.p4);
+      }
+    });
+    return ids;
+  }, [nextMatches]);
+
+  // 指紋生成：予定に含まれるメンバーの状態、および設定変更を監視
   const memberFingerprint = useMemo(() => {
-    return `${members.map(m => `${m.id}-${m.isActive}-${m.level}-${m.fixedPairMemberId}`).join('|')}_C${config.courtCount}_B${config.bulkOnlyMode}_S${config.levelStrict}`;
-  }, [members, config.courtCount, config.bulkOnlyMode, config.levelStrict]);
+    const plannedStatus = members
+      .filter(m => plannedMemberIds.has(m.id))
+      .map(m => `${m.id}-${m.isActive}-${m.level}-${m.fixedPairMemberId}`)
+      .join('|');
+    return `${plannedStatus}_C${config.courtCount}_B${config.bulkOnlyMode}_S${config.levelStrict}`;
+  }, [members, plannedMemberIds, config.courtCount, config.bulkOnlyMode, config.levelStrict]);
 
   const [lastFingerprint, setLastFingerprint] = useState('');
 
