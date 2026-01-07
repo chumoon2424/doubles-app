@@ -86,16 +86,34 @@ export default function DoublesMatchupApp() {
 
   const [lastFingerprint, setLastFingerprint] = useState('');
 
+  // 過去データ引き継ぎ（v16〜v8）
   useEffect(() => {
-    const savedDataV16 = localStorage.getItem('doubles-app-data-v16');
-    if (savedDataV16) {
-      const data = JSON.parse(savedDataV16);
-      setMembers(data.members || []);
-      setCourts(data.courts || []);
-      setNextMatches(data.nextMatches || []);
-      setConfig(prev => ({ ...prev, ...(data.config || {}) }));
-      setNextMemberId(data.nextMemberId || 1);
-      setMatchHistory(data.matchHistory || []);
+    const versions = ['v16', 'v15', 'v14', 'v13', 'v12', 'v11', 'v10', 'v9', 'v8'];
+    let loadedData = null;
+
+    for (const v of versions) {
+      const saved = localStorage.getItem(`doubles-app-data-${v}`);
+      if (saved) {
+        try {
+          loadedData = JSON.parse(saved);
+          break;
+        } catch (e) {
+          console.error(`Failed to parse data from ${v}`);
+        }
+      }
+    }
+
+    if (loadedData) {
+      setMembers(loadedData.members || []);
+      setCourts(loadedData.courts || []);
+      setNextMatches(loadedData.nextMatches || []);
+      setConfig(prev => ({ 
+        ...prev, 
+        ...(loadedData.config || {}),
+        bulkOnlyMode: loadedData.config?.bulkOnlyMode ?? prev.bulkOnlyMode 
+      }));
+      setNextMemberId(loadedData.nextMemberId || 1);
+      setMatchHistory(loadedData.matchHistory || []);
     } else {
       initializeCourts(4);
     }
@@ -141,12 +159,20 @@ export default function DoublesMatchupApp() {
   };
 
   const resetPlayCountsOnly = () => {
-    if (confirm('全員の試合数と対戦履歴、および履歴画面をリセットします。固定ペア設定は維持されます。')) {
-      setMembers(prev => prev.map(m => ({ 
+    if (confirm('全員の試合数と対戦履歴、および履歴画面をリセットします。現在コートの試合もクリアされます。')) {
+      const clearedMembers = members.map(m => ({ 
         ...m, playCount: 0, imputedPlayCount: 0, lastPlayedTime: 0, 
         matchHistory: {}, pairHistory: {} 
-      })));
+      }));
+      setMembers(clearedMembers);
       setMatchHistory([]);
+      const clearedCourts = courts.map(c => ({ ...c, match: null }));
+      setCourts(clearedCourts);
+      if (config.bulkOnlyMode) {
+        regeneratePlannedMatches(clearedMembers);
+      } else {
+        setNextMatches(clearedCourts);
+      }
     }
   };
 
@@ -200,11 +226,10 @@ export default function DoublesMatchupApp() {
     });
   };
 
-  // 試合結果を適用した後のメンバー状態を計算する純粋関数
+  // --- アルゴリズム中核部分（変更なし） ---
   const calculateNextMemberState = (currentMembers: Member[], p1: number, p2: number, p3: number, p4: number) => {
     const now = Date.now();
     const playerIds = [p1, p2, p3, p4];
-    
     const updated = currentMembers.map(m => {
       if (!playerIds.includes(m.id)) return m;
       const newMatchH = { ...m.matchHistory };
@@ -218,11 +243,9 @@ export default function DoublesMatchupApp() {
       opponents.forEach(oid => { newMatchH[oid] = (newMatchH[oid] || 0) + 1; });
       return { ...m, playCount: m.playCount + 1, lastPlayedTime: now, matchHistory: newMatchH, pairHistory: newPairH };
     });
-
     const activeMembers = updated.filter(m => m.isActive);
     if (activeMembers.length === 0) return updated;
     const avgPlays = Math.floor(activeMembers.reduce((sum, m) => sum + m.playCount, 0) / activeMembers.length);
-    
     return updated.map(m => {
       if (!m.isActive && m.playCount < avgPlays) {
         const diff = avgPlays - m.playCount;
@@ -319,7 +342,6 @@ export default function DoublesMatchupApp() {
       if (match) {
         planned.push({ id: i + 1, match });
         const ids = [match.p1, match.p2, match.p3, match.p4];
-        // 予定の計算中でも、同一ラウンド内での試合数重みを擬似的に加算してバランスをとる
         tempMembers = tempMembers.map(m => ids.includes(m.id) ? { ...m, playCount: m.playCount + 1, lastPlayedTime: Date.now() } : m);
       } else {
         planned.push({ id: i + 1, match: null });
@@ -331,38 +353,25 @@ export default function DoublesMatchupApp() {
   const handleBulkAction = () => {
     if (config.bulkOnlyMode) {
       const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      let currentMembersState = [...members];
-      let newHistoryEntries: MatchRecord[] = [];
-
-      // 1. 今の「予定」を適用し、メンバーの状態（試合数など）を更新
-      nextMatches.forEach(c => {
-        if (c.match) {
-          const ids = [c.match.p1, c.match.p2, c.match.p3, c.match.p4];
-          const names = ids.map(id => members.find(m => m.id === id)?.name || '?');
-          newHistoryEntries.push({ 
-            id: Date.now().toString() + c.id, 
-            timestamp, 
-            courtId: c.id, 
-            players: names, 
-            playerIds: ids, 
-            level: c.match?.level 
-          });
-          // ローカル変数に対して同期的に試合数を加算していく
-          currentMembersState = calculateNextMemberState(currentMembersState, c.match.p1, c.match.p2, c.match.p3, c.match.p4);
-        }
-      });
-
-      // 2. まとめてステートを更新
-      setMatchHistory(prev => [...newHistoryEntries, ...prev]);
-      setMembers(currentMembersState);
-      setCourts([...nextMatches]);
-
-      // 3. 最新のメンバー状態をベースに、即座に「次々回の予定」を計算する
-      // これによりステート更新の遅延による試合数の偏りを防ぐ
-      regeneratePlannedMatches(currentMembersState);
-
+      const matchesToApply = [...nextMatches];
+      setCourts(prev => prev.map(c => ({ ...c, match: null })));
+      setTimeout(() => {
+        let currentMembersState = [...members];
+        let newHistoryEntries: MatchRecord[] = [];
+        matchesToApply.forEach(c => {
+          if (c.match) {
+            const ids = [c.match.p1, c.match.p2, c.match.p3, c.match.p4];
+            const names = ids.map(id => members.find(m => m.id === id)?.name || '?');
+            newHistoryEntries.push({ id: Date.now().toString() + c.id, timestamp, courtId: c.id, players: names, playerIds: ids, level: c.match?.level });
+            currentMembersState = calculateNextMemberState(currentMembersState, c.match.p1, c.match.p2, c.match.p3, c.match.p4);
+          }
+        });
+        setMatchHistory(prev => [...newHistoryEntries, ...prev]);
+        setMembers(currentMembersState);
+        setCourts(matchesToApply);
+        regeneratePlannedMatches(currentMembersState);
+      }, 200);
     } else {
-      // 従来モード
       setCourts(prev => prev.map(c => ({ ...c, match: null })));
       setTimeout(() => {
         setCourts(prev => {
@@ -384,6 +393,7 @@ export default function DoublesMatchupApp() {
   };
 
   const generateNextMatch = (courtId: number) => {
+    if (config.bulkOnlyMode) return; // 一括進行モード時は個別割当をガード
     const match = getMatchForCourt(courts, members);
     if (!match) return alert('待機メンバーが足りません');
     const ids = [match.p1, match.p2, match.p3, match.p4], names = ids.map(id => members.find(m => m.id === id)?.name || '?');
@@ -435,7 +445,9 @@ export default function DoublesMatchupApp() {
               </div>
             </div>
           ) : (
-            !isPlanned && <button onClick={() => generateNextMatch(court.id)} className="w-full h-full border-4 border-dashed border-gray-400 text-gray-500 font-black text-2xl rounded-xl flex items-center justify-center gap-3"><Play size={32} fill="currentColor" /> 割当</button>
+            !isPlanned && !config.bulkOnlyMode && ( // 一括進行モード時は「割当」を表示しない
+              <button onClick={() => generateNextMatch(court.id)} className="w-full h-full border-4 border-dashed border-gray-400 text-gray-500 font-black text-2xl rounded-xl flex items-center justify-center gap-3"><Play size={32} fill="currentColor" /> 割当</button>
+            )
           )}
         </div>
       </div>
@@ -472,12 +484,10 @@ export default function DoublesMatchupApp() {
                 <AlertCircle size={18} /> <span className="text-sm font-bold">メンバー変更に合わせて予定を更新しました</span>
               </div>
             )}
-            
             <section className="grid grid-cols-1 landscape:grid-cols-2 gap-4">
               {config.bulkOnlyMode && <h2 className="col-span-full font-black text-xl text-blue-900 border-l-8 border-blue-900 pl-3">現在の対戦</h2>}
               {courts.map(court => <CourtCard key={court.id} court={court} />)}
             </section>
-
             {config.bulkOnlyMode && (
               <section className="grid grid-cols-1 landscape:grid-cols-2 gap-4 mt-8 pb-8">
                 <h2 className="col-span-full font-black text-xl text-orange-700 border-l-8 border-orange-700 pl-3">次回の予定</h2>
@@ -512,7 +522,7 @@ export default function DoublesMatchupApp() {
               ))}
               {editingPairMemberId && (
                 <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setEditingPairMemberId(null)}>
-                  <div className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden" onClick={e => e.stopPropagation()}>
+                  <div className="bg-white rounded-xl shadow-xl w-full max-sm overflow-hidden" onClick={e => e.stopPropagation()}>
                     <div className="bg-gray-100 px-4 py-3 flex justify-between items-center border-b"><h3 className="font-bold text-lg">ペアを選択</h3><button onClick={() => setEditingPairMemberId(null)} className="text-gray-500"><X size={20}/></button></div>
                     <div className="max-h-[60vh] overflow-y-auto p-2">
                       <button onClick={() => updateFixedPair(editingPairMemberId, null)} className="w-full text-left px-4 py-3 hover:bg-red-50 text-red-600 font-bold border-b flex items-center gap-2"><Unlink size={16} /> ペアを解消</button>
@@ -520,9 +530,6 @@ export default function DoublesMatchupApp() {
                         .map(candidate => (
                           <button key={candidate.id} onClick={() => updateFixedPair(editingPairMemberId, candidate.id)} className={`w-full text-left px-4 py-3 hover:bg-blue-50 font-bold border-b flex items-center gap-2 ${members.find(x => x.id === editingPairMemberId)?.fixedPairMemberId === candidate.id ? 'bg-blue-50 text-blue-700' : 'text-gray-700'}`}><LinkIcon size={16} className="text-gray-400" />{candidate.name}</button>
                         ))}
-                      {members.filter(m => m.id !== editingPairMemberId && m.isActive && (!m.fixedPairMemberId || m.fixedPairMemberId === editingPairMemberId) && m.level === members.find(x => x.id === editingPairMemberId)?.level).length === 0 && (
-                        <div className="px-4 py-3 text-gray-400 text-sm text-center">選択可能なメンバーがいません</div>
-                      )}
                     </div>
                   </div>
                 </div>
