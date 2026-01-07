@@ -19,8 +19,53 @@ import {
   AlertCircle
 } from 'lucide-react';
 
-// ... (Type定義、Interfaceは変更なしのため中略)
+// --- 型定義 ---
+type Level = 'A' | 'B' | 'C';
 
+interface Member {
+  id: number;
+  name: string;
+  level: Level;
+  isActive: boolean;
+  playCount: number;
+  imputedPlayCount: number;
+  lastPlayedTime: number;
+  matchHistory: Record<number, number>;
+  pairHistory: Record<number, number>;
+  fixedPairMemberId: number | null;
+}
+
+interface Match {
+  p1: number;
+  p2: number;
+  p3: number;
+  p4: number;
+  level?: Level;
+}
+
+interface Court {
+  id: number;
+  match: Match | null;
+}
+
+interface MatchRecord {
+  id: string;
+  timestamp: string;
+  courtId: number;
+  players: string[];
+  playerIds: number[];
+  level?: Level;
+}
+
+interface AppConfig {
+  courtCount: number;
+  levelStrict: boolean;
+  zoomLevel: number;
+  nameFontSizeModifier: number;
+  bulkOnlyMode: boolean;
+}
+
+// --- メインコンポーネント ---
 export default function DoublesMatchupApp() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'members' | 'history' | 'settings'>('dashboard');
   const [members, setMembers] = useState<Member[]>([]);
@@ -65,7 +110,10 @@ export default function DoublesMatchupApp() {
       setMatchHistory(loadedData.matchHistory || []);
       prevMembersRef.current = loadedData.members || [];
     } else {
-      initializeCourts(4);
+      const initialCount = 4;
+      const initialCourts = Array.from({ length: initialCount }, (_, i) => ({ id: i + 1, match: null }));
+      setCourts(initialCourts);
+      setNextMatches(initialCourts);
     }
     setIsInitialized(true);
   }, []);
@@ -76,7 +124,6 @@ export default function DoublesMatchupApp() {
     localStorage.setItem('doubles-app-data-v16', JSON.stringify(data));
   }, [members, courts, nextMatches, matchHistory, config, nextMemberId, isInitialized]);
 
-  // タブ切り替え時の再計算ロジック
   useEffect(() => {
     if (isInitialized && activeTab === 'dashboard' && config.bulkOnlyMode) {
       if (lastFingerprint !== memberFingerprint) {
@@ -85,22 +132,16 @@ export default function DoublesMatchupApp() {
           if (c.match) [c.match.p1, c.match.p2, c.match.p3, c.match.p4].forEach(id => plannedIds.add(id));
         });
 
-        // 状態が変化したメンバーのうち、再計算が必要な変更があるかチェック
         const hasRelevantChange = members.some(m => {
           const prev = prevMembersRef.current.find(p => p.id === m.id);
           if (!prev) return false;
-          
-          // 変更がない場合はスキップ
           const isChanged = prev.isActive !== m.isActive || 
                             prev.fixedPairMemberId !== m.fixedPairMemberId || 
                             prev.level !== m.level;
           if (!isChanged) return false;
 
-          // 変更があった場合、それが「予定メンバー」かつ「アルゴリズムに影響する項目」か判定
           if (plannedIds.has(m.id)) {
-            // 休み状態の変化、または固定ペアの変化は常に再計算
             if (prev.isActive !== m.isActive || prev.fixedPairMemberId !== m.fixedPairMemberId) return true;
-            // レベルの変化は「厳格モード」の時のみ再計算
             if (config.levelStrict && prev.level !== m.level) return true;
           }
           return false;
@@ -121,14 +162,6 @@ export default function DoublesMatchupApp() {
       }
     }
   }, [activeTab, isInitialized, memberFingerprint, config.bulkOnlyMode, config.levelStrict, config.courtCount]);
-
-  // ... (中略：以下のアルゴリズム中核部やJSXは変更なし)
-
-  const initializeCourts = (count: number) => {
-    const newCourts = Array.from({ length: count }, (_, i) => ({ id: i + 1, match: null }));
-    setCourts(newCourts);
-    setNextMatches(newCourts);
-  };
 
   const handleCourtCountChange = (count: number) => {
     setConfig(prev => ({ ...prev, courtCount: count }));
