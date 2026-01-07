@@ -413,19 +413,22 @@ export default function DoublesMatchupApp() {
 
   const CourtCard = ({ court, isPlanned = false }: { court: Court, isPlanned?: boolean }) => {
     const calculatedHeight = (config.bulkOnlyMode ? 140 : 180) * config.zoomLevel;
-    const accentColor = isPlanned ? 'border-orange-500' : 'border-blue-700';
-    const bgColor = isPlanned ? 'bg-orange-50/50' : 'bg-white';
+    
+    // 一括進行モード用の配色（案1：モノトーン）
+    const borderClass = isPlanned ? 'border-gray-400' : 'border-slate-900';
+    const bgClass = isPlanned ? 'bg-gray-50' : 'bg-white';
+    const numberTextClass = isPlanned ? 'text-gray-400' : 'text-slate-900';
 
     return (
       <div 
-        className={`relative rounded-xl shadow-md border overflow-hidden flex ${config.bulkOnlyMode ? `border-l-8 ${accentColor}` : 'flex-col border-gray-300'} ${bgColor} ${isPlanned && !config.bulkOnlyMode ? 'opacity-80 border-orange-200' : ''}`}
+        className={`relative rounded-xl shadow-md border overflow-hidden flex ${config.bulkOnlyMode ? `border-l-8 ${borderClass} ${bgClass}` : 'flex-col border-gray-300 bg-white'} ${isPlanned && !config.bulkOnlyMode ? 'opacity-80 border-orange-200 bg-orange-50/50' : ''}`}
         style={{ height: `${calculatedHeight}px`, minHeight: `${calculatedHeight}px` }}
       >
         {config.bulkOnlyMode ? (
           /* 一括進行モード：サイドバー形式 */
           <>
-            <div className={`w-10 shrink-0 flex flex-col items-center justify-center border-r border-gray-100 ${isPlanned ? 'bg-orange-100/50' : 'bg-blue-50/50'}`}>
-              <span className={`font-black text-2xl ${isPlanned ? 'text-orange-600' : 'text-blue-800'}`}>{court.id}</span>
+            <div className={`w-10 shrink-0 flex flex-col items-center justify-center border-r border-gray-100 ${isPlanned ? 'bg-gray-100/50' : 'bg-slate-50'}`}>
+              <span className={`font-black text-2xl ${numberTextClass}`}>{court.id}</span>
               {court.match?.level && (
                 <span className={`mt-1 px-1 py-0.5 rounded text-[8px] font-bold text-white ${court.match.level === 'A' ? 'bg-blue-600' : court.match.level === 'B' ? 'bg-yellow-500' : 'bg-red-500'}`}>
                   {court.match.level}
@@ -525,12 +528,12 @@ export default function DoublesMatchupApp() {
               </div>
             )}
             <section className="grid grid-cols-1 landscape:grid-cols-2 gap-4">
-              {config.bulkOnlyMode && <h2 className="col-span-full font-black text-xl text-blue-900 border-l-8 border-blue-900 pl-3">現在の対戦</h2>}
+              {config.bulkOnlyMode && <h2 className="col-span-full font-black text-xl text-slate-900 border-l-8 border-slate-900 pl-3">現在の対戦</h2>}
               {courts.map(court => <CourtCard key={court.id} court={court} />)}
             </section>
             {config.bulkOnlyMode && (
               <section className="grid grid-cols-1 landscape:grid-cols-2 gap-4 mt-8 pb-8">
-                <h2 className="col-span-full font-black text-xl text-orange-700 border-l-8 border-orange-700 pl-3">次回の予定</h2>
+                <h2 className="col-span-full font-black text-xl text-gray-500 border-l-8 border-gray-400 pl-3">次回の予定</h2>
                 {nextMatches.map(court => <CourtCard key={court.id} court={court} isPlanned={true} />)}
               </section>
             )}
