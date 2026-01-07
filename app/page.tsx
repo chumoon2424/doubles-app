@@ -135,26 +135,29 @@ export default function DoublesMatchupApp() {
 
         const hasRelevantChange = members.some(m => {
           const prev = prevMembersRef.current.find(p => p.id === m.id);
-          if (!prev) return false;
+          if (!prev) return true; // 新規メンバー追加時
 
-          // 1. 固定ペアが変更された場合は、誰であっても再計算
+          // 1. 固定ペアが変更された場合は再計算
           if (prev.fixedPairMemberId !== m.fixedPairMemberId) return true;
 
           const isActiveChanged = prev.isActive !== m.isActive;
 
-          // 2. 予定されているメンバーの状態に変更があった場合
+          // 2. 予定されているメンバーの状態（参加/休み、レベル）に変更があった場合
           if (plannedIds.has(m.id)) {
             if (isActiveChanged) return true;
             if (config.levelStrict && prev.level !== m.level) return true;
           }
 
-          // 3. 予定外のメンバーが「休み解除（参加）」になった場合も、組み合わせが変わる可能性があるため再計算
+          // 3. 予定外のメンバーが「参加（休み解除）」になった場合
           if (!plannedIds.has(m.id) && isActiveChanged && m.isActive) return true;
 
           return false;
         });
 
-        const configChanged = !lastFingerprint.endsWith(`_C${config.courtCount}_S${config.levelStrict}_B${config.bulkOnlyMode}`);
+        // 設定値自体の変更チェック
+        const configPart = `_C${config.courtCount}_S${config.levelStrict}_B${config.bulkOnlyMode}`;
+        const lastConfigPart = lastFingerprint.split('_').slice(-3).join('_');
+        const configChanged = lastFingerprint !== '' && !lastFingerprint.endsWith(configPart);
 
         if (configChanged || hasRelevantChange || lastFingerprint === '') {
           regeneratePlannedMatches();
@@ -165,7 +168,7 @@ export default function DoublesMatchupApp() {
         }
         
         setLastFingerprint(memberFingerprint);
-        prevMembersRef.current = members;
+        prevMembersRef.current = JSON.parse(JSON.stringify(members)); // 参照切り離し
       }
     }
   }, [activeTab, isInitialized, memberFingerprint, config.bulkOnlyMode, config.levelStrict, config.courtCount]);
@@ -215,15 +218,17 @@ export default function DoublesMatchupApp() {
 
   const updateFixedPair = (memberId: number, partnerId: number | null) => {
     setMembers(prev => {
-      let newMembers = [...prev];
+      let newMembers = JSON.parse(JSON.stringify(prev)) as Member[];
       const target = newMembers.find(m => m.id === memberId);
       if (!target) return prev;
       
+      // 既存ペアの解消
       if (target.fixedPairMemberId) {
         const oldPartner = newMembers.find(m => m.id === target.fixedPairMemberId);
         if (oldPartner) oldPartner.fixedPairMemberId = null;
       }
       
+      // 新ペアの設定
       if (partnerId) {
         const newPartner = newMembers.find(m => m.id === partnerId);
         if (newPartner) {
@@ -235,7 +240,7 @@ export default function DoublesMatchupApp() {
         }
       }
       target.fixedPairMemberId = partnerId;
-      return [...newMembers];
+      return newMembers;
     });
     setEditingPairMemberId(null);
   };
@@ -399,7 +404,7 @@ export default function DoublesMatchupApp() {
         setMembers(currentMembersState);
         setCourts(matchesToApply);
         regeneratePlannedMatches(currentMembersState);
-        prevMembersRef.current = currentMembersState;
+        prevMembersRef.current = JSON.parse(JSON.stringify(currentMembersState));
       }, 200);
     } else {
       setCourts(prev => prev.map(c => ({ ...c, match: null })));
