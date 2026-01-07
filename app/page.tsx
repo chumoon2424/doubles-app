@@ -59,14 +59,14 @@ interface AppConfig {
   levelStrict: boolean;
   zoomLevel: number;
   nameFontSizeModifier: number;
-  bulkOnlyMode: boolean; // 新規: 一括進行モード
+  bulkOnlyMode: boolean;
 }
 
 export default function DoublesMatchupApp() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'members' | 'history' | 'settings'>('dashboard');
   const [members, setMembers] = useState<Member[]>([]);
   const [courts, setCourts] = useState<Court[]>([]);
-  const [nextMatches, setNextMatches] = useState<Court[]>([]); // 新規: 次回の予定
+  const [nextMatches, setNextMatches] = useState<Court[]>([]);
   const [matchHistory, setMatchHistory] = useState<MatchRecord[]>([]);
   const [config, setConfig] = useState<AppConfig>({
     courtCount: 4,
@@ -80,14 +80,12 @@ export default function DoublesMatchupApp() {
   const [editingPairMemberId, setEditingPairMemberId] = useState<number | null>(null);
   const [showScheduleNotice, setShowScheduleNotice] = useState(false);
 
-  // 予定の再計算が必要か判定するための指紋（メンバーの構成変更を検知）
   const memberFingerprint = useMemo(() => {
     return members.map(m => `${m.id}-${m.isActive}-${m.level}-${m.fixedPairMemberId}`).join('|');
   }, [members]);
 
   const [lastFingerprint, setLastFingerprint] = useState('');
 
-  // データ読み込み
   useEffect(() => {
     const savedDataV16 = localStorage.getItem('doubles-app-data-v16');
     if (savedDataV16) {
@@ -104,14 +102,12 @@ export default function DoublesMatchupApp() {
     setIsInitialized(true);
   }, []);
 
-  // データ保存
   useEffect(() => {
     if (!isInitialized) return;
     const data = { members, courts, nextMatches, matchHistory, config, nextMemberId };
     localStorage.setItem('doubles-app-data-v16', JSON.stringify(data));
   }, [members, courts, nextMatches, matchHistory, config, nextMemberId, isInitialized]);
 
-  // ダッシュボードに戻った時の予定再計算
   useEffect(() => {
     if (isInitialized && activeTab === 'dashboard' && config.bulkOnlyMode) {
       if (lastFingerprint !== memberFingerprint) {
@@ -204,37 +200,42 @@ export default function DoublesMatchupApp() {
     });
   };
 
-  const applyMatchToMembers = (p1: number, p2: number, p3: number, p4: number) => {
+  // 試合結果を適用した後のメンバー状態を計算する純粋関数
+  const calculateNextMemberState = (currentMembers: Member[], p1: number, p2: number, p3: number, p4: number) => {
     const now = Date.now();
     const playerIds = [p1, p2, p3, p4];
-    setMembers(prev => {
-      const updatedMembers = prev.map(m => {
-        if (!playerIds.includes(m.id)) return m;
-        const newMatchH = { ...m.matchHistory };
-        const newPairH = { ...m.pairHistory };
-        let partnerId = 0, opponents: number[] = [];
-        if (m.id === p1) { partnerId = p2; opponents = [p3, p4]; }
-        else if (m.id === p2) { partnerId = p1; opponents = [p3, p4]; }
-        else if (m.id === p3) { partnerId = p4; opponents = [p1, p2]; }
-        else if (m.id === p4) { partnerId = p3; opponents = [p1, p2]; }
-        newPairH[partnerId] = (newPairH[partnerId] || 0) + 1;
-        opponents.forEach(oid => { newMatchH[oid] = (newMatchH[oid] || 0) + 1; });
-        return { ...m, playCount: m.playCount + 1, lastPlayedTime: now, matchHistory: newMatchH, pairHistory: newPairH };
-      });
-      const activeMembers = updatedMembers.filter(m => m.isActive);
-      if (activeMembers.length === 0) return updatedMembers;
-      const avgPlays = Math.floor(activeMembers.reduce((sum, m) => sum + m.playCount, 0) / activeMembers.length);
-      return updatedMembers.map(m => {
-        if (!m.isActive && m.playCount < avgPlays) {
-          const diff = avgPlays - m.playCount;
-          return { ...m, playCount: avgPlays, imputedPlayCount: m.imputedPlayCount + diff };
-        }
-        return m;
-      });
+    
+    const updated = currentMembers.map(m => {
+      if (!playerIds.includes(m.id)) return m;
+      const newMatchH = { ...m.matchHistory };
+      const newPairH = { ...m.pairHistory };
+      let partnerId = 0, opponents: number[] = [];
+      if (m.id === p1) { partnerId = p2; opponents = [p3, p4]; }
+      else if (m.id === p2) { partnerId = p1; opponents = [p3, p4]; }
+      else if (m.id === p3) { partnerId = p4; opponents = [p1, p2]; }
+      else if (m.id === p4) { partnerId = p3; opponents = [p1, p2]; }
+      newPairH[partnerId] = (newPairH[partnerId] || 0) + 1;
+      opponents.forEach(oid => { newMatchH[oid] = (newMatchH[oid] || 0) + 1; });
+      return { ...m, playCount: m.playCount + 1, lastPlayedTime: now, matchHistory: newMatchH, pairHistory: newPairH };
+    });
+
+    const activeMembers = updated.filter(m => m.isActive);
+    if (activeMembers.length === 0) return updated;
+    const avgPlays = Math.floor(activeMembers.reduce((sum, m) => sum + m.playCount, 0) / activeMembers.length);
+    
+    return updated.map(m => {
+      if (!m.isActive && m.playCount < avgPlays) {
+        const diff = avgPlays - m.playCount;
+        return { ...m, playCount: avgPlays, imputedPlayCount: m.imputedPlayCount + diff };
+      }
+      return m;
     });
   };
 
-  // 組み合わせアルゴリズム中核（一切変更なし）
+  const applyMatchToMembers = (p1: number, p2: number, p3: number, p4: number) => {
+    setMembers(prev => calculateNextMemberState(prev, p1, p2, p3, p4));
+  };
+
   const getMatchForCourt = (currentCourts: Court[], currentMembers: Member[]) => {
     const playingIds = new Set<number>();
     currentCourts.forEach(c => { if (c.match) [c.match.p1, c.match.p2, c.match.p3, c.match.p4].forEach(id => playingIds.add(id)); });
@@ -310,15 +311,15 @@ export default function DoublesMatchupApp() {
     return { p1: best[0].id, p2: best[1].id, p3: best[2].id, p4: best[3].id, level: config.levelStrict ? best[0].level : undefined };
   };
 
-  // 未来の予定を計算する（実際には保存しない）
-  const regeneratePlannedMatches = () => {
-    let tempMembers = JSON.parse(JSON.stringify(members)) as Member[];
+  const regeneratePlannedMatches = (targetMembers?: Member[]) => {
+    let tempMembers = JSON.parse(JSON.stringify(targetMembers || members)) as Member[];
     let planned: Court[] = [];
     for (let i = 0; i < config.courtCount; i++) {
       const match = getMatchForCourt(planned, tempMembers);
       if (match) {
         planned.push({ id: i + 1, match });
         const ids = [match.p1, match.p2, match.p3, match.p4];
+        // 予定の計算中でも、同一ラウンド内での試合数重みを擬似的に加算してバランスをとる
         tempMembers = tempMembers.map(m => ids.includes(m.id) ? { ...m, playCount: m.playCount + 1, lastPlayedTime: Date.now() } : m);
       } else {
         planned.push({ id: i + 1, match: null });
@@ -329,19 +330,37 @@ export default function DoublesMatchupApp() {
 
   const handleBulkAction = () => {
     if (config.bulkOnlyMode) {
-      // 予定を現在に繰り上げる
       const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      let currentMembersState = [...members];
+      let newHistoryEntries: MatchRecord[] = [];
+
+      // 1. 今の「予定」を適用し、メンバーの状態（試合数など）を更新
       nextMatches.forEach(c => {
         if (c.match) {
           const ids = [c.match.p1, c.match.p2, c.match.p3, c.match.p4];
           const names = ids.map(id => members.find(m => m.id === id)?.name || '?');
-          setMatchHistory(prev => [{ id: Date.now().toString() + c.id, timestamp, courtId: c.id, players: names, playerIds: ids, level: c.match?.level }, ...prev]);
-          applyMatchToMembers(c.match.p1, c.match.p2, c.match.p3, c.match.p4);
+          newHistoryEntries.push({ 
+            id: Date.now().toString() + c.id, 
+            timestamp, 
+            courtId: c.id, 
+            players: names, 
+            playerIds: ids, 
+            level: c.match?.level 
+          });
+          // ローカル変数に対して同期的に試合数を加算していく
+          currentMembersState = calculateNextMemberState(currentMembersState, c.match.p1, c.match.p2, c.match.p3, c.match.p4);
         }
       });
+
+      // 2. まとめてステートを更新
+      setMatchHistory(prev => [...newHistoryEntries, ...prev]);
+      setMembers(currentMembersState);
       setCourts([...nextMatches]);
-      // 新しい予定を計算（少し遅延させてメンバー更新を反映）
-      setTimeout(() => regeneratePlannedMatches(), 100);
+
+      // 3. 最新のメンバー状態をベースに、即座に「次々回の予定」を計算する
+      // これによりステート更新の遅延による試合数の偏りを防ぐ
+      regeneratePlannedMatches(currentMembersState);
+
     } else {
       // 従来モード
       setCourts(prev => prev.map(c => ({ ...c, match: null })));
