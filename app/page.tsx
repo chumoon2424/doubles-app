@@ -65,7 +65,6 @@ interface AppConfig {
   bulkOnlyMode: boolean;
 }
 
-// --- メインコンポーネント ---
 export default function DoublesMatchupApp() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'members' | 'history' | 'settings'>('dashboard');
   const [members, setMembers] = useState<Member[]>([]);
@@ -87,29 +86,46 @@ export default function DoublesMatchupApp() {
   const prevMembersRef = useRef<Member[]>([]);
   const [lastFingerprint, setLastFingerprint] = useState('');
 
-  // メンバーの状態を監視するフィンガープリント
   const memberFingerprint = useMemo(() => {
-    const status = members.map(m => `${m.id}-${m.isActive}-${m.level}-${m.fixedPairMemberId || 'none'}`).join('|');
-    return `${status}_C${config.courtCount}_S${config.levelStrict}_B${config.bulkOnlyMode}`;
+    try {
+      const status = (members || []).map(m => `${m.id}-${m.isActive}-${m.level}-${m.fixedPairMemberId || 'none'}`).join('|');
+      return `${status}_C${config.courtCount}_S${config.levelStrict}_B${config.bulkOnlyMode}`;
+    } catch (e) {
+      return '';
+    }
   }, [members, config.courtCount, config.levelStrict, config.bulkOnlyMode]);
 
   useEffect(() => {
     const versions = ['v16', 'v15', 'v14', 'v13', 'v12', 'v11', 'v10', 'v9', 'v8'];
-    let loadedData = null;
+    let loadedData: any = null;
     for (const v of versions) {
       const saved = localStorage.getItem(`doubles-app-data-${v}`);
       if (saved) {
-        try { loadedData = JSON.parse(saved); break; } catch (e) {}
+        try { 
+          loadedData = JSON.parse(saved); 
+          if (loadedData) break;
+        } catch (e) {
+          console.error("Parse error in version", v);
+        }
       }
     }
+
     if (loadedData) {
-      setMembers(loadedData.members || []);
-      setCourts(loadedData.courts || []);
-      setNextMatches(loadedData.nextMatches || []);
+      const safeMembers = (loadedData.members || []).map((m: any) => ({
+        ...m,
+        fixedPairMemberId: m.fixedPairMemberId !== undefined ? m.fixedPairMemberId : null,
+        level: m.level || 'A',
+        matchHistory: m.matchHistory || {},
+        pairHistory: m.pairHistory || {}
+      }));
+      
+      setMembers(safeMembers);
+      setCourts(loadedData.courts || Array.from({ length: loadedData.config?.courtCount || 4 }, (_, i) => ({ id: i + 1, match: null })));
+      setNextMatches(loadedData.nextMatches || Array.from({ length: loadedData.config?.courtCount || 4 }, (_, i) => ({ id: i + 1, match: null })));
       setConfig(prev => ({ ...prev, ...(loadedData.config || {}) }));
-      setNextMemberId(loadedData.nextMemberId || 1);
+      setNextMemberId(loadedData.nextMemberId || (safeMembers.length > 0 ? Math.max(...safeMembers.map((m: any) => m.id)) + 1 : 1));
       setMatchHistory(loadedData.matchHistory || []);
-      prevMembersRef.current = loadedData.members || [];
+      prevMembersRef.current = JSON.parse(JSON.stringify(safeMembers));
     } else {
       const initialCount = 4;
       const initialCourts = Array.from({ length: initialCount }, (_, i) => ({ id: i + 1, match: null }));
@@ -121,40 +137,35 @@ export default function DoublesMatchupApp() {
 
   useEffect(() => {
     if (!isInitialized) return;
-    const data = { members, courts, nextMatches, matchHistory, config, nextMemberId };
-    localStorage.setItem('doubles-app-data-v16', JSON.stringify(data));
+    try {
+      const data = { members, courts, nextMatches, matchHistory, config, nextMemberId };
+      localStorage.setItem('doubles-app-data-v16', JSON.stringify(data));
+    } catch (e) {
+      console.error("Failed to save data");
+    }
   }, [members, courts, nextMatches, matchHistory, config, nextMemberId, isInitialized]);
 
   useEffect(() => {
     if (isInitialized && activeTab === 'dashboard' && config.bulkOnlyMode) {
-      if (lastFingerprint !== memberFingerprint) {
+      if (lastFingerprint !== memberFingerprint && memberFingerprint !== '') {
         const plannedIds = new Set<number>();
         nextMatches.forEach(c => {
-          if (c.match) [c.match.p1, c.match.p2, c.match.p3, c.match.p4].forEach(id => plannedIds.add(id));
+          if (c?.match) [c.match.p1, c.match.p2, c.match.p3, c.match.p4].forEach(id => plannedIds.add(id));
         });
 
-        const hasRelevantChange = members.some(m => {
-          const prev = prevMembersRef.current.find(p => p.id === m.id);
-          if (!prev) return true; // 新規メンバー追加時
-
-          // 1. 固定ペアが変更された場合は再計算
+        const hasRelevantChange = (members || []).some(m => {
+          const prev = (prevMembersRef.current || []).find(p => p.id === m.id);
+          if (!prev) return true;
           if (prev.fixedPairMemberId !== m.fixedPairMemberId) return true;
-
           const isActiveChanged = prev.isActive !== m.isActive;
-
-          // 2. 予定されているメンバーの状態（参加/休み、レベル）に変更があった場合
           if (plannedIds.has(m.id)) {
             if (isActiveChanged) return true;
             if (config.levelStrict && prev.level !== m.level) return true;
           }
-
-          // 3. 予定外のメンバーが「参加（休み解除）」になった場合
           if (!plannedIds.has(m.id) && isActiveChanged && m.isActive) return true;
-
           return false;
         });
 
-        // 設定値自体の変更チェック
         const configPart = `_C${config.courtCount}_S${config.levelStrict}_B${config.bulkOnlyMode}`;
         const configChanged = lastFingerprint !== '' && !lastFingerprint.endsWith(configPart);
 
@@ -167,7 +178,7 @@ export default function DoublesMatchupApp() {
         }
         
         setLastFingerprint(memberFingerprint);
-        prevMembersRef.current = JSON.parse(JSON.stringify(members)); // 参照切り離し
+        prevMembersRef.current = JSON.parse(JSON.stringify(members));
       }
     }
   }, [activeTab, isInitialized, memberFingerprint, config.bulkOnlyMode, config.levelStrict, config.courtCount]);
@@ -220,14 +231,10 @@ export default function DoublesMatchupApp() {
       let newMembers = JSON.parse(JSON.stringify(prev)) as Member[];
       const target = newMembers.find(m => m.id === memberId);
       if (!target) return prev;
-      
-      // 既存ペアの解消
       if (target.fixedPairMemberId) {
         const oldPartner = newMembers.find(m => m.id === target.fixedPairMemberId);
         if (oldPartner) oldPartner.fixedPairMemberId = null;
       }
-      
-      // 新ペアの設定
       if (partnerId) {
         const newPartner = newMembers.find(m => m.id === partnerId);
         if (newPartner) {
@@ -264,8 +271,8 @@ export default function DoublesMatchupApp() {
     const playerIds = [p1, p2, p3, p4];
     const updated = currentMembers.map(m => {
       if (!playerIds.includes(m.id)) return m;
-      const newMatchH = { ...m.matchHistory };
-      const newPairH = { ...m.pairHistory };
+      const newMatchH = { ...(m.matchHistory || {}) };
+      const newPairH = { ...(m.pairHistory || {}) };
       let partnerId = 0, opponents: number[] = [];
       if (m.id === p1) { partnerId = p2; opponents = [p3, p4]; }
       else if (m.id === p2) { partnerId = p1; opponents = [p3, p4]; }
@@ -281,7 +288,7 @@ export default function DoublesMatchupApp() {
     return updated.map(m => {
       if (!m.isActive && m.playCount < avgPlays) {
         const diff = avgPlays - m.playCount;
-        return { ...m, playCount: avgPlays, imputedPlayCount: m.imputedPlayCount + diff };
+        return { ...m, playCount: avgPlays, imputedPlayCount: (m.imputedPlayCount || 0) + diff };
       }
       return m;
     });
@@ -293,8 +300,8 @@ export default function DoublesMatchupApp() {
 
   const getMatchForCourt = (currentCourts: Court[], currentMembers: Member[]) => {
     const playingIds = new Set<number>();
-    currentCourts.forEach(c => { if (c.match) [c.match.p1, c.match.p2, c.match.p3, c.match.p4].forEach(id => playingIds.add(id)); });
-    let candidates = currentMembers.filter(m => m.isActive && !playingIds.has(m.id));
+    (currentCourts || []).forEach(c => { if (c?.match) [c.match.p1, c.match.p2, c.match.p3, c.match.p4].forEach(id => playingIds.add(id)); });
+    let candidates = (currentMembers || []).filter(m => m.isActive && !playingIds.has(m.id));
     if (candidates.length < 4) return null;
     if (config.levelStrict) {
       const counts: Record<string, number> = { 'A': 0, 'B': 0, 'C': 0 };
@@ -317,20 +324,20 @@ export default function DoublesMatchupApp() {
           criteria.push(m.fixedPairMemberId && candidates.some(c => c.id === m.fixedPairMemberId) ? 1 : 0);
           if (config.levelStrict) criteria.push(m.level === w.level ? 0 : 1);
           criteria.push((m.playCount === minPlayCount || m.lastPlayedTime === minLastTime) ? 0 : 1);
-          criteria.push(w.pairHistory[m.id] || 0, w.matchHistory[m.id] || 0);
+          criteria.push((w.pairHistory?.[m.id] || 0), (w.matchHistory?.[m.id] || 0));
         } else if (step === 'Y') {
           if (config.levelStrict) criteria.push(m.level === w.level ? 0 : 1);
           criteria.push((m.playCount === minPlayCount || m.lastPlayedTime === minLastTime) ? 0 : 1);
-          criteria.push((w.pairHistory[m.id] || 0) + (w.matchHistory[m.id] || 0));
-          criteria.push((x.pairHistory[m.id] || 0) + (x.matchHistory[m.id] || 0));
+          criteria.push((w.pairHistory?.[m.id] || 0) + (w.matchHistory?.[m.id] || 0));
+          criteria.push((x.pairHistory?.[m.id] || 0) + (x.matchHistory?.[m.id] || 0));
         } else if (step === 'Z') {
           const yFixed = candidates.find(c => c.id === y.fixedPairMemberId);
           criteria.push(yFixed && m.id === y.fixedPairMemberId ? 0 : 1);
           criteria.push(m.fixedPairMemberId && candidates.some(c => c.id === m.fixedPairMemberId) ? 1 : 0);
           if (config.levelStrict) criteria.push(m.level === w.level ? 0 : 1);
           criteria.push((m.playCount === minPlayCount || m.lastPlayedTime === minLastTime) ? 0 : 1);
-          criteria.push(y.pairHistory[m.id] || 0, y.matchHistory[m.id] || 0);
-          criteria.push((w.pairHistory[m.id] || 0) + (w.matchHistory[m.id] || 0), (x.pairHistory[m.id] || 0) + (x.matchHistory[m.id] || 0));
+          criteria.push((y.pairHistory?.[m.id] || 0), (y.matchHistory?.[m.id] || 0));
+          criteria.push((w.pairHistory?.[m.id] || 0) + (w.matchHistory?.[m.id] || 0), (x.pairHistory?.[m.id] || 0) + (x.matchHistory?.[m.id] || 0));
         }
         return criteria;
       };
@@ -357,7 +364,7 @@ export default function DoublesMatchupApp() {
       let total = 0;
       [[0, 1], [0, 2], [0, 3], [1, 2], [1, 3], [2, 3]].forEach(([i, j]) => {
         if (!(p[i].fixedPairMemberId === p[j].id && candidates.some(c => c.id === p[i].id) && candidates.some(c => c.id === p[j].id))) {
-          total += (p[i].pairHistory[p[j].id] || 0) + (p[i].matchHistory[p[j].id] || 0);
+          total += (p[i].pairHistory?.[p[j].id] || 0) + (p[i].matchHistory?.[p[j].id] || 0);
         }
       });
       return total;
@@ -392,9 +399,9 @@ export default function DoublesMatchupApp() {
         let currentMembersState = [...members];
         let newHistoryEntries: MatchRecord[] = [];
         matchesToApply.forEach(c => {
-          if (c.match) {
+          if (c?.match) {
             const ids = [c.match.p1, c.match.p2, c.match.p3, c.match.p4];
-            const names = ids.map(id => members.find(m => m.id === id)?.name || '?');
+            const names = ids.map(id => currentMembersState.find(m => m.id === id)?.name || '?');
             newHistoryEntries.push({ id: Date.now().toString() + c.id, timestamp, courtId: c.id, players: names, playerIds: ids, level: c.match?.level });
             currentMembersState = calculateNextMemberState(currentMembersState, c.match.p1, c.match.p2, c.match.p3, c.match.p4);
           }
@@ -413,10 +420,10 @@ export default function DoublesMatchupApp() {
           for (let i = 0; i < current.length; i++) {
             const m = getMatchForCourt(current, temp);
             if (m) {
-              const ids = [m.p1, m.p2, m.p3, m.p4], names = ids.map(id => temp.find(x => x.id === id)?.name || '?');
+              const ids = [m.p1, m.p2, m.p3, m.p4], names = ids.map(id => temp.find((x: any) => x.id === id)?.name || '?');
               setMatchHistory(prevH => [{ id: Date.now().toString() + current[i].id, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), courtId: current[i].id, players: names, playerIds: ids, level: m.level }, ...prevH]);
               current[i] = { ...current[i], match: m };
-              temp = temp.map(x => ids.includes(x.id) ? { ...x, playCount: x.playCount + 1, lastPlayedTime: Date.now() } : x);
+              temp = temp.map((x: any) => ids.includes(x.id) ? { ...x, playCount: x.playCount + 1, lastPlayedTime: Date.now() } : x);
               applyMatchToMembers(m.p1, m.p2, m.p3, m.p4);
             }
           }
@@ -441,6 +448,7 @@ export default function DoublesMatchupApp() {
   const changeNameFontSize = (d: number) => setConfig(p => ({ ...p, nameFontSizeModifier: Math.max(0.5, Math.min(2.0, p.nameFontSizeModifier + d)) }));
 
   const getDynamicFontSize = (name: string = '', mod: number = 1.0) => {
+    if (!name) return '1rem';
     const len = name.split('').reduce((acc, char) => acc + (/[\x20-\x7E]/.test(char) ? 0.6 : 1.0), 0);
     let base = len <= 2 ? '3.5rem' : len <= 4 ? '2.8rem' : len <= 6 ? '2rem' : len <= 8 ? '1.6rem' : '1.3rem';
     return `calc(${base} * ${mod})`;
@@ -474,8 +482,8 @@ export default function DoublesMatchupApp() {
                       <div key={pIdx} className={`rounded-lg flex flex-col justify-center items-stretch border px-3 overflow-hidden ${pIdx === 1 ? 'bg-blue-50/30 border-blue-100' : 'bg-red-50/30 border-red-100'}`}>
                         {[pIdx === 1 ? 'p1' : 'p3', pIdx === 1 ? 'p2' : 'p4'].map((pKey, i) => (
                           <div key={pKey} className="h-1/2 flex items-center">
-                            <div className={`w-full leading-tight font-black whitespace-nowrap overflow-hidden text-ellipsis ${pIdx === 1 ? 'text-blue-900' : 'text-red-900'} ${i === 1 ? 'text-right' : 'text-left'}`} style={{ fontSize: getDynamicFontSize(members.find(m => m.id === (court.match as any)[pKey])?.name, config.nameFontSizeModifier * 0.9) }}>
-                              {members.find(m => m.id === (court.match as any)[pKey])?.name}
+                            <div className={`w-full leading-tight font-black whitespace-nowrap overflow-hidden text-ellipsis ${pIdx === 1 ? 'text-blue-900' : 'text-red-900'} ${i === 1 ? 'text-right' : 'text-left'}`} style={{ fontSize: getDynamicFontSize(members.find(m => m.id === (court.match as any)?.[pKey])?.name, config.nameFontSizeModifier * 0.9) }}>
+                              {members.find(m => m.id === (court.match as any)?.[pKey])?.name}
                             </div>
                           </div>
                         ))}
@@ -506,8 +514,8 @@ export default function DoublesMatchupApp() {
                       <div key={pIdx} className={`rounded-lg flex flex-col justify-center items-stretch border-2 px-3 overflow-hidden shadow-sm ${pIdx === 1 ? 'bg-blue-50/80 border-blue-200' : 'bg-red-50/80 border-red-200'}`}>
                         {[pIdx === 1 ? 'p1' : 'p3', pIdx === 1 ? 'p2' : 'p4'].map((pKey, i) => (
                           <div key={pKey} className="h-1/2 flex items-center">
-                            <div className={`w-full leading-tight font-black whitespace-nowrap overflow-hidden text-ellipsis ${pIdx === 1 ? 'text-blue-900' : 'text-red-900'} ${i === 1 ? 'text-right' : 'text-left'}`} style={{ fontSize: getDynamicFontSize(members.find(m => m.id === (court.match as any)[pKey])?.name, config.nameFontSizeModifier) }}>
-                              {members.find(m => m.id === (court.match as any)[pKey])?.name}
+                            <div className={`w-full leading-tight font-black whitespace-nowrap overflow-hidden text-ellipsis ${pIdx === 1 ? 'text-blue-900' : 'text-red-900'} ${i === 1 ? 'text-right' : 'text-left'}`} style={{ fontSize: getDynamicFontSize(members.find(m => m.id === (court.match as any)?.[pKey])?.name, config.nameFontSizeModifier) }}>
+                              {members.find(m => m.id === (court.match as any)?.[pKey])?.name}
                             </div>
                           </div>
                         ))}
@@ -635,11 +643,8 @@ export default function DoublesMatchupApp() {
                 value={config.courtCount} 
                 onChange={e => handleCourtCountChange(parseInt(e.target.value))} 
                 className="w-full h-3 bg-gray-100 rounded-lg appearance-none cursor-pointer accent-blue-600"
-                style={{
-                  WebkitAppearance: 'none',
-                }}
+                style={{ WebkitAppearance: 'none' }}
               />
-              {/* iPad用につまみの色を強制するスタイル */}
               <style dangerouslySetInnerHTML={{ __html: `
                 input[type=range]::-webkit-slider-thumb {
                   -webkit-appearance: none;
