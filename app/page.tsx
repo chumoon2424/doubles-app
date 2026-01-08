@@ -528,7 +528,7 @@ export default function DoublesMatchupApp() {
   return (
     <div className="min-h-screen bg-gray-200 text-gray-900 pb-20 font-sans overflow-x-hidden">
       <header className="bg-blue-900 text-white px-4 py-3 shadow-md flex justify-between items-center sticky top-0 z-20">
-        <h1 className="text-xl font-bold flex items-center gap-2"><Trophy size={20} /> D Maker</h1>
+        <h1 className="text-xl font-bold flex items-center gap-2"><Trophy size={20} /> D.M.</h1>
         <div className="flex items-center gap-2">
           {activeTab === 'dashboard' && (
             <>
