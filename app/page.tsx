@@ -156,7 +156,6 @@ export default function DoublesMatchupApp() {
 
         // 設定値自体の変更チェック
         const configPart = `_C${config.courtCount}_S${config.levelStrict}_B${config.bulkOnlyMode}`;
-        const lastConfigPart = lastFingerprint.split('_').slice(-3).join('_');
         const configChanged = lastFingerprint !== '' && !lastFingerprint.endsWith(configPart);
 
         if (configChanged || hasRelevantChange || lastFingerprint === '') {
@@ -629,7 +628,39 @@ export default function DoublesMatchupApp() {
           <div className="bg-white rounded-2xl shadow-sm p-8 space-y-8 max-w-2xl mx-auto">
             <div>
               <label className="block text-sm font-bold text-gray-400 mb-6 uppercase tracking-[0.2em]">コート数: <span className="text-blue-600 text-2xl ml-2">{config.courtCount}</span></label>
-              <input type="range" min="1" max="8" value={config.courtCount} onChange={e => handleCourtCountChange(parseInt(e.target.value))} className="w-full h-3 bg-gray-100 rounded-lg appearance-none cursor-pointer accent-blue-600" />
+              <input 
+                type="range" 
+                min="1" 
+                max="8" 
+                value={config.courtCount} 
+                onChange={e => handleCourtCountChange(parseInt(e.target.value))} 
+                className="w-full h-3 bg-gray-100 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                style={{
+                  WebkitAppearance: 'none',
+                }}
+              />
+              {/* iPad用につまみの色を強制するスタイル */}
+              <style dangerouslySetInnerHTML={{ __html: `
+                input[type=range]::-webkit-slider-thumb {
+                  -webkit-appearance: none;
+                  appearance: none;
+                  width: 20px;
+                  height: 20px;
+                  background: #2563eb;
+                  border-radius: 50%;
+                  cursor: pointer;
+                  border: 2px solid white;
+                  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+                }
+                input[type=range]::-moz-range-thumb {
+                  width: 20px;
+                  height: 20px;
+                  background: #2563eb;
+                  border-radius: 50%;
+                  cursor: pointer;
+                  border: 2px solid white;
+                }
+              `}} />
             </div>
             <div className="flex items-center justify-between py-6 border-y border-gray-50">
               <span className="font-bold text-lg text-gray-700">レベル厳格モード</span>
