@@ -92,14 +92,33 @@ export default function DoublesMatchupApp() {
   const [lastFingerprint, setLastFingerprint] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // 【修正】組み直しが必要な変更のみを監視する指紋ロジック
   const memberFingerprint = useMemo(() => {
     try {
-      const status = (members || []).map(m => `${m.id}-${m.isActive}-${m.level}-${m.fixedPairMemberId || 'none'}`).join('|');
+      const plannedIds = new Set<number>();
+      nextMatches.forEach(c => {
+        if (c?.match) [c.match.p1, c.match.p2, c.match.p3, c.match.p4].forEach(id => plannedIds.add(id));
+      });
+
+      const status = (members || []).map(m => {
+        // 固定ペアの変更は常に影響する
+        let s = `${m.id}-${m.fixedPairMemberId || 'none'}`;
+        // 予定に入っている人は、参加状態の変更と（厳格モードなら）レベル変更も影響する
+        if (plannedIds.has(m.id)) {
+          s += `-${m.isActive}`;
+          if (config.levelStrict) s += `-${m.level}`;
+        } else {
+          // 予定に入っていない人は、「休み→参加」への変更のみ影響する
+          s += `-${m.isActive === true ? 'active' : 'inactive'}`;
+        }
+        return s;
+      }).join('|');
+
       return `${status}_C${config.courtCount}_S${config.levelStrict}_B${config.bulkOnlyMode}`;
     } catch (e) {
       return '';
     }
-  }, [members, config.courtCount, config.levelStrict, config.bulkOnlyMode]);
+  }, [members, config.courtCount, config.levelStrict, config.bulkOnlyMode, nextMatches]);
 
   useEffect(() => {
     const versions = ['v16', 'v15', 'v14', 'v13', 'v12', 'v11', 'v10', 'v9', 'v8'];
@@ -151,9 +170,49 @@ export default function DoublesMatchupApp() {
     }
   }, [members, courts, nextMatches, matchHistory, config, nextMemberId, isInitialized]);
 
+  // 【修正】実際の「組み直し」が必要な状況かどうかを厳密に判定する関数
+  const isRegenRequired = () => {
+    if (lastFingerprint === '' || memberFingerprint === '') return true;
+    if (lastFingerprint === memberFingerprint) return false;
+
+    const plannedIds = new Set<number>();
+    nextMatches.forEach(c => {
+      if (c?.match) [c.match.p1, c.match.p2, c.match.p3, c.match.p4].forEach(id => plannedIds.add(id));
+    });
+
+    // 設定自体の変更チェック
+    const configPart = `_C${config.courtCount}_S${config.levelStrict}_B${config.bulkOnlyMode}`;
+    if (!lastFingerprint.endsWith(configPart)) return true;
+
+    // メンバーごとの詳細チェック
+    return (members || []).some(m => {
+      const prev = (prevMembersRef.current || []).find(p => p.id === m.id);
+      if (!prev) return true; // 新規追加
+      if (prev.fixedPairMemberId !== m.fixedPairMemberId) return true; // ペア変更
+
+      const isActiveChanged = prev.isActive !== m.isActive;
+      
+      if (plannedIds.has(m.id)) {
+        // 次回予定に入っている人の変更
+        if (isActiveChanged) return true; // 休みになったらNG
+        if (config.levelStrict && prev.level !== m.level) return true; // 厳格モードでのレベル変更はNG
+      } else {
+        // 次回予定に入っていない人の変更
+        if (isActiveChanged && m.isActive) return true; // 休み→参加になったらNG（割り込みの可能性があるため）
+      }
+      return false;
+    });
+  };
+
   // 予定変更確認用のヘルパー関数
-  const checkChangeConfirmation = () => {
-    if (config.bulkOnlyMode && !hasUserConfirmedRegen) {
+  const checkChangeConfirmation = (operationType?: string) => {
+    // 一括進行モードでないなら確認不要
+    if (!config.bulkOnlyMode) return true;
+    // 既に承認済みなら確認不要
+    if (hasUserConfirmedRegen) return true;
+
+    // 操作内容と現在の状況を照らし合わせて、本当に組み直しが発生するかチェック
+    if (isRegenRequired()) {
       const ok = confirm('次回の予定が組み直しになりますが、よろしいですか？');
       if (ok) {
         setHasUserConfirmedRegen(true);
@@ -167,39 +226,15 @@ export default function DoublesMatchupApp() {
   useEffect(() => {
     if (isInitialized && activeTab === 'dashboard' && config.bulkOnlyMode) {
       if (lastFingerprint !== memberFingerprint && memberFingerprint !== '') {
-        const plannedIds = new Set<number>();
-        nextMatches.forEach(c => {
-          if (c?.match) [c.match.p1, c.match.p2, c.match.p3, c.match.p4].forEach(id => plannedIds.add(id));
-        });
-
-        const hasRelevantChange = (members || []).some(m => {
-          const prev = (prevMembersRef.current || []).find(p => p.id === m.id);
-          if (!prev) return true;
-          if (prev.fixedPairMemberId !== m.fixedPairMemberId) return true;
-          const isActiveChanged = prev.isActive !== m.isActive;
-          if (plannedIds.has(m.id)) {
-            if (isActiveChanged) return true;
-            if (config.levelStrict && prev.level !== m.level) return true;
-          }
-          if (!plannedIds.has(m.id) && isActiveChanged && m.isActive) return true;
-          return false;
-        });
-
-        const configPart = `_C${config.courtCount}_S${config.levelStrict}_B${config.bulkOnlyMode}`;
-        const configChanged = lastFingerprint !== '' && !lastFingerprint.endsWith(configPart);
-
-        if (configChanged || hasRelevantChange || lastFingerprint === '') {
+        if (isRegenRequired()) {
           regeneratePlannedMatches();
-          
-          // 【修正点】ダッシュボードに移動して組み直しが完了したタイミングでフラグをリセット
+          // ダッシュボードでの組み直し完了時にフラグをリセット
           setHasUserConfirmedRegen(false);
-
           if (lastFingerprint !== '') {
             setShowScheduleNotice(true);
             setTimeout(() => setShowScheduleNotice(false), 3000);
           }
         }
-        
         setLastFingerprint(memberFingerprint);
         prevMembersRef.current = JSON.parse(JSON.stringify(members));
       }
@@ -491,10 +526,7 @@ export default function DoublesMatchupApp() {
         setMatchHistory(prev => [...newHistoryEntries, ...prev]);
         setMembers(currentMembersState);
         setCourts(matchesToApply);
-        
-        // 【修正点】試合画面（ダッシュボード）で実際に更新されたため、確認フラグをリセット
         setHasUserConfirmedRegen(false);
-        
         regeneratePlannedMatches(currentMembersState);
         prevMembersRef.current = JSON.parse(JSON.stringify(currentMembersState));
       }, 200);
