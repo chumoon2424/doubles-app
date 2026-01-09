@@ -91,7 +91,6 @@ export default function DoublesMatchupApp() {
   const [lastFingerprint, setLastFingerprint] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 指紋ロジック（予定外メンバーの不参加変更や、厳格モードOFF時のレベル変更を無視）
   const memberFingerprint = useMemo(() => {
     try {
       const plannedIds = new Set<number>();
@@ -166,7 +165,6 @@ export default function DoublesMatchupApp() {
     }
   }, [members, courts, nextMatches, matchHistory, config, nextMemberId, isInitialized]);
 
-  // ダイアログが必要な変更か判定するロジック（修正対象のみを厳密にチェック）
   const isRegenRequired = (currentMembers: Member[], currentConfig: AppConfig) => {
     const plannedIds = new Set<number>();
     nextMatches.forEach(c => {
@@ -175,6 +173,11 @@ export default function DoublesMatchupApp() {
 
     const configPart = `_C${currentConfig.courtCount}_S${currentConfig.levelStrict}_B${currentConfig.bulkOnlyMode}`;
     if (lastFingerprint !== '' && !lastFingerprint.endsWith(configPart)) return true;
+
+    // 現在のメンバーリストから、削除された人を特定して判定に含める
+    const currentMemberIds = new Set(currentMembers.map(m => m.id));
+    const wasPlannedMemberDeleted = Array.from(plannedIds).some(id => !currentMemberIds.has(id));
+    if (wasPlannedMemberDeleted) return true;
 
     return currentMembers.some(m => {
       const prev = prevMembersRef.current.find(p => p.id === m.id);
@@ -386,7 +389,6 @@ export default function DoublesMatchupApp() {
     setMembers(prev => calculateNextMemberState(prev, p1, p2, p3, p4));
   };
 
-  // 組み合わせアルゴリズム中核（維持）
   const getMatchForCourt = (currentCourts: Court[], currentMembers: Member[]) => {
     const playingIds = new Set<number>();
     (currentCourts || []).forEach(c => { if (c?.match) [c.match.p1, c.match.p2, c.match.p3, c.match.p4].forEach(id => playingIds.add(id)); });
@@ -693,9 +695,11 @@ export default function DoublesMatchupApp() {
                     setMembers(nextMembers);
                   }} className={`px-4 py-2 rounded-xl font-bold border-2 ${m.isActive ? 'border-blue-600 text-blue-600 bg-blue-50' : 'border-gray-200 text-gray-300'}`}>{m.isActive ? '参加' : '休み'}</button>
                   <button onClick={() => {
-                    const nextMembers = members.filter(x => x.id !== m.id);
-                    if (!checkChangeConfirmation(nextMembers)) return;
-                    if(confirm(`${m.name}を削除？`)) setMembers(nextMembers)
+                    if(confirm(`${m.name}を削除してよろしいですか？`)) {
+                      const nextMembers = members.filter(x => x.id !== m.id);
+                      if (!checkChangeConfirmation(nextMembers)) return;
+                      setMembers(nextMembers);
+                    }
                   }} className="text-gray-200 hover:text-red-500 px-2"><Trash2 size={24} /></button>
                 </div>
               ))}
