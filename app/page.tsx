@@ -84,6 +84,9 @@ export default function DoublesMatchupApp() {
   const [isInitialized, setIsInitialized] = useState(false);
   const [editingPairMemberId, setEditingPairMemberId] = useState<number | null>(null);
   const [showScheduleNotice, setShowScheduleNotice] = useState(false);
+  
+  // 予定変更のユーザー確認フラグ
+  const [hasUserConfirmedRegen, setHasUserConfirmedRegen] = useState(false);
 
   const prevMembersRef = useRef<Member[]>([]);
   const [lastFingerprint, setLastFingerprint] = useState('');
@@ -148,6 +151,19 @@ export default function DoublesMatchupApp() {
     }
   }, [members, courts, nextMatches, matchHistory, config, nextMemberId, isInitialized]);
 
+  // 予定変更確認用のヘルパー関数
+  const checkChangeConfirmation = () => {
+    if (config.bulkOnlyMode && !hasUserConfirmedRegen) {
+      const ok = confirm('次回の予定が組み直しになりますが、よろしいですか？');
+      if (ok) {
+        setHasUserConfirmedRegen(true);
+        return true;
+      }
+      return false;
+    }
+    return true;
+  };
+
   useEffect(() => {
     if (isInitialized && activeTab === 'dashboard' && config.bulkOnlyMode) {
       if (lastFingerprint !== memberFingerprint && memberFingerprint !== '') {
@@ -174,6 +190,10 @@ export default function DoublesMatchupApp() {
 
         if (configChanged || hasRelevantChange || lastFingerprint === '') {
           regeneratePlannedMatches();
+          
+          // 【修正点】ダッシュボードに移動して組み直しが完了したタイミングでフラグをリセット
+          setHasUserConfirmedRegen(false);
+
           if (lastFingerprint !== '') {
             setShowScheduleNotice(true);
             setTimeout(() => setShowScheduleNotice(false), 3000);
@@ -187,6 +207,7 @@ export default function DoublesMatchupApp() {
   }, [activeTab, isInitialized, memberFingerprint, config.bulkOnlyMode, config.levelStrict, config.courtCount]);
 
   const handleCourtCountChange = (count: number) => {
+    if (!checkChangeConfirmation()) return;
     setConfig(prev => ({ ...prev, courtCount: count }));
     const adjust = (prev: Court[]) => {
       if (count > prev.length) {
@@ -209,6 +230,7 @@ export default function DoublesMatchupApp() {
       setMatchHistory([]);
       const clearedCourts = courts.map(c => ({ ...c, match: null }));
       setCourts(clearedCourts);
+      setHasUserConfirmedRegen(false); 
       if (config.bulkOnlyMode) {
         regeneratePlannedMatches(clearedMembers);
       } else {
@@ -261,6 +283,7 @@ export default function DoublesMatchupApp() {
         setCourts(prev => prev.map(c => ({ ...c, match: null })));
         setNextMatches(prev => prev.map(c => ({ ...c, match: null })));
         setNextMemberId(newMembers.length > 0 ? Math.max(...newMembers.map(m => m.id)) + 1 : 1);
+        setHasUserConfirmedRegen(false);
         alert('名簿を復元しました。');
         if (fileInputRef.current) fileInputRef.current.value = '';
       } catch (err) {
@@ -271,6 +294,7 @@ export default function DoublesMatchupApp() {
   };
 
   const addMember = () => {
+    if (!checkChangeConfirmation()) return;
     const activeMembers = members.filter(m => m.isActive);
     const avgPlay = activeMembers.length > 0 ? Math.floor(activeMembers.reduce((s, m) => s + m.playCount, 0) / activeMembers.length) : 0;
     const newMember: Member = { 
@@ -283,6 +307,7 @@ export default function DoublesMatchupApp() {
   };
 
   const updateFixedPair = (memberId: number, partnerId: number | null) => {
+    if (!checkChangeConfirmation()) return;
     setMembers(prev => {
       let newMembers = JSON.parse(JSON.stringify(prev)) as Member[];
       const target = newMembers.find(m => m.id === memberId);
@@ -308,6 +333,7 @@ export default function DoublesMatchupApp() {
   };
 
   const handleLevelChange = (id: number) => {
+    if (!checkChangeConfirmation()) return;
     setMembers(prev => {
       const target = prev.find(m => m.id === id);
       if (!target) return prev;
@@ -465,6 +491,10 @@ export default function DoublesMatchupApp() {
         setMatchHistory(prev => [...newHistoryEntries, ...prev]);
         setMembers(currentMembersState);
         setCourts(matchesToApply);
+        
+        // 【修正点】試合画面（ダッシュボード）で実際に更新されたため、確認フラグをリセット
+        setHasUserConfirmedRegen(false);
+        
         regeneratePlannedMatches(currentMembersState);
         prevMembersRef.current = JSON.parse(JSON.stringify(currentMembersState));
       }, 200);
@@ -653,13 +683,18 @@ export default function DoublesMatchupApp() {
                       <span className="text-xs text-gray-400 font-bold">試合数: {m.playCount}{m.imputedPlayCount > 0 && <span className="text-gray-300 ml-1">({m.imputedPlayCount})</span>}</span>
                     </div>
                   </div>
-                  <button onClick={() => setMembers(prev => prev.map(x => x.id === m.id ? { ...x, isActive: !x.isActive } : x))} className={`px-4 py-2 rounded-xl font-bold border-2 ${m.isActive ? 'border-blue-600 text-blue-600 bg-blue-50' : 'border-gray-200 text-gray-300'}`}>{m.isActive ? '参加' : '休み'}</button>
-                  <button onClick={() => {if(confirm(`${m.name}を削除？`)) setMembers(prev => prev.filter(x => x.id !== m.id))}} className="text-gray-200 hover:text-red-500 px-2"><Trash2 size={24} /></button>
+                  <button onClick={() => {
+                    if (!checkChangeConfirmation()) return;
+                    setMembers(prev => prev.map(x => x.id === m.id ? { ...x, isActive: !x.isActive } : x));
+                  }} className={`px-4 py-2 rounded-xl font-bold border-2 ${m.isActive ? 'border-blue-600 text-blue-600 bg-blue-50' : 'border-gray-200 text-gray-300'}`}>{m.isActive ? '参加' : '休み'}</button>
+                  <button onClick={() => {
+                    if (!checkChangeConfirmation()) return;
+                    if(confirm(`${m.name}を削除？`)) setMembers(prev => prev.filter(x => x.id !== m.id))
+                  }} className="text-gray-200 hover:text-red-500 px-2"><Trash2 size={24} /></button>
                 </div>
               ))}
               {editingPairMemberId && (
                 <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setEditingPairMemberId(null)}>
-                  {/* リストの幅を 100% (マイナス余白) にしつつ、最大幅を名簿リストと同じ max-w-2xl に制限 */}
                   <div className="bg-white rounded-xl shadow-xl w-[calc(100%-2rem)] max-w-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
                     <div className="bg-gray-100 px-4 py-3 flex justify-between items-center border-b"><h3 className="font-bold text-lg">ペアを選択</h3><button onClick={() => setEditingPairMemberId(null)} className="text-gray-500"><X size={20}/></button></div>
                     <div className="max-h-[60vh] overflow-y-auto p-2">
@@ -740,7 +775,10 @@ export default function DoublesMatchupApp() {
                 <span className="font-bold text-lg text-gray-700">レベル厳格モード</span>
                 <span className="text-xs text-gray-400">同一レベルの人しか同じコートに入りません</span>
               </div>
-              <button onClick={() => setConfig(prev => ({ ...prev, levelStrict: !prev.levelStrict }))} className={`w-14 h-7 rounded-full relative transition-colors ${config.levelStrict ? 'bg-blue-600' : 'bg-gray-200'}`}><div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-md ${config.levelStrict ? 'left-8' : 'left-1'}`} /></button>
+              <button onClick={() => {
+                if (!checkChangeConfirmation()) return;
+                setConfig(prev => ({ ...prev, levelStrict: !prev.levelStrict }));
+              }} className={`w-14 h-7 rounded-full relative transition-colors ${config.levelStrict ? 'bg-blue-600' : 'bg-gray-200'}`}><div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-md ${config.levelStrict ? 'left-8' : 'left-1'}`} /></button>
             </div>
             <div className="flex items-center justify-between py-6 border-b border-gray-50">
               <div className="flex flex-col">
