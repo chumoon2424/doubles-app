@@ -1,13 +1,19 @@
 import type { Metadata } from "next";
 import "./globals.css";
 
-export const metadata: Metadata = {
-  title: "Doubles Matchmaker",
-  description: "ダブルスの組み合わせ作成アプリ",
+export const metadata = {
+  title: 'D.M.(beta)',
+  description: 'Doubles Matchmaker',
   manifest: '/manifest.json',
+  themeColor: '#1e3a8a', 
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'D.M.(beta)',
+  },
   icons: {
     icon: '/icon-192.png',
-    apple: '/apple-touch-icon.png',
+    apple: '/icon-192.png',
   },
 };
 
