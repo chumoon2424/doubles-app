@@ -1,11 +1,15 @@
-import type { Metadata } from "next";
-import "./globals.css";
+import type { Metadata, Viewport } from 'next'
+
+export const viewport: Viewport = {
+  themeColor: '#1e3a8a',
+  width: 'device-width',
+  initialScale: 1,
+}
 
 export const metadata = {
   title: 'D.M.(beta)',
   description: 'Doubles Matchmaker',
   manifest: '/manifest.json',
-  themeColor: '#1e3a8a', 
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
