@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "ダブルスメーカー",
+  title: "Doubles Matchmaker",
   description: "ダブルスの組み合わせ作成アプリ",
   manifest: '/manifest.json',
   icons: {
