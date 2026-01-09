@@ -16,7 +16,9 @@ import {
   ZoomIn,
   ZoomOut,
   Type,
-  AlertCircle
+  AlertCircle,
+  Download,
+  Upload
 } from 'lucide-react';
 
 // --- 型定義 ---
@@ -85,6 +87,7 @@ export default function DoublesMatchupApp() {
 
   const prevMembersRef = useRef<Member[]>([]);
   const [lastFingerprint, setLastFingerprint] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const memberFingerprint = useMemo(() => {
     try {
@@ -212,6 +215,66 @@ export default function DoublesMatchupApp() {
         setNextMatches(clearedCourts);
       }
     }
+  };
+
+  // --- バックアップ機能 ---
+  const exportMembers = () => {
+    const backupData = members.map(m => ({
+      id: m.id,
+      name: m.name,
+      level: m.level,
+      fixedPairMemberId: m.fixedPairMemberId
+    }));
+    
+    const json = JSON.stringify(backupData, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const timestamp = new Date().toISOString().split('T')[0];
+    a.href = url;
+    a.download = `DMaker_Members_${timestamp}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importMembers = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const data = JSON.parse(event.target?.result as string);
+        if (!Array.isArray(data)) throw new Error('Invalid format');
+
+        if (!confirm('名簿を復元します。現在の全ての試合データと履歴はリセットされますが、よろしいですか？')) return;
+
+        const newMembers: Member[] = data.map(m => ({
+          id: m.id,
+          name: m.name || 'Unknown',
+          level: m.level || 'A',
+          isActive: true,
+          playCount: 0,
+          imputedPlayCount: 0,
+          lastPlayedTime: 0,
+          matchHistory: {},
+          pairHistory: {},
+          fixedPairMemberId: m.fixedPairMemberId || null
+        }));
+
+        setMembers(newMembers);
+        setMatchHistory([]);
+        setCourts(prev => prev.map(c => ({ ...c, match: null })));
+        setNextMatches(prev => prev.map(c => ({ ...c, match: null })));
+        setNextMemberId(newMembers.length > 0 ? Math.max(...newMembers.map(m => m.id)) + 1 : 1);
+        
+        alert('名簿を復元しました。');
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      } catch (err) {
+        alert('ファイルの読み込みに失敗しました。正しい形式のファイルを選択してください。');
+      }
+    };
+    reader.readAsText(file);
   };
 
   const addMember = () => {
@@ -667,6 +730,36 @@ export default function DoublesMatchupApp() {
                 }
               `}} />
             </div>
+
+            {/* バックアップと復元セクション */}
+            <div className="space-y-4 pt-4 border-t border-gray-100">
+              <span className="block text-sm font-bold text-gray-400 uppercase tracking-widest">名簿データの管理</span>
+              <div className="grid grid-cols-2 gap-3">
+                <button 
+                  onClick={exportMembers}
+                  className="py-3 bg-indigo-600 text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow-sm active:bg-indigo-700 transition-colors"
+                >
+                  <Download size={18} /> 退避(保存)
+                </button>
+                <button 
+                  onClick={() => fileInputRef.current?.click()}
+                  className="py-3 bg-white text-indigo-600 border-2 border-indigo-600 rounded-xl font-bold flex items-center justify-center gap-2 active:bg-indigo-50 transition-colors"
+                >
+                  <Upload size={18} /> 復元(読込)
+                </button>
+                <input 
+                  type="file" 
+                  ref={fileInputRef} 
+                  onChange={importMembers} 
+                  accept=".json" 
+                  className="hidden" 
+                />
+              </div>
+              <p className="text-[10px] text-gray-400 leading-relaxed italic">
+                ※「名前・レベル・固定ペア」のみを保存します。機種変更時や名簿のバックアップに利用してください。復元すると現在の試合履歴はリセットされます。
+              </p>
+            </div>
+
             <div className="flex items-center justify-between py-6 border-y border-gray-50">
               <span className="font-bold text-lg text-gray-700">レベル厳格モード</span>
               <button onClick={() => setConfig(prev => ({ ...prev, levelStrict: !prev.levelStrict }))} className={`w-14 h-7 rounded-full relative transition-colors ${config.levelStrict ? 'bg-blue-600' : 'bg-gray-200'}`}><div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-md ${config.levelStrict ? 'left-8' : 'left-1'}`} /></button>
