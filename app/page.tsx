@@ -85,14 +85,13 @@ export default function DoublesMatchupApp() {
   const [editingPairMemberId, setEditingPairMemberId] = useState<number | null>(null);
   const [showScheduleNotice, setShowScheduleNotice] = useState(false);
   
-  // 予定変更のユーザー確認フラグ
   const [hasUserConfirmedRegen, setHasUserConfirmedRegen] = useState(false);
 
   const prevMembersRef = useRef<Member[]>([]);
   const [lastFingerprint, setLastFingerprint] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 【修正】組み直しが必要な変更のみを監視する指紋ロジック
+  // 指紋ロジック（予定外メンバーの不参加変更や、厳格モードOFF時のレベル変更を無視）
   const memberFingerprint = useMemo(() => {
     try {
       const plannedIds = new Set<number>();
@@ -101,14 +100,11 @@ export default function DoublesMatchupApp() {
       });
 
       const status = (members || []).map(m => {
-        // 固定ペアの変更は常に影響する
         let s = `${m.id}-${m.fixedPairMemberId || 'none'}`;
-        // 予定に入っている人は、参加状態の変更と（厳格モードなら）レベル変更も影響する
         if (plannedIds.has(m.id)) {
           s += `-${m.isActive}`;
           if (config.levelStrict) s += `-${m.level}`;
         } else {
-          // 予定に入っていない人は、「休み→参加」への変更のみ影響する
           s += `-${m.isActive === true ? 'active' : 'inactive'}`;
         }
         return s;
@@ -170,49 +166,35 @@ export default function DoublesMatchupApp() {
     }
   }, [members, courts, nextMatches, matchHistory, config, nextMemberId, isInitialized]);
 
-  // 【修正】実際の「組み直し」が必要な状況かどうかを厳密に判定する関数
-  const isRegenRequired = () => {
-    if (lastFingerprint === '' || memberFingerprint === '') return true;
-    if (lastFingerprint === memberFingerprint) return false;
-
+  // ダイアログが必要な変更か判定するロジック（修正対象のみを厳密にチェック）
+  const isRegenRequired = (currentMembers: Member[], currentConfig: AppConfig) => {
     const plannedIds = new Set<number>();
     nextMatches.forEach(c => {
       if (c?.match) [c.match.p1, c.match.p2, c.match.p3, c.match.p4].forEach(id => plannedIds.add(id));
     });
 
-    // 設定自体の変更チェック
-    const configPart = `_C${config.courtCount}_S${config.levelStrict}_B${config.bulkOnlyMode}`;
-    if (!lastFingerprint.endsWith(configPart)) return true;
+    const configPart = `_C${currentConfig.courtCount}_S${currentConfig.levelStrict}_B${currentConfig.bulkOnlyMode}`;
+    if (lastFingerprint !== '' && !lastFingerprint.endsWith(configPart)) return true;
 
-    // メンバーごとの詳細チェック
-    return (members || []).some(m => {
-      const prev = (prevMembersRef.current || []).find(p => p.id === m.id);
-      if (!prev) return true; // 新規追加
-      if (prev.fixedPairMemberId !== m.fixedPairMemberId) return true; // ペア変更
+    return currentMembers.some(m => {
+      const prev = prevMembersRef.current.find(p => p.id === m.id);
+      if (!prev) return true;
+      if (prev.fixedPairMemberId !== m.fixedPairMemberId) return true;
 
       const isActiveChanged = prev.isActive !== m.isActive;
-      
-      if (plannedIds.has(m.id)) {
-        // 次回予定に入っている人の変更
-        if (isActiveChanged) return true; // 休みになったらNG
-        if (config.levelStrict && prev.level !== m.level) return true; // 厳格モードでのレベル変更はNG
-      } else {
-        // 次回予定に入っていない人の変更
-        if (isActiveChanged && m.isActive) return true; // 休み→参加になったらNG（割り込みの可能性があるため）
-      }
+      if (plannedIds.has(m.id) && isActiveChanged && !m.isActive) return true;
+      if (!plannedIds.has(m.id) && isActiveChanged && m.isActive) return true;
+      if (currentConfig.levelStrict && plannedIds.has(m.id) && prev.level !== m.level) return true;
+
       return false;
     });
   };
 
-  // 予定変更確認用のヘルパー関数
-  const checkChangeConfirmation = (operationType?: string) => {
-    // 一括進行モードでないなら確認不要
+  const checkChangeConfirmation = (updatedMembers?: Member[], updatedConfig?: AppConfig) => {
     if (!config.bulkOnlyMode) return true;
-    // 既に承認済みなら確認不要
     if (hasUserConfirmedRegen) return true;
 
-    // 操作内容と現在の状況を照らし合わせて、本当に組み直しが発生するかチェック
-    if (isRegenRequired()) {
+    if (isRegenRequired(updatedMembers || members, updatedConfig || config)) {
       const ok = confirm('次回の予定が組み直しになりますが、よろしいですか？');
       if (ok) {
         setHasUserConfirmedRegen(true);
@@ -226,9 +208,8 @@ export default function DoublesMatchupApp() {
   useEffect(() => {
     if (isInitialized && activeTab === 'dashboard' && config.bulkOnlyMode) {
       if (lastFingerprint !== memberFingerprint && memberFingerprint !== '') {
-        if (isRegenRequired()) {
+        if (isRegenRequired(members, config)) {
           regeneratePlannedMatches();
-          // ダッシュボードでの組み直し完了時にフラグをリセット
           setHasUserConfirmedRegen(false);
           if (lastFingerprint !== '') {
             setShowScheduleNotice(true);
@@ -242,8 +223,9 @@ export default function DoublesMatchupApp() {
   }, [activeTab, isInitialized, memberFingerprint, config.bulkOnlyMode, config.levelStrict, config.courtCount]);
 
   const handleCourtCountChange = (count: number) => {
-    if (!checkChangeConfirmation()) return;
-    setConfig(prev => ({ ...prev, courtCount: count }));
+    const nextConfig = { ...config, courtCount: count };
+    if (!checkChangeConfirmation(undefined, nextConfig)) return;
+    setConfig(nextConfig);
     const adjust = (prev: Court[]) => {
       if (count > prev.length) {
         const added = Array.from({ length: count - prev.length }, (_, i) => ({ id: prev.length + i + 1, match: null }));
@@ -329,7 +311,6 @@ export default function DoublesMatchupApp() {
   };
 
   const addMember = () => {
-    if (!checkChangeConfirmation()) return;
     const activeMembers = members.filter(m => m.isActive);
     const avgPlay = activeMembers.length > 0 ? Math.floor(activeMembers.reduce((s, m) => s + m.playCount, 0) / activeMembers.length) : 0;
     const newMember: Member = { 
@@ -337,50 +318,40 @@ export default function DoublesMatchupApp() {
       playCount: avgPlay, imputedPlayCount: avgPlay, lastPlayedTime: 0, 
       matchHistory: {}, pairHistory: {}, fixedPairMemberId: null
     };
+    if (!checkChangeConfirmation([...members, newMember])) return;
     setMembers([...members, newMember]);
     setNextMemberId(prev => prev + 1);
   };
 
   const updateFixedPair = (memberId: number, partnerId: number | null) => {
-    if (!checkChangeConfirmation()) return;
-    setMembers(prev => {
-      let newMembers = JSON.parse(JSON.stringify(prev)) as Member[];
-      const target = newMembers.find(m => m.id === memberId);
-      if (!target) return prev;
-      if (target.fixedPairMemberId) {
-        const oldPartner = newMembers.find(m => m.id === target.fixedPairMemberId);
-        if (oldPartner) oldPartner.fixedPairMemberId = null;
-      }
-      if (partnerId) {
-        const newPartner = newMembers.find(m => m.id === partnerId);
-        if (newPartner) {
-          if (newPartner.fixedPairMemberId) {
-            const partnersOldPartner = newMembers.find(m => m.id === newPartner.fixedPairMemberId);
-            if (partnersOldPartner) partnersOldPartner.fixedPairMemberId = null;
-          }
-          newPartner.fixedPairMemberId = memberId;
-        }
-      }
-      target.fixedPairMemberId = partnerId;
-      return newMembers;
+    const prevMembersCopy = JSON.parse(JSON.stringify(members));
+    const nextMembers = members.map(m => {
+      let nm = { ...m };
+      if (m.id === memberId) nm.fixedPairMemberId = partnerId;
+      if (partnerId && m.id === partnerId) nm.fixedPairMemberId = memberId;
+      if (m.fixedPairMemberId === memberId && m.id !== partnerId) nm.fixedPairMemberId = null;
+      const oldTarget = prevMembersCopy.find((x: any) => x.id === memberId);
+      if (oldTarget?.fixedPairMemberId && m.id === oldTarget.fixedPairMemberId && m.id !== partnerId) nm.fixedPairMemberId = null;
+      return nm;
     });
+    if (!checkChangeConfirmation(nextMembers)) return;
+    setMembers(nextMembers);
     setEditingPairMemberId(null);
   };
 
   const handleLevelChange = (id: number) => {
-    if (!checkChangeConfirmation()) return;
-    setMembers(prev => {
-      const target = prev.find(m => m.id === id);
-      if (!target) return prev;
-      const levels: Level[] = ['A', 'B', 'C'];
-      const newLevel = levels[(levels.indexOf(target.level) + 1) % 3];
-      return prev.map(m => {
-        if (m.id === id || (target.fixedPairMemberId && m.id === target.fixedPairMemberId)) {
-          return { ...m, level: newLevel };
-        }
-        return m;
-      });
+    const levels: Level[] = ['A', 'B', 'C'];
+    const target = members.find(m => m.id === id);
+    if (!target) return;
+    const newLevel = levels[(levels.indexOf(target.level) + 1) % 3];
+    const nextMembers = members.map(m => {
+      if (m.id === id || (target.fixedPairMemberId && m.id === target.fixedPairMemberId)) {
+        return { ...m, level: newLevel };
+      }
+      return m;
     });
+    if (!checkChangeConfirmation(nextMembers)) return;
+    setMembers(nextMembers);
   };
 
   const calculateNextMemberState = (currentMembers: Member[], p1: number, p2: number, p3: number, p4: number) => {
@@ -415,6 +386,7 @@ export default function DoublesMatchupApp() {
     setMembers(prev => calculateNextMemberState(prev, p1, p2, p3, p4));
   };
 
+  // 組み合わせアルゴリズム中核（維持）
   const getMatchForCourt = (currentCourts: Court[], currentMembers: Member[]) => {
     const playingIds = new Set<number>();
     (currentCourts || []).forEach(c => { if (c?.match) [c.match.p1, c.match.p2, c.match.p3, c.match.p4].forEach(id => playingIds.add(id)); });
@@ -716,12 +688,14 @@ export default function DoublesMatchupApp() {
                     </div>
                   </div>
                   <button onClick={() => {
-                    if (!checkChangeConfirmation()) return;
-                    setMembers(prev => prev.map(x => x.id === m.id ? { ...x, isActive: !x.isActive } : x));
+                    const nextMembers = members.map(x => x.id === m.id ? { ...x, isActive: !x.isActive } : x);
+                    if (!checkChangeConfirmation(nextMembers)) return;
+                    setMembers(nextMembers);
                   }} className={`px-4 py-2 rounded-xl font-bold border-2 ${m.isActive ? 'border-blue-600 text-blue-600 bg-blue-50' : 'border-gray-200 text-gray-300'}`}>{m.isActive ? '参加' : '休み'}</button>
                   <button onClick={() => {
-                    if (!checkChangeConfirmation()) return;
-                    if(confirm(`${m.name}を削除？`)) setMembers(prev => prev.filter(x => x.id !== m.id))
+                    const nextMembers = members.filter(x => x.id !== m.id);
+                    if (!checkChangeConfirmation(nextMembers)) return;
+                    if(confirm(`${m.name}を削除？`)) setMembers(nextMembers)
                   }} className="text-gray-200 hover:text-red-500 px-2"><Trash2 size={24} /></button>
                 </div>
               ))}
@@ -808,8 +782,9 @@ export default function DoublesMatchupApp() {
                 <span className="text-xs text-gray-400">同一レベルの人しか同じコートに入りません</span>
               </div>
               <button onClick={() => {
-                if (!checkChangeConfirmation()) return;
-                setConfig(prev => ({ ...prev, levelStrict: !prev.levelStrict }));
+                const nextConfig = { ...config, levelStrict: !config.levelStrict };
+                if (!checkChangeConfirmation(undefined, nextConfig)) return;
+                setConfig(nextConfig);
               }} className={`w-14 h-7 rounded-full relative transition-colors ${config.levelStrict ? 'bg-blue-600' : 'bg-gray-200'}`}><div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-md ${config.levelStrict ? 'left-8' : 'left-1'}`} /></button>
             </div>
             <div className="flex items-center justify-between py-6 border-b border-gray-50">
