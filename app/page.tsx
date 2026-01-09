@@ -16,7 +16,9 @@ import {
   ZoomIn,
   ZoomOut,
   Type,
-  AlertCircle
+  AlertCircle,
+  Download,
+  Upload
 } from 'lucide-react';
 
 // --- 型定義 ---
@@ -82,18 +84,36 @@ export default function DoublesMatchupApp() {
   const [isInitialized, setIsInitialized] = useState(false);
   const [editingPairMemberId, setEditingPairMemberId] = useState<number | null>(null);
   const [showScheduleNotice, setShowScheduleNotice] = useState(false);
+  
+  const [hasUserConfirmedRegen, setHasUserConfirmedRegen] = useState(false);
 
   const prevMembersRef = useRef<Member[]>([]);
   const [lastFingerprint, setLastFingerprint] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const memberFingerprint = useMemo(() => {
     try {
-      const status = (members || []).map(m => `${m.id}-${m.isActive}-${m.level}-${m.fixedPairMemberId || 'none'}`).join('|');
+      const plannedIds = new Set<number>();
+      nextMatches.forEach(c => {
+        if (c?.match) [c.match.p1, c.match.p2, c.match.p3, c.match.p4].forEach(id => plannedIds.add(id));
+      });
+
+      const status = (members || []).map(m => {
+        let s = `${m.id}-${m.fixedPairMemberId || 'none'}`;
+        if (plannedIds.has(m.id)) {
+          s += `-${m.isActive}`;
+          if (config.levelStrict) s += `-${m.level}`;
+        } else {
+          s += `-${m.isActive === true ? 'active' : 'inactive'}`;
+        }
+        return s;
+      }).join('|');
+
       return `${status}_C${config.courtCount}_S${config.levelStrict}_B${config.bulkOnlyMode}`;
     } catch (e) {
       return '';
     }
-  }, [members, config.courtCount, config.levelStrict, config.bulkOnlyMode]);
+  }, [members, config.courtCount, config.levelStrict, config.bulkOnlyMode, nextMatches]);
 
   useEffect(() => {
     const versions = ['v16', 'v15', 'v14', 'v13', 'v12', 'v11', 'v10', 'v9', 'v8'];
@@ -145,38 +165,60 @@ export default function DoublesMatchupApp() {
     }
   }, [members, courts, nextMatches, matchHistory, config, nextMemberId, isInitialized]);
 
+  const isRegenRequired = (currentMembers: Member[], currentConfig: AppConfig) => {
+    const plannedIds = new Set<number>();
+    nextMatches.forEach(c => {
+      if (c?.match) [c.match.p1, c.match.p2, c.match.p3, c.match.p4].forEach(id => plannedIds.add(id));
+    });
+
+    const configPart = `_C${currentConfig.courtCount}_S${currentConfig.levelStrict}_B${currentConfig.bulkOnlyMode}`;
+    if (lastFingerprint !== '' && !lastFingerprint.endsWith(configPart)) return true;
+
+    // 現在のメンバーリストから、削除された人を特定して判定に含める
+    const currentMemberIds = new Set(currentMembers.map(m => m.id));
+    const wasPlannedMemberDeleted = Array.from(plannedIds).some(id => !currentMemberIds.has(id));
+    if (wasPlannedMemberDeleted) return true;
+
+    return currentMembers.some(m => {
+      const prev = prevMembersRef.current.find(p => p.id === m.id);
+      if (!prev) return true;
+      if (prev.fixedPairMemberId !== m.fixedPairMemberId) return true;
+
+      const isActiveChanged = prev.isActive !== m.isActive;
+      if (plannedIds.has(m.id) && isActiveChanged && !m.isActive) return true;
+      if (!plannedIds.has(m.id) && isActiveChanged && m.isActive) return true;
+      if (currentConfig.levelStrict && plannedIds.has(m.id) && prev.level !== m.level) return true;
+
+      return false;
+    });
+  };
+
+  const checkChangeConfirmation = (updatedMembers?: Member[], updatedConfig?: AppConfig) => {
+    if (!config.bulkOnlyMode) return true;
+    if (hasUserConfirmedRegen) return true;
+
+    if (isRegenRequired(updatedMembers || members, updatedConfig || config)) {
+      const ok = confirm('次回の予定が組み直しになりますが、よろしいですか？');
+      if (ok) {
+        setHasUserConfirmedRegen(true);
+        return true;
+      }
+      return false;
+    }
+    return true;
+  };
+
   useEffect(() => {
     if (isInitialized && activeTab === 'dashboard' && config.bulkOnlyMode) {
       if (lastFingerprint !== memberFingerprint && memberFingerprint !== '') {
-        const plannedIds = new Set<number>();
-        nextMatches.forEach(c => {
-          if (c?.match) [c.match.p1, c.match.p2, c.match.p3, c.match.p4].forEach(id => plannedIds.add(id));
-        });
-
-        const hasRelevantChange = (members || []).some(m => {
-          const prev = (prevMembersRef.current || []).find(p => p.id === m.id);
-          if (!prev) return true;
-          if (prev.fixedPairMemberId !== m.fixedPairMemberId) return true;
-          const isActiveChanged = prev.isActive !== m.isActive;
-          if (plannedIds.has(m.id)) {
-            if (isActiveChanged) return true;
-            if (config.levelStrict && prev.level !== m.level) return true;
-          }
-          if (!plannedIds.has(m.id) && isActiveChanged && m.isActive) return true;
-          return false;
-        });
-
-        const configPart = `_C${config.courtCount}_S${config.levelStrict}_B${config.bulkOnlyMode}`;
-        const configChanged = lastFingerprint !== '' && !lastFingerprint.endsWith(configPart);
-
-        if (configChanged || hasRelevantChange || lastFingerprint === '') {
+        if (isRegenRequired(members, config)) {
           regeneratePlannedMatches();
+          setHasUserConfirmedRegen(false);
           if (lastFingerprint !== '') {
             setShowScheduleNotice(true);
             setTimeout(() => setShowScheduleNotice(false), 3000);
           }
         }
-        
         setLastFingerprint(memberFingerprint);
         prevMembersRef.current = JSON.parse(JSON.stringify(members));
       }
@@ -184,7 +226,9 @@ export default function DoublesMatchupApp() {
   }, [activeTab, isInitialized, memberFingerprint, config.bulkOnlyMode, config.levelStrict, config.courtCount]);
 
   const handleCourtCountChange = (count: number) => {
-    setConfig(prev => ({ ...prev, courtCount: count }));
+    const nextConfig = { ...config, courtCount: count };
+    if (!checkChangeConfirmation(undefined, nextConfig)) return;
+    setConfig(nextConfig);
     const adjust = (prev: Court[]) => {
       if (count > prev.length) {
         const added = Array.from({ length: count - prev.length }, (_, i) => ({ id: prev.length + i + 1, match: null }));
@@ -206,12 +250,67 @@ export default function DoublesMatchupApp() {
       setMatchHistory([]);
       const clearedCourts = courts.map(c => ({ ...c, match: null }));
       setCourts(clearedCourts);
+      setHasUserConfirmedRegen(false); 
       if (config.bulkOnlyMode) {
         regeneratePlannedMatches(clearedMembers);
       } else {
         setNextMatches(clearedCourts);
       }
     }
+  };
+
+  const exportMembers = () => {
+    const backupData = members.map(m => ({
+      id: m.id,
+      name: m.name,
+      level: m.level,
+      fixedPairMemberId: m.fixedPairMemberId
+    }));
+    const json = JSON.stringify(backupData, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const timestamp = new Date().toISOString().split('T')[0];
+    a.href = url;
+    a.download = `DMaker_Members_${timestamp}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importMembers = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const data = JSON.parse(event.target?.result as string);
+        if (!Array.isArray(data)) throw new Error('Invalid format');
+        if (!confirm('名簿を復元します。現在の全ての試合データと履歴はリセットされますが、よろしいですか？')) return;
+        const newMembers: Member[] = data.map(m => ({
+          id: m.id,
+          name: m.name || 'Unknown',
+          level: m.level || 'A',
+          isActive: true,
+          playCount: 0,
+          imputedPlayCount: 0,
+          lastPlayedTime: 0,
+          matchHistory: {},
+          pairHistory: {},
+          fixedPairMemberId: m.fixedPairMemberId || null
+        }));
+        setMembers(newMembers);
+        setMatchHistory([]);
+        setCourts(prev => prev.map(c => ({ ...c, match: null })));
+        setNextMatches(prev => prev.map(c => ({ ...c, match: null })));
+        setNextMemberId(newMembers.length > 0 ? Math.max(...newMembers.map(m => m.id)) + 1 : 1);
+        setHasUserConfirmedRegen(false);
+        alert('名簿を復元しました。');
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      } catch (err) {
+        alert('ファイルの読み込みに失敗しました。正しい形式のファイルを選択してください。');
+      }
+    };
+    reader.readAsText(file);
   };
 
   const addMember = () => {
@@ -222,48 +321,40 @@ export default function DoublesMatchupApp() {
       playCount: avgPlay, imputedPlayCount: avgPlay, lastPlayedTime: 0, 
       matchHistory: {}, pairHistory: {}, fixedPairMemberId: null
     };
+    if (!checkChangeConfirmation([...members, newMember])) return;
     setMembers([...members, newMember]);
     setNextMemberId(prev => prev + 1);
   };
 
   const updateFixedPair = (memberId: number, partnerId: number | null) => {
-    setMembers(prev => {
-      let newMembers = JSON.parse(JSON.stringify(prev)) as Member[];
-      const target = newMembers.find(m => m.id === memberId);
-      if (!target) return prev;
-      if (target.fixedPairMemberId) {
-        const oldPartner = newMembers.find(m => m.id === target.fixedPairMemberId);
-        if (oldPartner) oldPartner.fixedPairMemberId = null;
-      }
-      if (partnerId) {
-        const newPartner = newMembers.find(m => m.id === partnerId);
-        if (newPartner) {
-          if (newPartner.fixedPairMemberId) {
-            const partnersOldPartner = newMembers.find(m => m.id === newPartner.fixedPairMemberId);
-            if (partnersOldPartner) partnersOldPartner.fixedPairMemberId = null;
-          }
-          newPartner.fixedPairMemberId = memberId;
-        }
-      }
-      target.fixedPairMemberId = partnerId;
-      return newMembers;
+    const prevMembersCopy = JSON.parse(JSON.stringify(members));
+    const nextMembers = members.map(m => {
+      let nm = { ...m };
+      if (m.id === memberId) nm.fixedPairMemberId = partnerId;
+      if (partnerId && m.id === partnerId) nm.fixedPairMemberId = memberId;
+      if (m.fixedPairMemberId === memberId && m.id !== partnerId) nm.fixedPairMemberId = null;
+      const oldTarget = prevMembersCopy.find((x: any) => x.id === memberId);
+      if (oldTarget?.fixedPairMemberId && m.id === oldTarget.fixedPairMemberId && m.id !== partnerId) nm.fixedPairMemberId = null;
+      return nm;
     });
+    if (!checkChangeConfirmation(nextMembers)) return;
+    setMembers(nextMembers);
     setEditingPairMemberId(null);
   };
 
   const handleLevelChange = (id: number) => {
-    setMembers(prev => {
-      const target = prev.find(m => m.id === id);
-      if (!target) return prev;
-      const levels: Level[] = ['A', 'B', 'C'];
-      const newLevel = levels[(levels.indexOf(target.level) + 1) % 3];
-      return prev.map(m => {
-        if (m.id === id || (target.fixedPairMemberId && m.id === target.fixedPairMemberId)) {
-          return { ...m, level: newLevel };
-        }
-        return m;
-      });
+    const levels: Level[] = ['A', 'B', 'C'];
+    const target = members.find(m => m.id === id);
+    if (!target) return;
+    const newLevel = levels[(levels.indexOf(target.level) + 1) % 3];
+    const nextMembers = members.map(m => {
+      if (m.id === id || (target.fixedPairMemberId && m.id === target.fixedPairMemberId)) {
+        return { ...m, level: newLevel };
+      }
+      return m;
     });
+    if (!checkChangeConfirmation(nextMembers)) return;
+    setMembers(nextMembers);
   };
 
   const calculateNextMemberState = (currentMembers: Member[], p1: number, p2: number, p3: number, p4: number) => {
@@ -409,6 +500,7 @@ export default function DoublesMatchupApp() {
         setMatchHistory(prev => [...newHistoryEntries, ...prev]);
         setMembers(currentMembersState);
         setCourts(matchesToApply);
+        setHasUserConfirmedRegen(false);
         regeneratePlannedMatches(currentMembersState);
         prevMembersRef.current = JSON.parse(JSON.stringify(currentMembersState));
       }, 200);
@@ -597,13 +689,23 @@ export default function DoublesMatchupApp() {
                       <span className="text-xs text-gray-400 font-bold">試合数: {m.playCount}{m.imputedPlayCount > 0 && <span className="text-gray-300 ml-1">({m.imputedPlayCount})</span>}</span>
                     </div>
                   </div>
-                  <button onClick={() => setMembers(prev => prev.map(x => x.id === m.id ? { ...x, isActive: !x.isActive } : x))} className={`px-4 py-2 rounded-xl font-bold border-2 ${m.isActive ? 'border-blue-600 text-blue-600 bg-blue-50' : 'border-gray-200 text-gray-300'}`}>{m.isActive ? '参加' : '休み'}</button>
-                  <button onClick={() => {if(confirm(`${m.name}を削除？`)) setMembers(prev => prev.filter(x => x.id !== m.id))}} className="text-gray-200 hover:text-red-500 px-2"><Trash2 size={24} /></button>
+                  <button onClick={() => {
+                    const nextMembers = members.map(x => x.id === m.id ? { ...x, isActive: !x.isActive } : x);
+                    if (!checkChangeConfirmation(nextMembers)) return;
+                    setMembers(nextMembers);
+                  }} className={`px-4 py-2 rounded-xl font-bold border-2 ${m.isActive ? 'border-blue-600 text-blue-600 bg-blue-50' : 'border-gray-200 text-gray-300'}`}>{m.isActive ? '参加' : '休み'}</button>
+                  <button onClick={() => {
+                    if(confirm(`${m.name}を削除してよろしいですか？`)) {
+                      const nextMembers = members.filter(x => x.id !== m.id);
+                      if (!checkChangeConfirmation(nextMembers)) return;
+                      setMembers(nextMembers);
+                    }
+                  }} className="text-gray-200 hover:text-red-500 px-2"><Trash2 size={24} /></button>
                 </div>
               ))}
               {editingPairMemberId && (
                 <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setEditingPairMemberId(null)}>
-                  <div className="bg-white rounded-xl shadow-xl w-full max-sm overflow-hidden" onClick={e => e.stopPropagation()}>
+                  <div className="bg-white rounded-xl shadow-xl w-[calc(100%-2rem)] max-w-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
                     <div className="bg-gray-100 px-4 py-3 flex justify-between items-center border-b"><h3 className="font-bold text-lg">ペアを選択</h3><button onClick={() => setEditingPairMemberId(null)} className="text-gray-500"><X size={20}/></button></div>
                     <div className="max-h-[60vh] overflow-y-auto p-2">
                       <button onClick={() => updateFixedPair(editingPairMemberId, null)} className="w-full text-left px-4 py-3 hover:bg-red-50 text-red-600 font-bold border-b flex items-center gap-2"><Unlink size={16} /> ペアを解消</button>
@@ -667,14 +769,32 @@ export default function DoublesMatchupApp() {
                 }
               `}} />
             </div>
+
+            <div className="space-y-4 pt-4 border-t border-gray-100">
+              <span className="block text-sm font-bold text-gray-400 uppercase tracking-widest">名簿データの管理</span>
+              <div className="grid grid-cols-2 gap-3">
+                <button onClick={exportMembers} className="py-3 bg-indigo-600 text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow-sm active:bg-indigo-700 transition-colors"><Download size={18} /> 退避(保存)</button>
+                <button onClick={() => fileInputRef.current?.click()} className="py-3 bg-white text-indigo-600 border-2 border-indigo-600 rounded-xl font-bold flex items-center justify-center gap-2 active:bg-indigo-50 transition-colors"><Upload size={18} /> 復元(読込)</button>
+                <input type="file" ref={fileInputRef} onChange={importMembers} accept=".json" className="hidden" />
+              </div>
+              <p className="text-[10px] text-gray-400 leading-relaxed italic">※「名前・レベル・固定ペア」のみを保存します。機種変更時や名簿のバックアップに利用してください。復元すると現在の試合履歴はリセットされます。</p>
+            </div>
+
             <div className="flex items-center justify-between py-6 border-y border-gray-50">
-              <span className="font-bold text-lg text-gray-700">レベル厳格モード</span>
-              <button onClick={() => setConfig(prev => ({ ...prev, levelStrict: !prev.levelStrict }))} className={`w-14 h-7 rounded-full relative transition-colors ${config.levelStrict ? 'bg-blue-600' : 'bg-gray-200'}`}><div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-md ${config.levelStrict ? 'left-8' : 'left-1'}`} /></button>
+              <div className="flex flex-col">
+                <span className="font-bold text-lg text-gray-700">レベル厳格モード</span>
+                <span className="text-xs text-gray-400">同一レベルの人しか同じコートに入りません</span>
+              </div>
+              <button onClick={() => {
+                const nextConfig = { ...config, levelStrict: !config.levelStrict };
+                if (!checkChangeConfirmation(undefined, nextConfig)) return;
+                setConfig(nextConfig);
+              }} className={`w-14 h-7 rounded-full relative transition-colors ${config.levelStrict ? 'bg-blue-600' : 'bg-gray-200'}`}><div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-md ${config.levelStrict ? 'left-8' : 'left-1'}`} /></button>
             </div>
             <div className="flex items-center justify-between py-6 border-b border-gray-50">
               <div className="flex flex-col">
                 <span className="font-bold text-lg text-gray-700">一括進行モード</span>
-                <span className="text-xs text-gray-400">次回の予定を表示し、一括で入れ替えます</span>
+                <span className="text-xs text-gray-400">一括更新のみ可能となり、次回の予定が表示されます</span>
               </div>
               <button onClick={() => setConfig(prev => ({ ...prev, bulkOnlyMode: !prev.bulkOnlyMode }))} className={`w-14 h-7 rounded-full relative transition-colors ${config.bulkOnlyMode ? 'bg-orange-600' : 'bg-gray-200'}`}><div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-md ${config.bulkOnlyMode ? 'left-8' : 'left-1'}`} /></button>
             </div>
