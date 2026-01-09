@@ -217,7 +217,6 @@ export default function DoublesMatchupApp() {
     }
   };
 
-  // --- バックアップ機能 ---
   const exportMembers = () => {
     const backupData = members.map(m => ({
       id: m.id,
@@ -225,7 +224,6 @@ export default function DoublesMatchupApp() {
       level: m.level,
       fixedPairMemberId: m.fixedPairMemberId
     }));
-    
     const json = JSON.stringify(backupData, null, 2);
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -240,15 +238,12 @@ export default function DoublesMatchupApp() {
   const importMembers = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
         const data = JSON.parse(event.target?.result as string);
         if (!Array.isArray(data)) throw new Error('Invalid format');
-
         if (!confirm('名簿を復元します。現在の全ての試合データと履歴はリセットされますが、よろしいですか？')) return;
-
         const newMembers: Member[] = data.map(m => ({
           id: m.id,
           name: m.name || 'Unknown',
@@ -261,13 +256,11 @@ export default function DoublesMatchupApp() {
           pairHistory: {},
           fixedPairMemberId: m.fixedPairMemberId || null
         }));
-
         setMembers(newMembers);
         setMatchHistory([]);
         setCourts(prev => prev.map(c => ({ ...c, match: null })));
         setNextMatches(prev => prev.map(c => ({ ...c, match: null })));
         setNextMemberId(newMembers.length > 0 ? Math.max(...newMembers.map(m => m.id)) + 1 : 1);
-        
         alert('名簿を復元しました。');
         if (fileInputRef.current) fileInputRef.current.value = '';
       } catch (err) {
@@ -666,7 +659,8 @@ export default function DoublesMatchupApp() {
               ))}
               {editingPairMemberId && (
                 <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setEditingPairMemberId(null)}>
-                  <div className="bg-white rounded-xl shadow-xl w-full max-sm overflow-hidden" onClick={e => e.stopPropagation()}>
+                  {/* リストの幅を 100% (マイナス余白) にしつつ、最大幅を名簿リストと同じ max-w-2xl に制限 */}
+                  <div className="bg-white rounded-xl shadow-xl w-[calc(100%-2rem)] max-w-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
                     <div className="bg-gray-100 px-4 py-3 flex justify-between items-center border-b"><h3 className="font-bold text-lg">ペアを選択</h3><button onClick={() => setEditingPairMemberId(null)} className="text-gray-500"><X size={20}/></button></div>
                     <div className="max-h-[60vh] overflow-y-auto p-2">
                       <button onClick={() => updateFixedPair(editingPairMemberId, null)} className="w-full text-left px-4 py-3 hover:bg-red-50 text-red-600 font-bold border-b flex items-center gap-2"><Unlink size={16} /> ペアを解消</button>
@@ -731,43 +725,27 @@ export default function DoublesMatchupApp() {
               `}} />
             </div>
 
-            {/* バックアップと復元セクション */}
             <div className="space-y-4 pt-4 border-t border-gray-100">
               <span className="block text-sm font-bold text-gray-400 uppercase tracking-widest">名簿データの管理</span>
               <div className="grid grid-cols-2 gap-3">
-                <button 
-                  onClick={exportMembers}
-                  className="py-3 bg-indigo-600 text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow-sm active:bg-indigo-700 transition-colors"
-                >
-                  <Download size={18} /> 退避(保存)
-                </button>
-                <button 
-                  onClick={() => fileInputRef.current?.click()}
-                  className="py-3 bg-white text-indigo-600 border-2 border-indigo-600 rounded-xl font-bold flex items-center justify-center gap-2 active:bg-indigo-50 transition-colors"
-                >
-                  <Upload size={18} /> 復元(読込)
-                </button>
-                <input 
-                  type="file" 
-                  ref={fileInputRef} 
-                  onChange={importMembers} 
-                  accept=".json" 
-                  className="hidden" 
-                />
+                <button onClick={exportMembers} className="py-3 bg-indigo-600 text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow-sm active:bg-indigo-700 transition-colors"><Download size={18} /> 退避(保存)</button>
+                <button onClick={() => fileInputRef.current?.click()} className="py-3 bg-white text-indigo-600 border-2 border-indigo-600 rounded-xl font-bold flex items-center justify-center gap-2 active:bg-indigo-50 transition-colors"><Upload size={18} /> 復元(読込)</button>
+                <input type="file" ref={fileInputRef} onChange={importMembers} accept=".json" className="hidden" />
               </div>
-              <p className="text-[10px] text-gray-400 leading-relaxed italic">
-                ※「名前・レベル・固定ペア」のみを保存します。機種変更時や名簿のバックアップに利用してください。復元すると現在の試合履歴はリセットされます。
-              </p>
+              <p className="text-[10px] text-gray-400 leading-relaxed italic">※「名前・レベル・固定ペア」のみを保存します。機種変更時や名簿のバックアップに利用してください。復元すると現在の試合履歴はリセットされます。</p>
             </div>
 
             <div className="flex items-center justify-between py-6 border-y border-gray-50">
-              <span className="font-bold text-lg text-gray-700">レベル厳格モード</span>
+              <div className="flex flex-col">
+                <span className="font-bold text-lg text-gray-700">レベル厳格モード</span>
+                <span className="text-xs text-gray-400">同一レベルの人しか同じコートに入りません</span>
+              </div>
               <button onClick={() => setConfig(prev => ({ ...prev, levelStrict: !prev.levelStrict }))} className={`w-14 h-7 rounded-full relative transition-colors ${config.levelStrict ? 'bg-blue-600' : 'bg-gray-200'}`}><div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-md ${config.levelStrict ? 'left-8' : 'left-1'}`} /></button>
             </div>
             <div className="flex items-center justify-between py-6 border-b border-gray-50">
               <div className="flex flex-col">
                 <span className="font-bold text-lg text-gray-700">一括進行モード</span>
-                <span className="text-xs text-gray-400">次回の予定を表示し、一括で入れ替えます</span>
+                <span className="text-xs text-gray-400">一括更新のみ可能となり、次回の予定が表示されます</span>
               </div>
               <button onClick={() => setConfig(prev => ({ ...prev, bulkOnlyMode: !prev.bulkOnlyMode }))} className={`w-14 h-7 rounded-full relative transition-colors ${config.bulkOnlyMode ? 'bg-orange-600' : 'bg-gray-200'}`}><div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-md ${config.bulkOnlyMode ? 'left-8' : 'left-1'}`} /></button>
             </div>
