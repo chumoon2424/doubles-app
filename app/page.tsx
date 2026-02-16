@@ -71,7 +71,7 @@ interface AppConfig {
   zoomLevel: number;
   nameFontSizeModifier: number;
   bulkOnlyMode: boolean;
-  orderFirstMatchByList: boolean; // 追加
+  orderFirstMatchByList: boolean;
 }
 
 export default function DoublesMatchupApp() {
@@ -88,7 +88,7 @@ export default function DoublesMatchupApp() {
     zoomLevel: 1.0,
     nameFontSizeModifier: 1.0,
     bulkOnlyMode: false,
-    orderFirstMatchByList: false, // 追加
+    orderFirstMatchByList: false,
   });
   const [nextMemberId, setNextMemberId] = useState(1);
   const [isInitialized, setIsInitialized] = useState(false);
@@ -101,7 +101,7 @@ export default function DoublesMatchupApp() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
 
-  // --- データの読み込みと保存 ---
+  // --- データの読み込みと保存 (v18対応) ---
   useEffect(() => {
     const versions = ['v18', 'v17', 'v16', 'v15', 'v14', 'v13', 'v12', 'v11', 'v10', 'v9', 'v8'];
     let loadedData: any = null;
@@ -136,7 +136,7 @@ export default function DoublesMatchupApp() {
       setConfig(prev => ({ 
         ...prev, 
         ...(loadedData.config || {}),
-        orderFirstMatchByList: loadedData.config?.orderFirstMatchByList ?? false // 新規追加項目のデフォルト値
+        orderFirstMatchByList: loadedData.config?.orderFirstMatchByList ?? false 
       }));
       setNextMemberId(loadedData.nextMemberId || (safeMembers.length > 0 ? Math.max(...safeMembers.map((m: any) => m.id)) + 1 : 1));
       setMatchHistory(loadedData.matchHistory || []);
@@ -438,55 +438,16 @@ export default function DoublesMatchupApp() {
     let candidates = (currentMembers || []).filter(m => m.isActive && !playingIds.has(m.id));
     if (candidates.length < 4) return null;
 
-    // --- 1巡目の名簿順モードの処理 ---
+    // --- 1巡目の名簿順モード (制約無視で機械的に割り当て) ---
     if (config.orderFirstMatchByList) {
       const firstTimers = candidates.filter(m => m.playCount === 0).sort((a, b) => a.sortOrder - b.sortOrder);
       if (firstTimers.length >= 4) {
-        let bestMatch: Match | null = null;
-        
-        if (config.levelStrict) {
-          // レベルが同じ最初の4人を探す
-          for (const lvl of ['A', 'B', 'C'] as Level[]) {
-            const sameLevelFirstTimers = firstTimers.filter(m => m.level === lvl);
-            if (sameLevelFirstTimers.length >= 4) {
-              const p = sameLevelFirstTimers.slice(0, 4);
-              // 固定ペアの考慮
-              let p1 = p[0].id, p2 = p[1].id, p3 = p[2].id, p4 = p[3].id;
-              // もしp1に固定ペアがいれば、p2に持ってくる(p1..p4の中にいれば)
-              const trySwap = (main: number, partnerId: number | null, currentP2: number, others: number[]) => {
-                if (partnerId && others.includes(partnerId)) {
-                  return { newP2: partnerId, newOthers: [currentP2, ...others.filter(id => id !== partnerId)] };
-                }
-                return { newP2: currentP2, newOthers: others };
-              };
-              const res1 = trySwap(p1, p[0].fixedPairMemberId, p2, [p3, p4]);
-              p2 = res1.newP2;
-              const res2 = trySwap(res1.newOthers[0], currentMembers.find(m => m.id === res1.newOthers[0])?.fixedPairMemberId || null, res1.newOthers[1], []);
-              p3 = res1.newOthers[0]; p4 = res2.newP2;
-              bestMatch = { p1, p2, p3, p4, level: lvl };
-              break;
-            }
-          }
-        } else {
-          // レベル不問で上から4人
-          const p = firstTimers.slice(0, 4);
-          let p1 = p[0].id, p2 = p[1].id, p3 = p[2].id, p4 = p[3].id;
-          const trySwap = (main: number, partnerId: number | null, currentP2: number, others: number[]) => {
-            if (partnerId && others.includes(partnerId)) {
-              return { newP2: partnerId, newOthers: [currentP2, ...others.filter(id => id !== partnerId)] };
-            }
-            return { newP2: currentP2, newOthers: others };
-          };
-          const res1 = trySwap(p1, p[0].fixedPairMemberId, p2, [p3, p4]);
-          p2 = res1.newP2;
-          const res2 = trySwap(res1.newOthers[0], currentMembers.find(m => m.id === res1.newOthers[0])?.fixedPairMemberId || null, res1.newOthers[1], []);
-          p3 = res1.newOthers[0]; p4 = res2.newP2;
-          bestMatch = { p1, p2, p3, p4 };
-        }
-        if (bestMatch) return bestMatch;
+        const p = firstTimers.slice(0, 4);
+        return { p1: p[0].id, p2: p[1].id, p3: p[2].id, p4: p[3].id };
       }
     }
 
+    // --- 以降、通常ロジック ---
     if (config.levelStrict) {
       const counts: Record<string, number> = { 'A': 0, 'B': 0, 'C': 0 };
       candidates.forEach(m => counts[m.level]++);
@@ -815,14 +776,15 @@ export default function DoublesMatchupApp() {
               </div>
               <p className="text-[10px] text-gray-400 leading-relaxed italic">※「名前・レベル・固定ペア・表示順・メモ」を保存します。機種変更時や名簿のバックアップに利用してください。復元すると現在の試合履歴はリセットされます。</p>
             </div>
+            {/* 1巡目の試合は名簿順 (レベル厳格モードの上に移動) */}
             <div className="flex items-center justify-between py-6 border-y border-gray-50">
+              <div className="flex flex-col"><span className="font-bold text-lg text-gray-700">1巡目の試合は名簿順</span><span className="text-xs text-gray-400">未出場の人が4人以上いる場合、名簿の上位から（制約無視で）割り当てます</span></div>
+              <button onClick={() => { const next = { ...config, orderFirstMatchByList: !config.orderFirstMatchByList }; if (checkChangeConfirmation(undefined, next)) setConfig(next); }} className={`w-14 h-7 rounded-full relative transition-colors ${config.orderFirstMatchByList ? 'bg-blue-600' : 'bg-gray-200'}`}><div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-md ${config.orderFirstMatchByList ? 'left-8' : 'left-1'}`} /></button>
+            </div>
+            {/* レベル厳格モード */}
+            <div className="flex items-center justify-between py-6 border-b border-gray-50">
               <div className="flex flex-col"><span className="font-bold text-lg text-gray-700">レベル厳格モード</span><span className="text-xs text-gray-400">同一レベルの人しか同じコートに入りません</span></div>
               <button onClick={() => { const next = { ...config, levelStrict: !config.levelStrict }; if (checkChangeConfirmation(undefined, next)) setConfig(next); }} className={`w-14 h-7 rounded-full relative transition-colors ${config.levelStrict ? 'bg-blue-600' : 'bg-gray-200'}`}><div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-md ${config.levelStrict ? 'left-8' : 'left-1'}`} /></button>
-            </div>
-            {/* 追加: 1巡目の試合は名簿順モード */}
-            <div className="flex items-center justify-between py-6 border-b border-gray-50">
-              <div className="flex flex-col"><span className="font-bold text-lg text-gray-700">1巡目の試合は名簿順</span><span className="text-xs text-gray-400">未出場の人が4人以上いる場合、名簿の上位から割り当てます</span></div>
-              <button onClick={() => { const next = { ...config, orderFirstMatchByList: !config.orderFirstMatchByList }; if (checkChangeConfirmation(undefined, next)) setConfig(next); }} className={`w-14 h-7 rounded-full relative transition-colors ${config.orderFirstMatchByList ? 'bg-blue-600' : 'bg-gray-200'}`}><div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-md ${config.orderFirstMatchByList ? 'left-8' : 'left-1'}`} /></button>
             </div>
             <div className="flex items-center justify-between py-6 border-b border-gray-50">
               <div className="flex flex-col"><span className="font-bold text-lg text-gray-700">一括進行モード</span><span className="text-xs text-gray-400">一括更新のみ可能となり、次回の予定が表示されます</span></div>
