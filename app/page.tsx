@@ -123,7 +123,7 @@ export default function DoublesMatchupApp() {
         matchHistory: m.matchHistory || {},
         pairHistory: m.pairHistory || {},
         sortOrder: m.sortOrder !== undefined ? m.sortOrder : idx,
-        memo: m.memo !== undefined ? m.memo : '' // 既存データ引継ぎ：ない場合は空
+        memo: m.memo !== undefined ? m.memo : ''
       }));
       
       const sorted = [...safeMembers].sort((a, b) => a.sortOrder - b.sortOrder);
@@ -203,7 +203,6 @@ export default function DoublesMatchupApp() {
     }));
   };
 
-  // --- 以降、ロジック部分は変更なし ---
   const memberFingerprint = useMemo(() => {
     try {
       const plannedIds = new Set<number>();
@@ -327,7 +326,7 @@ export default function DoublesMatchupApp() {
       try {
         const data = JSON.parse(event.target?.result as string);
         if (!Array.isArray(data)) throw new Error('Invalid format');
-        if (!confirm('名簿を復元します。履歴はリセットされますが、よろしいですか？')) return;
+        if (!confirm('名簿を復元します。現在の全ての試合データと履歴はリセットされますが、よろしいですか？')) return;
         const newMembers: Member[] = data.map((m, idx) => ({
           ...m, name: m.name || '?', level: m.level || 'A', isActive: true, playCount: 0, imputedPlayCount: 0, lastPlayedTime: 0, matchHistory: {}, pairHistory: {}, fixedPairMemberId: m.fixedPairMemberId || null, sortOrder: m.sortOrder !== undefined ? m.sortOrder : idx, memo: m.memo !== undefined ? m.memo : ''
         }));
@@ -337,6 +336,7 @@ export default function DoublesMatchupApp() {
         setNextMatches(prev => prev.map(c => ({ ...c, match: null })));
         setNextMemberId(newMembers.length > 0 ? Math.max(...newMembers.map(m => m.id)) + 1 : 1);
         setHasUserConfirmedRegen(false);
+        alert('名簿を復元しました。');
         if (fileInputRef.current) fileInputRef.current.value = '';
       } catch (err) { alert('復元に失敗しました。'); }
     };
@@ -346,8 +346,6 @@ export default function DoublesMatchupApp() {
   const addMember = () => {
     const activeMembers = members.filter(m => m.isActive);
     const avgPlay = activeMembers.length > 0 ? Math.floor(activeMembers.reduce((s, m) => s + m.playCount, 0) / activeMembers.length) : 0;
-    
-    // 指示：西暦下2桁＋月の数字2桁
     const now = new Date();
     const year2 = String(now.getFullYear()).slice(-2);
     const month2 = String(now.getMonth() + 1).padStart(2, '0');
@@ -692,13 +690,13 @@ export default function DoublesMatchupApp() {
                 <button onClick={sortByName} className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-full text-xs font-bold text-gray-600 shadow-sm active:bg-gray-50"><SortAsc size={14}/> 名前順</button>
                 <button onClick={sortByMemo} className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-full text-xs font-bold text-gray-600 shadow-sm active:bg-gray-50"><StickyNote size={14}/> メモ順</button>
               </div>
-              <button onClick={saveCurrentOrder} className="shrink-0 flex items-center gap-1.5 px-4 py-1.5 bg-blue-600 border border-blue-500 rounded-full text-xs font-bold text-white shadow-md ml-4"><Save size={14}/> 順序を保存</button>
+              <button onClick={saveCurrentOrder} className="shrink-0 flex items-center gap-1.5 px-4 py-1.5 bg-blue-600 border border-blue-500 rounded-full text-xs font-bold text-white shadow-md active:bg-blue-700 transition-colors ml-4"><Save size={14}/> 順序を保存</button>
             </div>
 
             <div className="bg-white rounded-2xl shadow-sm divide-y overflow-hidden relative">
               {displayMembers.map((m, idx) => (
                 <div key={m.id} draggable={true} onDragStart={() => onDragStart(idx)} onDragOver={(e) => onDragOver(e, idx)} onDragEnd={onDragEnd} className={`p-4 flex items-center gap-2 ${!m.isActive ? 'bg-gray-50 opacity-40' : ''} ${draggedIndex === idx ? 'opacity-20 bg-blue-100' : ''}`}>
-                  <div className="p-2 cursor-grab text-gray-300"><GripVertical size={20} /></div>
+                  <div className="p-2 cursor-grab active:cursor-grabbing text-gray-300"><GripVertical size={20} /></div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <input value={m.name} onChange={e => syncMemberUpdate(displayMembers.map(x => x.id === m.id ? { ...x, name: e.target.value } : x))} className="flex-1 font-bold text-xl bg-transparent outline-none focus:text-blue-600 min-w-0" />
@@ -714,12 +712,12 @@ export default function DoublesMatchupApp() {
                     </div>
                   </div>
                   <button onClick={() => { const next = displayMembers.map(x => x.id === m.id ? { ...x, isActive: !x.isActive } : x); if (checkChangeConfirmation(next)) syncMemberUpdate(next); }} className={`px-4 py-2 rounded-xl font-bold border-2 shrink-0 ${m.isActive ? 'border-blue-600 text-blue-600 bg-blue-50' : 'border-gray-200 text-gray-300'}`}>{m.isActive ? '参加' : '休み'}</button>
-                  <button onClick={() => { if(confirm(`${m.name}を削除？`)) { const next = displayMembers.filter(x => x.id !== m.id); if (checkChangeConfirmation(next)) { setDisplayMembers(next); setMembers(prev => prev.filter(x => x.id !== m.id)); } } }} className="text-gray-200 hover:text-red-500 px-2 shrink-0"><Trash2 size={24} /></button>
+                  <button onClick={() => { if(confirm(`${m.name}を削除してよろしいですか？`)) { const next = displayMembers.filter(x => x.id !== m.id); if (checkChangeConfirmation(next)) { setDisplayMembers(next); setMembers(prev => prev.filter(x => x.id !== m.id)); } } }} className="text-gray-200 hover:text-red-500 px-2 shrink-0"><Trash2 size={24} /></button>
                 </div>
               ))}
               {editingPairMemberId && (
                 <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setEditingPairMemberId(null)}>
-                  <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+                  <div className="bg-white rounded-xl shadow-xl w-[calc(100%-2rem)] max-w-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
                     <div className="bg-gray-100 px-4 py-3 flex justify-between items-center border-b"><h3 className="font-bold text-lg">ペアを選択</h3><button onClick={() => setEditingPairMemberId(null)} className="text-gray-500"><X size={20}/></button></div>
                     <div className="max-h-[60vh] overflow-y-auto p-2">
                       <button onClick={() => updateFixedPair(editingPairMemberId, null)} className="w-full text-left px-4 py-3 hover:bg-red-50 text-red-600 font-bold border-b flex items-center gap-2"><Unlink size={16} /> ペアを解消</button>
@@ -759,6 +757,7 @@ export default function DoublesMatchupApp() {
                 <button onClick={() => fileInputRef.current?.click()} className="py-3 bg-white text-indigo-600 border-2 border-indigo-600 rounded-xl font-bold flex items-center justify-center gap-2 active:bg-indigo-50 transition-colors"><Upload size={18} /> 復元(読込)</button>
                 <input type="file" ref={fileInputRef} onChange={importMembers} accept=".json" className="hidden" />
               </div>
+              <p className="text-[10px] text-gray-400 leading-relaxed italic">※「名前・レベル・固定ペア・表示順・メモ」を保存します。機種変更時や名簿のバックアップに利用してください。復元すると現在の試合履歴はリセットされます。</p>
             </div>
             <div className="flex items-center justify-between py-6 border-y border-gray-50">
               <div className="flex flex-col"><span className="font-bold text-lg text-gray-700">レベル厳格モード</span><span className="text-xs text-gray-400">同一レベルの人しか同じコートに入りません</span></div>
@@ -769,8 +768,8 @@ export default function DoublesMatchupApp() {
               <button onClick={() => setConfig(prev => ({ ...prev, bulkOnlyMode: !prev.bulkOnlyMode }))} className={`w-14 h-7 rounded-full relative transition-colors ${config.bulkOnlyMode ? 'bg-orange-600' : 'bg-gray-200'}`}><div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-md ${config.bulkOnlyMode ? 'left-8' : 'left-1'}`} /></button>
             </div>
             <div className="space-y-4">
-              <button onClick={resetPlayCountsOnly} className="w-full py-4 bg-gray-50 text-gray-700 rounded-2xl font-bold flex items-center justify-center gap-3 border active:bg-gray-100 transition-colors"><RotateCcw size={20} /> リセット</button>
-              <button onClick={() => {if(confirm('全てリセットしますか？')) {localStorage.clear(); location.reload();}}} className="w-full py-4 bg-red-50 text-red-500 rounded-2xl font-bold border border-red-100 active:bg-red-100 transition-colors">完全消去</button>
+              <button onClick={resetPlayCountsOnly} className="w-full py-4 bg-gray-50 text-gray-700 rounded-2xl font-bold flex items-center justify-center gap-3 border active:bg-gray-100 transition-colors"><RotateCcw size={20} /> 試合数と履歴をリセット</button>
+              <button onClick={() => {if(confirm('全てリセットしますか？')) {localStorage.clear(); location.reload();}}} className="w-full py-4 bg-red-50 text-red-500 rounded-2xl font-bold border border-red-100 active:bg-red-100 transition-colors">データを完全消去</button>
             </div>
           </div>
         )}
