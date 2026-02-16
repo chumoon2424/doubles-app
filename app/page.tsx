@@ -21,7 +21,7 @@ import {
   Upload,
   GripVertical,
   SortAsc,
-  Layers
+  Save
 } from 'lucide-react';
 
 // --- 型定義 ---
@@ -38,7 +38,7 @@ interface Member {
   matchHistory: Record<number, number>;
   pairHistory: Record<number, number>;
   fixedPairMemberId: number | null;
-  sortOrder: number; // 追加: 表示順制御用
+  sortOrder: number; // 追加
 }
 
 interface Match {
@@ -74,6 +74,9 @@ interface AppConfig {
 export default function DoublesMatchupApp() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'members' | 'history' | 'settings'>('dashboard');
   const [members, setMembers] = useState<Member[]>([]);
+  // 名簿画面での一時的な表示順を管理するステート
+  const [displayMembers, setDisplayMembers] = useState<Member[]>([]);
+  
   const [courts, setCourts] = useState<Court[]>([]);
   const [nextMatches, setNextMatches] = useState<Court[]>([]);
   const [matchHistory, setMatchHistory] = useState<MatchRecord[]>([]);
@@ -88,7 +91,6 @@ export default function DoublesMatchupApp() {
   const [isInitialized, setIsInitialized] = useState(false);
   const [editingPairMemberId, setEditingPairMemberId] = useState<number | null>(null);
   const [showScheduleNotice, setShowScheduleNotice] = useState(false);
-  
   const [hasUserConfirmedRegen, setHasUserConfirmedRegen] = useState(false);
 
   const prevMembersRef = useRef<Member[]>([]);
@@ -98,29 +100,7 @@ export default function DoublesMatchupApp() {
   // D&D用のステート
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
 
-  const memberFingerprint = useMemo(() => {
-    try {
-      const plannedIds = new Set<number>();
-      nextMatches.forEach(c => {
-        if (c?.match) [c.match.p1, c.match.p2, c.match.p3, c.match.p4].forEach(id => plannedIds.add(id));
-      });
-
-      const status = (members || []).map(m => {
-        let s = `${m.id}-${m.fixedPairMemberId || 'none'}`;
-        if (plannedIds.has(m.id)) {
-          s += `-${m.isActive}`;
-          if (config.levelStrict) s += `-${m.level}`;
-        } else {
-          s += `-${m.isActive === true ? 'active' : 'inactive'}`;
-        }
-        return s;
-      }).sort().join('|');
-
-      return `${status}_C${config.courtCount}_S${config.levelStrict}_B${config.bulkOnlyMode}`;
-    } catch (e) {
-      return '';
-    }
-  }, [members, config.courtCount, config.levelStrict, config.bulkOnlyMode, nextMatches]);
+  // --- データの読み込みと保存 ---
 
   useEffect(() => {
     // データ移行 v16 -> v17 (sortOrderの追加)
@@ -145,16 +125,18 @@ export default function DoublesMatchupApp() {
         level: m.level || 'A',
         matchHistory: m.matchHistory || {},
         pairHistory: m.pairHistory || {},
-        sortOrder: m.sortOrder !== undefined ? m.sortOrder : idx // 既存データに順序を付与
+        sortOrder: m.sortOrder !== undefined ? m.sortOrder : idx 
       }));
       
-      setMembers(safeMembers);
+      const sorted = [...safeMembers].sort((a, b) => a.sortOrder - b.sortOrder);
+      setMembers(sorted);
+      setDisplayMembers(sorted);
       setCourts(loadedData.courts || Array.from({ length: loadedData.config?.courtCount || 4 }, (_, i) => ({ id: i + 1, match: null })));
       setNextMatches(loadedData.nextMatches || Array.from({ length: loadedData.config?.courtCount || 4 }, (_, i) => ({ id: i + 1, match: null })));
       setConfig(prev => ({ ...prev, ...(loadedData.config || {}) }));
       setNextMemberId(loadedData.nextMemberId || (safeMembers.length > 0 ? Math.max(...safeMembers.map((m: any) => m.id)) + 1 : 1));
       setMatchHistory(loadedData.matchHistory || []);
-      prevMembersRef.current = JSON.parse(JSON.stringify(safeMembers));
+      prevMembersRef.current = JSON.parse(JSON.stringify(sorted));
     } else {
       const initialCount = 4;
       const initialCourts = Array.from({ length: initialCount }, (_, i) => ({ id: i + 1, match: null }));
@@ -174,46 +156,86 @@ export default function DoublesMatchupApp() {
     }
   }, [members, courts, nextMatches, matchHistory, config, nextMemberId, isInitialized]);
 
-  // --- ソート・並べ替え関数 ---
+  // membersが更新されたら、表示用リストの中身（isActiveなど）も同期させる
+  // ただし並び順（displayMembersの配列順）は維持する
+  useEffect(() => {
+    if (activeTab !== 'members') {
+      const sorted = [...members].sort((a, b) => a.sortOrder - b.sortOrder);
+      setDisplayMembers(sorted);
+    }
+  }, [members, activeTab]);
 
+  // --- 並べ替えロジック ---
+
+  // 名前順ソート（表示のみ）
   const sortByName = () => {
-    const sorted = [...members].sort((a, b) => a.name.localeCompare(b.name, 'ja'));
-    updateSortOrder(sorted);
+    const sorted = [...displayMembers].sort((a, b) => a.name.localeCompare(b.name, 'ja'));
+    setDisplayMembers(sorted);
   };
 
-  const sortByLevel = () => {
-    const levelMap = { 'A': 0, 'B': 1, 'C': 2 };
-    const sorted = [...members].sort((a, b) => levelMap[a.level] - levelMap[b.level]);
-    updateSortOrder(sorted);
-  };
-
-  const sortByOrder = () => {
+  // 保存した順に戻す
+  const resetToSavedOrder = () => {
     const sorted = [...members].sort((a, b) => a.sortOrder - b.sortOrder);
-    setMembers(sorted);
+    setDisplayMembers(sorted);
   };
 
-  const updateSortOrder = (sortedList: Member[]) => {
-    const updated = sortedList.map((m, idx) => ({ ...m, sortOrder: idx }));
-    setMembers(updated);
+  // 現在の表示順を sortOrder として確定・保存
+  const saveCurrentOrder = () => {
+    const updatedMembers = displayMembers.map((m, idx) => ({ ...m, sortOrder: idx }));
+    setMembers(updatedMembers);
+    alert('並び順を保存しました');
   };
 
-  // ドラッグハンドラ (Desktop)
+  // ドラッグハンドラ
   const onDragStart = (idx: number) => setDraggedIndex(idx);
   const onDragOver = (e: React.DragEvent, idx: number) => {
     e.preventDefault();
     if (draggedIndex === null || draggedIndex === idx) return;
-    const newMembers = [...members];
-    const item = newMembers.splice(draggedIndex, 1)[0];
-    newMembers.splice(idx, 0, item);
+    const newList = [...displayMembers];
+    const [movedItem] = newList.splice(draggedIndex, 1);
+    newList.splice(idx, 0, movedItem);
     setDraggedIndex(idx);
-    setMembers(newMembers);
+    setDisplayMembers(newList);
   };
-  const onDragEnd = () => {
-    updateSortOrder(members);
-    setDraggedIndex(null);
+  const onDragEnd = () => setDraggedIndex(null);
+
+  // --- メンバー更新ロジック (displayMembers経由でmembersを更新) ---
+
+  const syncMemberUpdate = (updatedList: Member[]) => {
+    setDisplayMembers(updatedList);
+    // 並び順に関係ないデータ更新（isActiveなど）をマスターに反映
+    // sortOrderは維持するため、idをキーにマッピング
+    setMembers(prev => prev.map(m => {
+      const updated = updatedList.find(u => u.id === m.id);
+      return updated ? { ...updated, sortOrder: m.sortOrder } : m;
+    }));
   };
 
   // -----------------------
+
+  const memberFingerprint = useMemo(() => {
+    try {
+      const plannedIds = new Set<number>();
+      nextMatches.forEach(c => {
+        if (c?.match) [c.match.p1, c.match.p2, c.match.p3, c.match.p4].forEach(id => plannedIds.add(id));
+      });
+
+      const status = (members || []).map(m => {
+        let s = `${m.id}-${m.fixedPairMemberId || 'none'}`;
+        if (plannedIds.has(m.id)) {
+          s += `-${m.isActive}`;
+          if (config.levelStrict) s += `-${m.level}`;
+        } else {
+          s += `-${m.isActive === true ? 'active' : 'inactive'}`;
+        }
+        return s;
+      }).sort().join('|');
+
+      return `${status}_C${config.courtCount}_S${config.levelStrict}_B${config.bulkOnlyMode}`;
+    } catch (e) {
+      return '';
+    }
+  }, [members, config.courtCount, config.levelStrict, config.bulkOnlyMode, nextMatches]);
 
   const isRegenRequired = (currentMembers: Member[], currentConfig: AppConfig) => {
     const plannedIds = new Set<number>();
@@ -374,13 +396,15 @@ export default function DoublesMatchupApp() {
       sortOrder: members.length
     };
     if (!checkChangeConfirmation([...members, newMember])) return;
-    setMembers([...members, newMember]);
+    const nextMembers = [...members, newMember];
+    setMembers(nextMembers);
+    setDisplayMembers([...displayMembers, newMember]);
     setNextMemberId(prev => prev + 1);
   };
 
   const updateFixedPair = (memberId: number, partnerId: number | null) => {
     const prevMembersCopy = JSON.parse(JSON.stringify(members));
-    const nextMembers = members.map(m => {
+    const nextDisplay = displayMembers.map(m => {
       let nm = { ...m };
       if (m.id === memberId) nm.fixedPairMemberId = partnerId;
       if (partnerId && m.id === partnerId) nm.fixedPairMemberId = memberId;
@@ -389,24 +413,24 @@ export default function DoublesMatchupApp() {
       if (oldTarget?.fixedPairMemberId && m.id === oldTarget.fixedPairMemberId && m.id !== partnerId) nm.fixedPairMemberId = null;
       return nm;
     });
-    if (!checkChangeConfirmation(nextMembers)) return;
-    setMembers(nextMembers);
+    if (!checkChangeConfirmation(nextDisplay)) return;
+    syncMemberUpdate(nextDisplay);
     setEditingPairMemberId(null);
   };
 
   const handleLevelChange = (id: number) => {
     const levels: Level[] = ['A', 'B', 'C'];
-    const target = members.find(m => m.id === id);
+    const target = displayMembers.find(m => m.id === id);
     if (!target) return;
     const newLevel = levels[(levels.indexOf(target.level) + 1) % 3];
-    const nextMembers = members.map(m => {
+    const nextDisplay = displayMembers.map(m => {
       if (m.id === id || (target.fixedPairMemberId && m.id === target.fixedPairMemberId)) {
         return { ...m, level: newLevel };
       }
       return m;
     });
-    if (!checkChangeConfirmation(nextMembers)) return;
-    setMembers(nextMembers);
+    if (!checkChangeConfirmation(nextDisplay)) return;
+    syncMemberUpdate(nextDisplay);
   };
 
   const calculateNextMemberState = (currentMembers: Member[], p1: number, p2: number, p3: number, p4: number) => {
@@ -730,14 +754,16 @@ export default function DoublesMatchupApp() {
             </div>
 
             {/* ソートボタンエリア */}
-            <div className="flex gap-2 px-2 overflow-x-auto pb-2 no-scrollbar">
-              <button onClick={sortByOrder} className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-full text-xs font-bold text-gray-600 shadow-sm active:bg-gray-50"><Layers size={14}/> 番号順</button>
-              <button onClick={sortByName} className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-full text-xs font-bold text-gray-600 shadow-sm active:bg-gray-50"><SortAsc size={14}/> 名前順</button>
-              <button onClick={sortByLevel} className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-full text-xs font-bold text-gray-600 shadow-sm active:bg-gray-50"><Trophy size={14}/> レベル順</button>
+            <div className="flex justify-between items-center px-2 pb-2">
+              <div className="flex gap-2 overflow-x-auto no-scrollbar">
+                <button onClick={resetToSavedOrder} className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-full text-xs font-bold text-gray-600 shadow-sm active:bg-gray-50"><RotateCcw size={14}/> 保存した順</button>
+                <button onClick={sortByName} className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-full text-xs font-bold text-gray-600 shadow-sm active:bg-gray-50"><SortAsc size={14}/> 名前順</button>
+              </div>
+              <button onClick={saveCurrentOrder} className="shrink-0 flex items-center gap-1.5 px-4 py-1.5 bg-blue-600 border border-blue-500 rounded-full text-xs font-bold text-white shadow-md active:bg-blue-700 transition-colors ml-4"><Save size={14}/> 順序を保存</button>
             </div>
 
             <div className="bg-white rounded-2xl shadow-sm divide-y overflow-hidden relative">
-              {members.map((m, idx) => (
+              {displayMembers.map((m, idx) => (
                 <div 
                   key={m.id} 
                   draggable={true}
@@ -752,25 +778,33 @@ export default function DoublesMatchupApp() {
                   </div>
 
                   <div className="flex-1">
-                    <input value={m.name} onChange={e => setMembers(prev => prev.map(x => x.id === m.id ? { ...x, name: e.target.value } : x))} className="w-full font-bold text-xl bg-transparent outline-none focus:text-blue-600" />
+                    <input 
+                      value={m.name} 
+                      onChange={e => {
+                        const nextDisplay = displayMembers.map(x => x.id === m.id ? { ...x, name: e.target.value } : x);
+                        syncMemberUpdate(nextDisplay);
+                      }} 
+                      className="w-full font-bold text-xl bg-transparent outline-none focus:text-blue-600" 
+                    />
                     <div className="flex items-center gap-3 mt-1 flex-wrap">
                       <button onClick={() => handleLevelChange(m.id)} className={`text-xs font-bold rounded-md px-3 py-1 text-white ${m.level === 'A' ? 'bg-blue-600' : m.level === 'B' ? 'bg-yellow-500' : 'bg-red-500'}`}>レベル{m.level}</button>
                       <button onClick={() => setEditingPairMemberId(m.id)} className={`flex items-center gap-1 text-xs font-bold px-2 py-1 rounded border ${m.fixedPairMemberId ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'text-gray-400 border-dashed border-gray-300'}`}>
-                        {m.fixedPairMemberId ? <><LinkIcon size={12} />{members.find(x => x.id === m.fixedPairMemberId)?.name}</> : <><Unlink size={12} />ペアなし</>}
+                        {m.fixedPairMemberId ? <><LinkIcon size={12} />{displayMembers.find(x => x.id === m.fixedPairMemberId)?.name}</> : <><Unlink size={12} />ペアなし</>}
                       </button>
                       <span className="text-xs text-gray-400 font-bold">試合数: {m.playCount}{m.imputedPlayCount > 0 && <span className="text-gray-300 ml-1">({m.imputedPlayCount})</span>}</span>
                     </div>
                   </div>
                   <button onClick={() => {
-                    const nextMembers = members.map(x => x.id === m.id ? { ...x, isActive: !x.isActive } : x);
-                    if (!checkChangeConfirmation(nextMembers)) return;
-                    setMembers(nextMembers);
+                    const nextDisplay = displayMembers.map(x => x.id === m.id ? { ...x, isActive: !x.isActive } : x);
+                    if (!checkChangeConfirmation(nextDisplay)) return;
+                    syncMemberUpdate(nextDisplay);
                   }} className={`px-4 py-2 rounded-xl font-bold border-2 ${m.isActive ? 'border-blue-600 text-blue-600 bg-blue-50' : 'border-gray-200 text-gray-300'}`}>{m.isActive ? '参加' : '休み'}</button>
                   <button onClick={() => {
                     if(confirm(`${m.name}を削除してよろしいですか？`)) {
-                      const nextMembers = members.filter(x => x.id !== m.id);
-                      if (!checkChangeConfirmation(nextMembers)) return;
-                      setMembers(nextMembers);
+                      const nextDisplay = displayMembers.filter(x => x.id !== m.id);
+                      if (!checkChangeConfirmation(nextDisplay)) return;
+                      setDisplayMembers(nextDisplay);
+                      setMembers(prev => prev.filter(x => x.id !== m.id));
                     }
                   }} className="text-gray-200 hover:text-red-500 px-2"><Trash2 size={24} /></button>
                 </div>
@@ -781,9 +815,9 @@ export default function DoublesMatchupApp() {
                     <div className="bg-gray-100 px-4 py-3 flex justify-between items-center border-b"><h3 className="font-bold text-lg">ペアを選択</h3><button onClick={() => setEditingPairMemberId(null)} className="text-gray-500"><X size={20}/></button></div>
                     <div className="max-h-[60vh] overflow-y-auto p-2">
                       <button onClick={() => updateFixedPair(editingPairMemberId, null)} className="w-full text-left px-4 py-3 hover:bg-red-50 text-red-600 font-bold border-b flex items-center gap-2"><Unlink size={16} /> ペアを解消</button>
-                      {members.filter(m => m.id !== editingPairMemberId && m.isActive && (!m.fixedPairMemberId || m.fixedPairMemberId === editingPairMemberId) && m.level === members.find(x => x.id === editingPairMemberId)?.level)
+                      {displayMembers.filter(m => m.id !== editingPairMemberId && m.isActive && (!m.fixedPairMemberId || m.fixedPairMemberId === editingPairMemberId) && m.level === displayMembers.find(x => x.id === editingPairMemberId)?.level)
                         .map(candidate => (
-                          <button key={candidate.id} onClick={() => updateFixedPair(editingPairMemberId, candidate.id)} className={`w-full text-left px-4 py-3 hover:bg-blue-50 font-bold border-b flex items-center gap-2 ${members.find(x => x.id === editingPairMemberId)?.fixedPairMemberId === candidate.id ? 'bg-blue-50 text-blue-700' : 'text-gray-700'}`}><LinkIcon size={16} className="text-gray-400" />{candidate.name}</button>
+                          <button key={candidate.id} onClick={() => updateFixedPair(editingPairMemberId, candidate.id)} className={`w-full text-left px-4 py-3 hover:bg-blue-50 font-bold border-b flex items-center gap-2 ${displayMembers.find(x => x.id === editingPairMemberId)?.fixedPairMemberId === candidate.id ? 'bg-blue-50 text-blue-700' : 'text-gray-700'}`}><LinkIcon size={16} className="text-gray-400" />{candidate.name}</button>
                         ))}
                     </div>
                   </div>
