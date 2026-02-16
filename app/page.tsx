@@ -40,7 +40,7 @@ interface Member {
   pairHistory: Record<number, number>;
   fixedPairMemberId: number | null;
   sortOrder: number;
-  memo: string; // 追加
+  memo: string; 
 }
 
 interface Match {
@@ -76,7 +76,6 @@ interface AppConfig {
 export default function DoublesMatchupApp() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'members' | 'history' | 'settings'>('dashboard');
   const [members, setMembers] = useState<Member[]>([]);
-  // 名簿画面での一時的な表示順を管理するステート
   const [displayMembers, setDisplayMembers] = useState<Member[]>([]);
   
   const [courts, setCourts] = useState<Court[]>([]);
@@ -98,14 +97,10 @@ export default function DoublesMatchupApp() {
   const prevMembersRef = useRef<Member[]>([]);
   const [lastFingerprint, setLastFingerprint] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // D&D用のステート
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
 
   // --- データの読み込みと保存 ---
-
   useEffect(() => {
-    // データ移行 v17
     const versions = ['v17', 'v16', 'v15', 'v14', 'v13', 'v12', 'v11', 'v10', 'v9', 'v8'];
     let loadedData: any = null;
     for (const v of versions) {
@@ -128,7 +123,7 @@ export default function DoublesMatchupApp() {
         matchHistory: m.matchHistory || {},
         pairHistory: m.pairHistory || {},
         sortOrder: m.sortOrder !== undefined ? m.sortOrder : idx,
-        memo: m.memo !== undefined ? m.memo : '' // 指示通り、既存データにない場合は空文字
+        memo: m.memo !== undefined ? m.memo : '' // 既存データ引継ぎ：ない場合は空
       }));
       
       const sorted = [...safeMembers].sort((a, b) => a.sortOrder - b.sortOrder);
@@ -159,7 +154,6 @@ export default function DoublesMatchupApp() {
     }
   }, [members, courts, nextMatches, matchHistory, config, nextMemberId, isInitialized]);
 
-  // membersが更新されたら、表示用リストの中身（isActiveなど）も同期させる
   useEffect(() => {
     if (activeTab !== 'members') {
       const sorted = [...members].sort((a, b) => a.sortOrder - b.sortOrder);
@@ -168,33 +162,27 @@ export default function DoublesMatchupApp() {
   }, [members, activeTab]);
 
   // --- 並べ替えロジック ---
-
-  // 名前順ソート（表示のみ）
   const sortByName = () => {
     const sorted = [...displayMembers].sort((a, b) => a.name.localeCompare(b.name, 'ja'));
     setDisplayMembers(sorted);
   };
 
-  // メモ順ソート（表示のみ）- 指示通り文字列の昇順
   const sortByMemo = () => {
     const sorted = [...displayMembers].sort((a, b) => a.memo.localeCompare(b.memo));
     setDisplayMembers(sorted);
   };
 
-  // 保存した順に戻す
   const resetToSavedOrder = () => {
     const sorted = [...members].sort((a, b) => a.sortOrder - b.sortOrder);
     setDisplayMembers(sorted);
   };
 
-  // 現在の表示順を sortOrder として確定・保存
   const saveCurrentOrder = () => {
     const updatedMembers = displayMembers.map((m, idx) => ({ ...m, sortOrder: idx }));
     setMembers(updatedMembers);
     alert('並び順を保存しました');
   };
 
-  // ドラッグハンドラ
   const onDragStart = (idx: number) => setDraggedIndex(idx);
   const onDragOver = (e: React.DragEvent, idx: number) => {
     e.preventDefault();
@@ -207,27 +195,21 @@ export default function DoublesMatchupApp() {
   };
   const onDragEnd = () => setDraggedIndex(null);
 
-  // --- メンバー更新ロジック (displayMembers経由でmembersを更新) ---
-
   const syncMemberUpdate = (updatedList: Member[]) => {
     setDisplayMembers(updatedList);
-    // 並び順に関係ないデータ更新（isActiveなど）をマスターに反映
-    // sortOrderは維持するため、idをキーにマッピング
     setMembers(prev => prev.map(m => {
       const updated = updatedList.find(u => u.id === m.id);
       return updated ? { ...updated, sortOrder: m.sortOrder } : m;
     }));
   };
 
-  // -----------------------
-
+  // --- 以降、ロジック部分は変更なし ---
   const memberFingerprint = useMemo(() => {
     try {
       const plannedIds = new Set<number>();
       nextMatches.forEach(c => {
         if (c?.match) [c.match.p1, c.match.p2, c.match.p3, c.match.p4].forEach(id => plannedIds.add(id));
       });
-
       const status = (members || []).map(m => {
         let s = `${m.id}-${m.fixedPairMemberId || 'none'}`;
         if (plannedIds.has(m.id)) {
@@ -238,11 +220,8 @@ export default function DoublesMatchupApp() {
         }
         return s;
       }).sort().join('|');
-
       return `${status}_C${config.courtCount}_S${config.levelStrict}_B${config.bulkOnlyMode}`;
-    } catch (e) {
-      return '';
-    }
+    } catch (e) { return ''; }
   }, [members, config.courtCount, config.levelStrict, config.bulkOnlyMode, nextMatches]);
 
   const isRegenRequired = (currentMembers: Member[], currentConfig: AppConfig) => {
@@ -250,24 +229,19 @@ export default function DoublesMatchupApp() {
     nextMatches.forEach(c => {
       if (c?.match) [c.match.p1, c.match.p2, c.match.p3, c.match.p4].forEach(id => plannedIds.add(id));
     });
-
     const configPart = `_C${currentConfig.courtCount}_S${currentConfig.levelStrict}_B${currentConfig.bulkOnlyMode}`;
     if (lastFingerprint !== '' && !lastFingerprint.endsWith(configPart)) return true;
-
     const currentMemberIds = new Set(currentMembers.map(m => m.id));
     const wasPlannedMemberDeleted = Array.from(plannedIds).some(id => !currentMemberIds.has(id));
     if (wasPlannedMemberDeleted) return true;
-
     return currentMembers.some(m => {
       const prev = prevMembersRef.current.find(p => p.id === m.id);
       if (!prev) return true;
       if (prev.fixedPairMemberId !== m.fixedPairMemberId) return true;
-
       const isActiveChanged = prev.isActive !== m.isActive;
       if (plannedIds.has(m.id) && isActiveChanged && !m.isActive) return true;
       if (!plannedIds.has(m.id) && isActiveChanged && m.isActive) return true;
       if (currentConfig.levelStrict && plannedIds.has(m.id) && prev.level !== m.level) return true;
-
       return false;
     });
   };
@@ -275,13 +249,9 @@ export default function DoublesMatchupApp() {
   const checkChangeConfirmation = (updatedMembers?: Member[], updatedConfig?: AppConfig) => {
     if (!config.bulkOnlyMode) return true;
     if (hasUserConfirmedRegen) return true;
-
     if (isRegenRequired(updatedMembers || members, updatedConfig || config)) {
       const ok = confirm('次回の予定が組み直しになりますが、よろしいですか？');
-      if (ok) {
-        setHasUserConfirmedRegen(true);
-        return true;
-      }
+      if (ok) { setHasUserConfirmedRegen(true); return true; }
       return false;
     }
     return true;
@@ -330,30 +300,21 @@ export default function DoublesMatchupApp() {
       const clearedCourts = courts.map(c => ({ ...c, match: null }));
       setCourts(clearedCourts);
       setHasUserConfirmedRegen(false); 
-      if (config.bulkOnlyMode) {
-        regeneratePlannedMatches(clearedMembers);
-      } else {
-        setNextMatches(clearedCourts);
-      }
+      if (config.bulkOnlyMode) { regeneratePlannedMatches(clearedMembers); } 
+      else { setNextMatches(clearedCourts); }
     }
   };
 
   const exportMembers = () => {
     const backupData = members.map(m => ({
-      id: m.id,
-      name: m.name,
-      level: m.level,
-      fixedPairMemberId: m.fixedPairMemberId,
-      sortOrder: m.sortOrder,
-      memo: m.memo // 追加
+      id: m.id, name: m.name, level: m.level, fixedPairMemberId: m.fixedPairMemberId, sortOrder: m.sortOrder, memo: m.memo
     }));
     const json = JSON.stringify(backupData, null, 2);
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    const timestamp = new Date().toISOString().split('T')[0];
     a.href = url;
-    a.download = `DMaker_Members_${timestamp}.json`;
+    a.download = `DMaker_Members_${new Date().toISOString().split('T')[0]}.json`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -366,20 +327,9 @@ export default function DoublesMatchupApp() {
       try {
         const data = JSON.parse(event.target?.result as string);
         if (!Array.isArray(data)) throw new Error('Invalid format');
-        if (!confirm('名簿を復元します。現在の全ての試合データと履歴はリセットされますが、よろしいですか？')) return;
+        if (!confirm('名簿を復元します。履歴はリセットされますが、よろしいですか？')) return;
         const newMembers: Member[] = data.map((m, idx) => ({
-          id: m.id,
-          name: m.name || 'Unknown',
-          level: m.level || 'A',
-          isActive: true,
-          playCount: 0,
-          imputedPlayCount: 0,
-          lastPlayedTime: 0,
-          matchHistory: {},
-          pairHistory: {},
-          fixedPairMemberId: m.fixedPairMemberId || null,
-          sortOrder: m.sortOrder !== undefined ? m.sortOrder : idx,
-          memo: m.memo !== undefined ? m.memo : '' // 指示通り、既存データにない場合は空文字
+          ...m, name: m.name || '?', level: m.level || 'A', isActive: true, playCount: 0, imputedPlayCount: 0, lastPlayedTime: 0, matchHistory: {}, pairHistory: {}, fixedPairMemberId: m.fixedPairMemberId || null, sortOrder: m.sortOrder !== undefined ? m.sortOrder : idx, memo: m.memo !== undefined ? m.memo : ''
         }));
         setMembers(newMembers);
         setMatchHistory([]);
@@ -387,11 +337,8 @@ export default function DoublesMatchupApp() {
         setNextMatches(prev => prev.map(c => ({ ...c, match: null })));
         setNextMemberId(newMembers.length > 0 ? Math.max(...newMembers.map(m => m.id)) + 1 : 1);
         setHasUserConfirmedRegen(false);
-        alert('名簿を復元しました。');
         if (fileInputRef.current) fileInputRef.current.value = '';
-      } catch (err) {
-        alert('ファイルの読み込みに失敗しました。正しい形式のファイルを選択してください。');
-      }
+      } catch (err) { alert('復元に失敗しました。'); }
     };
     reader.readAsText(file);
   };
@@ -400,7 +347,7 @@ export default function DoublesMatchupApp() {
     const activeMembers = members.filter(m => m.isActive);
     const avgPlay = activeMembers.length > 0 ? Math.floor(activeMembers.reduce((s, m) => s + m.playCount, 0) / activeMembers.length) : 0;
     
-    // 指示：西暦下2桁＋月の数字2桁 (例: 2024年5月 -> 2405)
+    // 指示：西暦下2桁＋月の数字2桁
     const now = new Date();
     const year2 = String(now.getFullYear()).slice(-2);
     const month2 = String(now.getMonth() + 1).padStart(2, '0');
@@ -410,12 +357,10 @@ export default function DoublesMatchupApp() {
       id: nextMemberId, name: `${nextMemberId}`, level: 'A', isActive: true, 
       playCount: avgPlay, imputedPlayCount: avgPlay, lastPlayedTime: 0, 
       matchHistory: {}, pairHistory: {}, fixedPairMemberId: null,
-      sortOrder: members.length,
-      memo: defaultMemo
+      sortOrder: members.length, memo: defaultMemo
     };
     if (!checkChangeConfirmation([...members, newMember])) return;
-    const nextMembers = [...members, newMember];
-    setMembers(nextMembers);
+    setMembers([...members, newMember]);
     setDisplayMembers([...displayMembers, newMember]);
     setNextMemberId(prev => prev + 1);
   };
@@ -545,16 +490,18 @@ export default function DoublesMatchupApp() {
       if (s.length === 4) patterns.push(s);
     }
     if (patterns.length === 0) return null;
-    const getPatternCost = (p: Member[]) => {
-      let total = 0;
-      [[0, 1], [0, 2], [0, 3], [1, 2], [1, 3], [2, 3]].forEach(([i, j]) => {
-        if (!(p[i].fixedPairMemberId === p[j].id && candidates.some(c => c.id === p[i].id) && candidates.some(c => c.id === p[j].id))) {
-          total += (p[i].pairHistory?.[p[j].id] || 0) + (p[i].matchHistory?.[p[j].id] || 0);
-        }
-      });
-      return total;
-    };
-    const best = patterns.reduce((prev, curr) => getPatternCost(curr) < getPatternCost(prev) ? curr : prev);
+    const best = patterns.reduce((prev, curr) => {
+      const cost = (p: Member[]) => {
+        let total = 0;
+        [[0,1],[0,2],[0,3],[1,2],[1,3],[2,3]].forEach(([i,j]) => {
+          if (!(p[i].fixedPairMemberId === p[j].id && candidates.some(c=>c.id===p[i].id))) {
+            total += (p[i].pairHistory?.[p[j].id] || 0) + (p[i].matchHistory?.[p[j].id] || 0);
+          }
+        });
+        return total;
+      };
+      return cost(curr) < cost(prev) ? curr : prev;
+    });
     return { p1: best[0].id, p2: best[1].id, p3: best[2].id, p4: best[3].id, level: config.levelStrict ? best[0].level : undefined };
   };
 
@@ -567,9 +514,7 @@ export default function DoublesMatchupApp() {
         planned.push({ id: i + 1, match });
         const ids = [match.p1, match.p2, match.p3, match.p4];
         tempMembers = tempMembers.map(m => ids.includes(m.id) ? { ...m, playCount: m.playCount + 1, lastPlayedTime: Date.now() } : m);
-      } else {
-        planned.push({ id: i + 1, match: null });
-      }
+      } else { planned.push({ id: i + 1, match: null }); }
     }
     setNextMatches(planned);
   };
@@ -641,24 +586,19 @@ export default function DoublesMatchupApp() {
   };
 
   const CourtCard = ({ court, isPlanned = false }: { court: Court, isPlanned?: boolean }) => {
-    const calculatedHeight = (config.bulkOnlyMode ? 140 : 180) * config.zoomLevel;
-    const borderClass = isPlanned ? 'border-gray-400' : 'border-slate-900';
-    const bgClass = isPlanned ? 'bg-gray-50' : 'bg-white';
-    const numberTextClass = isPlanned ? 'text-gray-400' : 'text-slate-900';
+    const h = (config.bulkOnlyMode ? 140 : 180) * config.zoomLevel;
+    const border = isPlanned ? 'border-gray-400' : 'border-slate-900';
+    const bg = isPlanned ? 'bg-gray-50' : 'bg-white';
     return (
       <div 
-        className={`relative rounded-xl shadow-md border overflow-hidden flex ${config.bulkOnlyMode ? `border-l-8 ${borderClass} ${bgClass}` : 'flex-col border-gray-300 bg-white'} ${isPlanned && !config.bulkOnlyMode ? 'opacity-80 border-orange-200 bg-orange-50/50' : ''}`}
-        style={{ height: `${calculatedHeight}px`, minHeight: `${calculatedHeight}px` }}
+        className={`relative rounded-xl shadow-md border overflow-hidden flex ${config.bulkOnlyMode ? `border-l-8 ${border} ${bg}` : 'flex-col border-gray-300 bg-white'} ${isPlanned && !config.bulkOnlyMode ? 'opacity-80 border-orange-200 bg-orange-50/50' : ''}`}
+        style={{ height: `${h}px`, minHeight: `${h}px` }}
       >
         {config.bulkOnlyMode ? (
           <>
             <div className={`w-10 shrink-0 flex flex-col items-center justify-center border-r border-gray-100 ${isPlanned ? 'bg-gray-100/50' : 'bg-slate-50'}`}>
-              <span className={`font-black text-2xl ${numberTextClass}`}>{court.id}</span>
-              {court.match?.level && (
-                <span className={`mt-1 px-1 py-0.5 rounded text-[8px] font-bold text-white ${court.match.level === 'A' ? 'bg-blue-600' : court.match.level === 'B' ? 'bg-yellow-500' : 'bg-red-500'}`}>
-                  {court.match.level}
-                </span>
-              )}
+              <span className={`font-black text-2xl ${isPlanned ? 'text-gray-400' : 'text-slate-900'}`}>{court.id}</span>
+              {court.match?.level && <span className={`mt-1 px-1 py-0.5 rounded text-[8px] font-bold text-white ${court.match.level === 'A' ? 'bg-blue-600' : court.match.level === 'B' ? 'bg-yellow-500' : 'bg-red-500'}`}>{court.match.level}</span>}
             </div>
             <div className="flex-1 p-2 flex flex-col justify-center overflow-hidden">
               {court.match ? (
@@ -668,29 +608,21 @@ export default function DoublesMatchupApp() {
                       <div key={pIdx} className={`rounded-lg flex flex-col justify-center items-stretch border px-3 overflow-hidden ${pIdx === 1 ? 'bg-blue-50/30 border-blue-100' : 'bg-red-50/30 border-red-100'}`}>
                         {[pIdx === 1 ? 'p1' : 'p3', pIdx === 1 ? 'p2' : 'p4'].map((pKey, i) => (
                           <div key={pKey} className="h-1/2 flex items-center">
-                            <div className={`w-full leading-tight font-black whitespace-nowrap overflow-hidden text-ellipsis ${pIdx === 1 ? 'text-blue-900' : 'text-red-900'} ${i === 1 ? 'text-right' : 'text-left'}`} style={{ fontSize: getDynamicFontSize(members.find(m => m.id === (court.match as any)?.[pKey])?.name, config.nameFontSizeModifier * 0.9) }}>
-                              {members.find(m => m.id === (court.match as any)?.[pKey])?.name}
-                            </div>
+                            <div className={`w-full leading-tight font-black whitespace-nowrap overflow-hidden text-ellipsis ${pIdx === 1 ? 'text-blue-900' : 'text-red-900'} ${i === 1 ? 'text-right' : 'text-left'}`} style={{ fontSize: getDynamicFontSize(members.find(m => m.id === (court.match as any)?.[pKey])?.name, config.nameFontSizeModifier * 0.9) }}>{members.find(m => m.id === (court.match as any)?.[pKey])?.name}</div>
                           </div>
                         ))}
                       </div>
                     ))}
                   </div>
                 </div>
-              ) : (
-                <div className="text-gray-300 font-bold text-center italic">No Match</div>
-              )}
+              ) : <div className="text-gray-300 font-bold text-center italic">No Match</div>}
             </div>
           </>
         ) : (
           <>
             <div className={`px-4 py-1.5 border-b flex justify-between items-center shrink-0 ${isPlanned ? 'bg-orange-50 border-orange-100' : 'bg-gray-100 border-gray-300'}`}>
-              <span className={`font-black text-sm uppercase tracking-tighter ${isPlanned ? 'text-orange-600' : 'text-gray-600'}`}>
-                COURT {court.id} {isPlanned && '(予定)'} {court.match?.level && <span className={`ml-2 px-2 py-0.5 rounded text-[10px] text-white ${court.match.level === 'A' ? 'bg-blue-600' : court.match.level === 'B' ? 'bg-yellow-500' : 'bg-red-500'}`}>{court.match.level}</span>}
-              </span>
-              {!isPlanned && court.match && (
-                <button onClick={() => finishMatch(court.id)} className="bg-gray-900 text-white px-4 py-1 rounded-md font-black text-xs">終了</button>
-              )}
+              <span className={`font-black text-sm uppercase tracking-tighter ${isPlanned ? 'text-orange-600' : 'text-gray-600'}`}>COURT {court.id} {isPlanned && '(予定)'} {court.match?.level && <span className={`ml-2 px-2 py-0.5 rounded text-[10px] text-white ${court.match.level === 'A' ? 'bg-blue-600' : court.match.level === 'B' ? 'bg-yellow-500' : 'bg-red-500'}`}>{court.match.level}</span>}</span>
+              {!isPlanned && court.match && <button onClick={() => finishMatch(court.id)} className="bg-gray-900 text-white px-4 py-1 rounded-md font-black text-xs">終了</button>}
             </div>
             <div className="flex-1 p-2 flex flex-col justify-center overflow-hidden bg-gray-50/50">
               {court.match ? (
@@ -700,20 +632,14 @@ export default function DoublesMatchupApp() {
                       <div key={pIdx} className={`rounded-lg flex flex-col justify-center items-stretch border-2 px-3 overflow-hidden shadow-sm ${pIdx === 1 ? 'bg-blue-50/80 border-blue-200' : 'bg-red-50/80 border-red-200'}`}>
                         {[pIdx === 1 ? 'p1' : 'p3', pIdx === 1 ? 'p2' : 'p4'].map((pKey, i) => (
                           <div key={pKey} className="h-1/2 flex items-center">
-                            <div className={`w-full leading-tight font-black whitespace-nowrap overflow-hidden text-ellipsis ${pIdx === 1 ? 'text-blue-900' : 'text-red-900'} ${i === 1 ? 'text-right' : 'text-left'}`} style={{ fontSize: getDynamicFontSize(members.find(m => m.id === (court.match as any)?.[pKey])?.name, config.nameFontSizeModifier) }}>
-                              {members.find(m => m.id === (court.match as any)?.[pKey])?.name}
-                            </div>
+                            <div className={`w-full leading-tight font-black whitespace-nowrap overflow-hidden text-ellipsis ${pIdx === 1 ? 'text-blue-900' : 'text-red-900'} ${i === 1 ? 'text-right' : 'text-left'}`} style={{ fontSize: getDynamicFontSize(members.find(m => m.id === (court.match as any)?.[pKey])?.name, config.nameFontSizeModifier) }}>{members.find(m => m.id === (court.match as any)?.[pKey])?.name}</div>
                           </div>
                         ))}
                       </div>
                     ))}
                   </div>
                 </div>
-              ) : (
-                !isPlanned && (
-                  <button onClick={() => generateNextMatch(court.id)} className="w-full h-full border-4 border-dashed border-gray-400 text-gray-500 font-black text-2xl rounded-xl flex items-center justify-center gap-3"><Play size={32} fill="currentColor" /> 割当</button>
-                )
-              )}
+              ) : !isPlanned && <button onClick={() => generateNextMatch(court.id)} className="w-full h-full border-4 border-dashed border-gray-400 text-gray-500 font-black text-2xl rounded-xl flex items-center justify-center gap-3"><Play size={32} fill="currentColor" /> 割当</button>}
             </div>
           </>
         )}
@@ -728,15 +654,8 @@ export default function DoublesMatchupApp() {
         <div className="flex items-center gap-2">
           {activeTab === 'dashboard' && (
             <>
-              <div className="flex items-center bg-black/20 rounded-lg p-0.5 mr-1">
-                <button onClick={() => changeZoom(-0.1)} className="p-1.5 hover:bg-white/10 rounded"><ZoomOut size={16}/></button>
-                <button onClick={() => changeZoom(0.1)} className="p-1.5 hover:bg-white/10 rounded"><ZoomIn size={16}/></button>
-              </div>
-              <div className="flex items-center bg-black/20 rounded-lg p-0.5 mr-2">
-                <button onClick={() => changeNameFontSize(-0.1)} className="p-1.5 hover:bg-white/10 rounded"><ZoomOut size={16}/></button>
-                <div className="px-0.5 text-white/50"><Type size={14} /></div>
-                <button onClick={() => changeNameFontSize(0.1)} className="p-1.5 hover:bg-white/10 rounded"><ZoomIn size={16}/></button>
-              </div>
+              <div className="flex items-center bg-black/20 rounded-lg p-0.5 mr-1"><button onClick={() => changeZoom(-0.1)} className="p-1.5 hover:bg-white/10 rounded"><ZoomOut size={16}/></button><button onClick={() => changeZoom(0.1)} className="p-1.5 hover:bg-white/10 rounded"><ZoomIn size={16}/></button></div>
+              <div className="flex items-center bg-black/20 rounded-lg p-0.5 mr-2"><button onClick={() => changeNameFontSize(-0.1)} className="p-1.5 hover:bg-white/10 rounded"><ZoomOut size={16}/></button><div className="px-0.5 text-white/50"><Type size={14} /></div><button onClick={() => changeNameFontSize(0.1)} className="p-1.5 hover:bg-white/10 rounded"><ZoomIn size={16}/></button></div>
               <button onClick={handleBulkAction} className="bg-orange-600 text-white px-4 py-2 rounded-full text-xs font-black shadow-lg border border-orange-400">一括更新</button>
             </>
           )}
@@ -746,11 +665,7 @@ export default function DoublesMatchupApp() {
       <main className="p-2 w-full max-w-[1400px] mx-auto">
         {activeTab === 'dashboard' && (
           <div className="space-y-6">
-            {showScheduleNotice && (
-              <div className="bg-orange-100 border border-orange-200 text-orange-800 px-4 py-2 rounded-lg flex items-center gap-2 animate-bounce">
-                <AlertCircle size={18} /> <span className="text-sm font-bold">状況に合わせて予定を更新しました</span>
-              </div>
-            )}
+            {showScheduleNotice && <div className="bg-orange-100 border border-orange-200 text-orange-800 px-4 py-2 rounded-lg flex items-center gap-2 animate-bounce"><AlertCircle size={18} /> <span className="text-sm font-bold">状況に合わせて予定を更新しました</span></div>}
             <section className="grid grid-cols-1 landscape:grid-cols-2 gap-4">
               {config.bulkOnlyMode && <h2 className="col-span-full font-black text-xl text-slate-900 border-l-8 border-slate-900 pl-3">現在の対戦</h2>}
               {courts.map(court => <CourtCard key={court.id} court={court} />)}
@@ -771,89 +686,45 @@ export default function DoublesMatchupApp() {
               <button onClick={addMember} className="bg-green-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-1 shadow-lg"><Plus size={20} />選手追加</button>
             </div>
 
-            {/* ソートボタンエリア */}
             <div className="flex justify-between items-center px-2 pb-2">
               <div className="flex gap-2 overflow-x-auto no-scrollbar">
                 <button onClick={resetToSavedOrder} className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-full text-xs font-bold text-gray-600 shadow-sm active:bg-gray-50"><RotateCcw size={14}/> 保存した順</button>
                 <button onClick={sortByName} className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-full text-xs font-bold text-gray-600 shadow-sm active:bg-gray-50"><SortAsc size={14}/> 名前順</button>
                 <button onClick={sortByMemo} className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-full text-xs font-bold text-gray-600 shadow-sm active:bg-gray-50"><StickyNote size={14}/> メモ順</button>
               </div>
-              <button onClick={saveCurrentOrder} className="shrink-0 flex items-center gap-1.5 px-4 py-1.5 bg-blue-600 border border-blue-500 rounded-full text-xs font-bold text-white shadow-md active:bg-blue-700 transition-colors ml-4"><Save size={14}/> 順序を保存</button>
+              <button onClick={saveCurrentOrder} className="shrink-0 flex items-center gap-1.5 px-4 py-1.5 bg-blue-600 border border-blue-500 rounded-full text-xs font-bold text-white shadow-md ml-4"><Save size={14}/> 順序を保存</button>
             </div>
 
             <div className="bg-white rounded-2xl shadow-sm divide-y overflow-hidden relative">
               {displayMembers.map((m, idx) => (
-                <div 
-                  key={m.id} 
-                  draggable={true}
-                  onDragStart={() => onDragStart(idx)}
-                  onDragOver={(e) => onDragOver(e, idx)}
-                  onDragEnd={onDragEnd}
-                  className={`p-4 flex items-center gap-2 ${!m.isActive ? 'bg-gray-50 opacity-40' : ''} ${draggedIndex === idx ? 'opacity-20 bg-blue-100' : ''}`}
-                >
-                  {/* D&D ハンドル */}
-                  <div className="p-2 cursor-grab active:cursor-grabbing text-gray-300">
-                    <GripVertical size={20} />
-                  </div>
-
+                <div key={m.id} draggable={true} onDragStart={() => onDragStart(idx)} onDragOver={(e) => onDragOver(e, idx)} onDragEnd={onDragEnd} className={`p-4 flex items-center gap-2 ${!m.isActive ? 'bg-gray-50 opacity-40' : ''} ${draggedIndex === idx ? 'opacity-20 bg-blue-100' : ''}`}>
+                  <div className="p-2 cursor-grab text-gray-300"><GripVertical size={20} /></div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <input 
-                        value={m.name} 
-                        onChange={e => {
-                          const nextDisplay = displayMembers.map(x => x.id === m.id ? { ...x, name: e.target.value } : x);
-                          syncMemberUpdate(nextDisplay);
-                        }} 
-                        className="flex-1 font-bold text-xl bg-transparent outline-none focus:text-blue-600 min-w-0" 
-                      />
-                      {/* メモ入力欄 (最大8文字程度を想定) */}
+                      <input value={m.name} onChange={e => syncMemberUpdate(displayMembers.map(x => x.id === m.id ? { ...x, name: e.target.value } : x))} className="flex-1 font-bold text-xl bg-transparent outline-none focus:text-blue-600 min-w-0" />
                       <div className="flex items-center gap-1 bg-gray-50 px-2 py-1 rounded-lg border border-gray-200 shrink-0">
                         <StickyNote size={12} className="text-gray-400" />
-                        <input 
-                          value={m.memo}
-                          maxLength={12}
-                          onChange={e => {
-                            const nextDisplay = displayMembers.map(x => x.id === m.id ? { ...x, memo: e.target.value } : x);
-                            syncMemberUpdate(nextDisplay);
-                          }}
-                          className="w-16 text-xs font-bold bg-transparent outline-none text-gray-600 placeholder:text-gray-300"
-                          placeholder="メモ"
-                        />
+                        <input value={m.memo} maxLength={12} onChange={e => syncMemberUpdate(displayMembers.map(x => x.id === m.id ? { ...x, memo: e.target.value } : x))} className="w-16 text-xs font-bold bg-transparent outline-none text-gray-600" placeholder="メモ" />
                       </div>
                     </div>
                     <div className="flex items-center gap-3 mt-1 flex-wrap">
                       <button onClick={() => handleLevelChange(m.id)} className={`text-xs font-bold rounded-md px-3 py-1 text-white ${m.level === 'A' ? 'bg-blue-600' : m.level === 'B' ? 'bg-yellow-500' : 'bg-red-500'}`}>レベル{m.level}</button>
-                      <button onClick={() => setEditingPairMemberId(m.id)} className={`flex items-center gap-1 text-xs font-bold px-2 py-1 rounded border ${m.fixedPairMemberId ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'text-gray-400 border-dashed border-gray-300'}`}>
-                        {m.fixedPairMemberId ? <><LinkIcon size={12} />{displayMembers.find(x => x.id === m.fixedPairMemberId)?.name}</> : <><Unlink size={12} />ペアなし</>}
-                      </button>
+                      <button onClick={() => setEditingPairMemberId(m.id)} className={`flex items-center gap-1 text-xs font-bold px-2 py-1 rounded border ${m.fixedPairMemberId ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'text-gray-400 border-dashed border-gray-300'}`}>{m.fixedPairMemberId ? <><LinkIcon size={12} />{displayMembers.find(x => x.id === m.fixedPairMemberId)?.name}</> : <><Unlink size={12} />ペアなし</>}</button>
                       <span className="text-xs text-gray-400 font-bold">試合数: {m.playCount}{m.imputedPlayCount > 0 && <span className="text-gray-300 ml-1">({m.imputedPlayCount})</span>}</span>
                     </div>
                   </div>
-                  <button onClick={() => {
-                    const nextDisplay = displayMembers.map(x => x.id === m.id ? { ...x, isActive: !x.isActive } : x);
-                    if (!checkChangeConfirmation(nextDisplay)) return;
-                    syncMemberUpdate(nextDisplay);
-                  }} className={`px-4 py-2 rounded-xl font-bold border-2 shrink-0 ${m.isActive ? 'border-blue-600 text-blue-600 bg-blue-50' : 'border-gray-200 text-gray-300'}`}>{m.isActive ? '参加' : '休み'}</button>
-                  <button onClick={() => {
-                    if(confirm(`${m.name}を削除してよろしいですか？`)) {
-                      const nextDisplay = displayMembers.filter(x => x.id !== m.id);
-                      if (!checkChangeConfirmation(nextDisplay)) return;
-                      setDisplayMembers(nextDisplay);
-                      setMembers(prev => prev.filter(x => x.id !== m.id));
-                    }
-                  }} className="text-gray-200 hover:text-red-500 px-2 shrink-0"><Trash2 size={24} /></button>
+                  <button onClick={() => { const next = displayMembers.map(x => x.id === m.id ? { ...x, isActive: !x.isActive } : x); if (checkChangeConfirmation(next)) syncMemberUpdate(next); }} className={`px-4 py-2 rounded-xl font-bold border-2 shrink-0 ${m.isActive ? 'border-blue-600 text-blue-600 bg-blue-50' : 'border-gray-200 text-gray-300'}`}>{m.isActive ? '参加' : '休み'}</button>
+                  <button onClick={() => { if(confirm(`${m.name}を削除？`)) { const next = displayMembers.filter(x => x.id !== m.id); if (checkChangeConfirmation(next)) { setDisplayMembers(next); setMembers(prev => prev.filter(x => x.id !== m.id)); } } }} className="text-gray-200 hover:text-red-500 px-2 shrink-0"><Trash2 size={24} /></button>
                 </div>
               ))}
               {editingPairMemberId && (
                 <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setEditingPairMemberId(null)}>
-                  <div className="bg-white rounded-xl shadow-xl w-[calc(100%-2rem)] max-w-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+                  <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
                     <div className="bg-gray-100 px-4 py-3 flex justify-between items-center border-b"><h3 className="font-bold text-lg">ペアを選択</h3><button onClick={() => setEditingPairMemberId(null)} className="text-gray-500"><X size={20}/></button></div>
                     <div className="max-h-[60vh] overflow-y-auto p-2">
                       <button onClick={() => updateFixedPair(editingPairMemberId, null)} className="w-full text-left px-4 py-3 hover:bg-red-50 text-red-600 font-bold border-b flex items-center gap-2"><Unlink size={16} /> ペアを解消</button>
                       {displayMembers.filter(m => m.id !== editingPairMemberId && m.isActive && (!m.fixedPairMemberId || m.fixedPairMemberId === editingPairMemberId) && m.level === displayMembers.find(x => x.id === editingPairMemberId)?.level)
-                        .map(candidate => (
-                          <button key={candidate.id} onClick={() => updateFixedPair(editingPairMemberId, candidate.id)} className={`w-full text-left px-4 py-3 hover:bg-blue-50 font-bold border-b flex items-center gap-2 ${displayMembers.find(x => x.id === editingPairMemberId)?.fixedPairMemberId === candidate.id ? 'bg-blue-50 text-blue-700' : 'text-gray-700'}`}><LinkIcon size={16} className="text-gray-400" />{candidate.name}</button>
-                        ))}
+                        .map(candidate => <button key={candidate.id} onClick={() => updateFixedPair(editingPairMemberId, candidate.id)} className={`w-full text-left px-4 py-3 hover:bg-blue-50 font-bold border-b flex items-center gap-2 ${displayMembers.find(x => x.id === editingPairMemberId)?.fixedPairMemberId === candidate.id ? 'bg-blue-50 text-blue-700' : 'text-gray-700'}`}><LinkIcon size={16} className="text-gray-400" />{candidate.name}</button>)}
                     </div>
                   </div>
                 </div>
@@ -879,40 +750,8 @@ export default function DoublesMatchupApp() {
           <div className="bg-white rounded-2xl shadow-sm p-8 space-y-8 max-w-2xl mx-auto">
             <div>
               <label className="block text-sm font-bold text-gray-400 mb-6 uppercase tracking-[0.2em]">コート数: <span className="text-blue-600 text-2xl ml-2">{config.courtCount}</span></label>
-              <input 
-                type="range" 
-                min="1" 
-                max="8" 
-                value={config.courtCount} 
-                onChange={e => handleCourtCountChange(parseInt(e.target.value))} 
-                className="w-full h-3 bg-gray-100 rounded-lg appearance-none cursor-pointer accent-blue-600"
-                style={{ WebkitAppearance: 'none' }}
-              />
-              <style dangerouslySetInnerHTML={{ __html: `
-                input[type=range]::-webkit-slider-thumb {
-                  -webkit-appearance: none;
-                  appearance: none;
-                  width: 20px;
-                  height: 20px;
-                  background: #2563eb;
-                  border-radius: 50%;
-                  cursor: pointer;
-                  border: 2px solid white;
-                  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
-                }
-                input[type=range]::-moz-range-thumb {
-                  width: 20px;
-                  height: 20px;
-                  background: #2563eb;
-                  border-radius: 50%;
-                  cursor: pointer;
-                  border: 2px solid white;
-                }
-                .no-scrollbar::-webkit-scrollbar { display: none; }
-                .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-              `}} />
+              <input type="range" min="1" max="8" value={config.courtCount} onChange={e => handleCourtCountChange(parseInt(e.target.value))} className="w-full h-3 bg-gray-100 rounded-lg appearance-none cursor-pointer accent-blue-600" style={{ WebkitAppearance: 'none' }} />
             </div>
-
             <div className="space-y-4 pt-4 border-t border-gray-100">
               <span className="block text-sm font-bold text-gray-400 uppercase tracking-widest">名簿データの管理</span>
               <div className="grid grid-cols-2 gap-3">
@@ -920,30 +759,18 @@ export default function DoublesMatchupApp() {
                 <button onClick={() => fileInputRef.current?.click()} className="py-3 bg-white text-indigo-600 border-2 border-indigo-600 rounded-xl font-bold flex items-center justify-center gap-2 active:bg-indigo-50 transition-colors"><Upload size={18} /> 復元(読込)</button>
                 <input type="file" ref={fileInputRef} onChange={importMembers} accept=".json" className="hidden" />
               </div>
-              <p className="text-[10px] text-gray-400 leading-relaxed italic">※「名前・レベル・固定ペア・表示順・メモ」を保存します。機種変更時や名簿のバックアップに利用してください。復元すると現在の試合履歴はリセットされます。</p>
             </div>
-
             <div className="flex items-center justify-between py-6 border-y border-gray-50">
-              <div className="flex flex-col">
-                <span className="font-bold text-lg text-gray-700">レベル厳格モード</span>
-                <span className="text-xs text-gray-400">同一レベルの人しか同じコートに入りません</span>
-              </div>
-              <button onClick={() => {
-                const nextConfig = { ...config, levelStrict: !config.levelStrict };
-                if (!checkChangeConfirmation(undefined, nextConfig)) return;
-                setConfig(nextConfig);
-              }} className={`w-14 h-7 rounded-full relative transition-colors ${config.levelStrict ? 'bg-blue-600' : 'bg-gray-200'}`}><div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-md ${config.levelStrict ? 'left-8' : 'left-1'}`} /></button>
+              <div className="flex flex-col"><span className="font-bold text-lg text-gray-700">レベル厳格モード</span><span className="text-xs text-gray-400">同一レベルの人しか同じコートに入りません</span></div>
+              <button onClick={() => { const next = { ...config, levelStrict: !config.levelStrict }; if (checkChangeConfirmation(undefined, next)) setConfig(next); }} className={`w-14 h-7 rounded-full relative transition-colors ${config.levelStrict ? 'bg-blue-600' : 'bg-gray-200'}`}><div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-md ${config.levelStrict ? 'left-8' : 'left-1'}`} /></button>
             </div>
             <div className="flex items-center justify-between py-6 border-b border-gray-50">
-              <div className="flex flex-col">
-                <span className="font-bold text-lg text-gray-700">一括進行モード</span>
-                <span className="text-xs text-gray-400">一括更新のみ可能となり、次回の予定が表示されます</span>
-              </div>
+              <div className="flex flex-col"><span className="font-bold text-lg text-gray-700">一括進行モード</span><span className="text-xs text-gray-400">一括更新のみ可能となり、次回の予定が表示されます</span></div>
               <button onClick={() => setConfig(prev => ({ ...prev, bulkOnlyMode: !prev.bulkOnlyMode }))} className={`w-14 h-7 rounded-full relative transition-colors ${config.bulkOnlyMode ? 'bg-orange-600' : 'bg-gray-200'}`}><div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-md ${config.bulkOnlyMode ? 'left-8' : 'left-1'}`} /></button>
             </div>
             <div className="space-y-4">
-              <button onClick={resetPlayCountsOnly} className="w-full py-4 bg-gray-50 text-gray-700 rounded-2xl font-bold flex items-center justify-center gap-3 border active:bg-gray-100 transition-colors"><RotateCcw size={20} /> 試合数と履歴をリセット</button>
-              <button onClick={() => {if(confirm('全てリセットしますか？')) {localStorage.clear(); location.reload();}}} className="w-full py-4 bg-red-50 text-red-500 rounded-2xl font-bold border border-red-100 active:bg-red-100 transition-colors">データを完全消去</button>
+              <button onClick={resetPlayCountsOnly} className="w-full py-4 bg-gray-50 text-gray-700 rounded-2xl font-bold flex items-center justify-center gap-3 border active:bg-gray-100 transition-colors"><RotateCcw size={20} /> リセット</button>
+              <button onClick={() => {if(confirm('全てリセットしますか？')) {localStorage.clear(); location.reload();}}} className="w-full py-4 bg-red-50 text-red-500 rounded-2xl font-bold border border-red-100 active:bg-red-100 transition-colors">完全消去</button>
             </div>
           </div>
         )}
@@ -957,6 +784,7 @@ export default function DoublesMatchupApp() {
             </button>
           ))}
       </nav>
+      <style dangerouslySetInnerHTML={{ __html: `.no-scrollbar::-webkit-scrollbar { display: none; } .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }` }} />
     </div>
   );
 }
