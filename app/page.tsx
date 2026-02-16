@@ -18,7 +18,10 @@ import {
   Type,
   AlertCircle,
   Download,
-  Upload
+  Upload,
+  GripVertical,
+  SortAsc,
+  Layers
 } from 'lucide-react';
 
 // --- 型定義 ---
@@ -35,6 +38,7 @@ interface Member {
   matchHistory: Record<number, number>;
   pairHistory: Record<number, number>;
   fixedPairMemberId: number | null;
+  sortOrder: number; // 追加: 表示順制御用
 }
 
 interface Match {
@@ -91,6 +95,9 @@ export default function DoublesMatchupApp() {
   const [lastFingerprint, setLastFingerprint] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // D&D用のステート
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+
   const memberFingerprint = useMemo(() => {
     try {
       const plannedIds = new Set<number>();
@@ -107,7 +114,7 @@ export default function DoublesMatchupApp() {
           s += `-${m.isActive === true ? 'active' : 'inactive'}`;
         }
         return s;
-      }).join('|');
+      }).sort().join('|');
 
       return `${status}_C${config.courtCount}_S${config.levelStrict}_B${config.bulkOnlyMode}`;
     } catch (e) {
@@ -116,7 +123,8 @@ export default function DoublesMatchupApp() {
   }, [members, config.courtCount, config.levelStrict, config.bulkOnlyMode, nextMatches]);
 
   useEffect(() => {
-    const versions = ['v16', 'v15', 'v14', 'v13', 'v12', 'v11', 'v10', 'v9', 'v8'];
+    // データ移行 v16 -> v17 (sortOrderの追加)
+    const versions = ['v17', 'v16', 'v15', 'v14', 'v13', 'v12', 'v11', 'v10', 'v9', 'v8'];
     let loadedData: any = null;
     for (const v of versions) {
       const saved = localStorage.getItem(`doubles-app-data-${v}`);
@@ -131,12 +139,13 @@ export default function DoublesMatchupApp() {
     }
 
     if (loadedData) {
-      const safeMembers = (loadedData.members || []).map((m: any) => ({
+      const safeMembers = (loadedData.members || []).map((m: any, idx: number) => ({
         ...m,
         fixedPairMemberId: m.fixedPairMemberId !== undefined ? m.fixedPairMemberId : null,
         level: m.level || 'A',
         matchHistory: m.matchHistory || {},
-        pairHistory: m.pairHistory || {}
+        pairHistory: m.pairHistory || {},
+        sortOrder: m.sortOrder !== undefined ? m.sortOrder : idx // 既存データに順序を付与
       }));
       
       setMembers(safeMembers);
@@ -159,11 +168,52 @@ export default function DoublesMatchupApp() {
     if (!isInitialized) return;
     try {
       const data = { members, courts, nextMatches, matchHistory, config, nextMemberId };
-      localStorage.setItem('doubles-app-data-v16', JSON.stringify(data));
+      localStorage.setItem('doubles-app-data-v17', JSON.stringify(data));
     } catch (e) {
       console.error("Failed to save data");
     }
   }, [members, courts, nextMatches, matchHistory, config, nextMemberId, isInitialized]);
+
+  // --- ソート・並べ替え関数 ---
+
+  const sortByName = () => {
+    const sorted = [...members].sort((a, b) => a.name.localeCompare(b.name, 'ja'));
+    updateSortOrder(sorted);
+  };
+
+  const sortByLevel = () => {
+    const levelMap = { 'A': 0, 'B': 1, 'C': 2 };
+    const sorted = [...members].sort((a, b) => levelMap[a.level] - levelMap[b.level]);
+    updateSortOrder(sorted);
+  };
+
+  const sortByOrder = () => {
+    const sorted = [...members].sort((a, b) => a.sortOrder - b.sortOrder);
+    setMembers(sorted);
+  };
+
+  const updateSortOrder = (sortedList: Member[]) => {
+    const updated = sortedList.map((m, idx) => ({ ...m, sortOrder: idx }));
+    setMembers(updated);
+  };
+
+  // ドラッグハンドラ (Desktop)
+  const onDragStart = (idx: number) => setDraggedIndex(idx);
+  const onDragOver = (e: React.DragEvent, idx: number) => {
+    e.preventDefault();
+    if (draggedIndex === null || draggedIndex === idx) return;
+    const newMembers = [...members];
+    const item = newMembers.splice(draggedIndex, 1)[0];
+    newMembers.splice(idx, 0, item);
+    setDraggedIndex(idx);
+    setMembers(newMembers);
+  };
+  const onDragEnd = () => {
+    updateSortOrder(members);
+    setDraggedIndex(null);
+  };
+
+  // -----------------------
 
   const isRegenRequired = (currentMembers: Member[], currentConfig: AppConfig) => {
     const plannedIds = new Set<number>();
@@ -174,7 +224,6 @@ export default function DoublesMatchupApp() {
     const configPart = `_C${currentConfig.courtCount}_S${currentConfig.levelStrict}_B${currentConfig.bulkOnlyMode}`;
     if (lastFingerprint !== '' && !lastFingerprint.endsWith(configPart)) return true;
 
-    // 現在のメンバーリストから、削除された人を特定して判定に含める
     const currentMemberIds = new Set(currentMembers.map(m => m.id));
     const wasPlannedMemberDeleted = Array.from(plannedIds).some(id => !currentMemberIds.has(id));
     if (wasPlannedMemberDeleted) return true;
@@ -264,7 +313,8 @@ export default function DoublesMatchupApp() {
       id: m.id,
       name: m.name,
       level: m.level,
-      fixedPairMemberId: m.fixedPairMemberId
+      fixedPairMemberId: m.fixedPairMemberId,
+      sortOrder: m.sortOrder
     }));
     const json = JSON.stringify(backupData, null, 2);
     const blob = new Blob([json], { type: 'application/json' });
@@ -286,7 +336,7 @@ export default function DoublesMatchupApp() {
         const data = JSON.parse(event.target?.result as string);
         if (!Array.isArray(data)) throw new Error('Invalid format');
         if (!confirm('名簿を復元します。現在の全ての試合データと履歴はリセットされますが、よろしいですか？')) return;
-        const newMembers: Member[] = data.map(m => ({
+        const newMembers: Member[] = data.map((m, idx) => ({
           id: m.id,
           name: m.name || 'Unknown',
           level: m.level || 'A',
@@ -296,7 +346,8 @@ export default function DoublesMatchupApp() {
           lastPlayedTime: 0,
           matchHistory: {},
           pairHistory: {},
-          fixedPairMemberId: m.fixedPairMemberId || null
+          fixedPairMemberId: m.fixedPairMemberId || null,
+          sortOrder: m.sortOrder !== undefined ? m.sortOrder : idx
         }));
         setMembers(newMembers);
         setMatchHistory([]);
@@ -319,7 +370,8 @@ export default function DoublesMatchupApp() {
     const newMember: Member = { 
       id: nextMemberId, name: `${nextMemberId}`, level: 'A', isActive: true, 
       playCount: avgPlay, imputedPlayCount: avgPlay, lastPlayedTime: 0, 
-      matchHistory: {}, pairHistory: {}, fixedPairMemberId: null
+      matchHistory: {}, pairHistory: {}, fixedPairMemberId: null,
+      sortOrder: members.length
     };
     if (!checkChangeConfirmation([...members, newMember])) return;
     setMembers([...members, newMember]);
@@ -676,9 +728,29 @@ export default function DoublesMatchupApp() {
               <h2 className="font-bold text-xl text-gray-700">名簿 ({members.filter(m => m.isActive).length}/{members.length})</h2>
               <button onClick={addMember} className="bg-green-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-1 shadow-lg"><Plus size={20} />選手追加</button>
             </div>
+
+            {/* ソートボタンエリア */}
+            <div className="flex gap-2 px-2 overflow-x-auto pb-2 no-scrollbar">
+              <button onClick={sortByOrder} className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-full text-xs font-bold text-gray-600 shadow-sm active:bg-gray-50"><Layers size={14}/> 番号順</button>
+              <button onClick={sortByName} className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-full text-xs font-bold text-gray-600 shadow-sm active:bg-gray-50"><SortAsc size={14}/> 名前順</button>
+              <button onClick={sortByLevel} className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-full text-xs font-bold text-gray-600 shadow-sm active:bg-gray-50"><Trophy size={14}/> レベル順</button>
+            </div>
+
             <div className="bg-white rounded-2xl shadow-sm divide-y overflow-hidden relative">
-              {members.map(m => (
-                <div key={m.id} className={`p-4 flex items-center gap-4 ${!m.isActive ? 'bg-gray-50 opacity-40' : ''}`}>
+              {members.map((m, idx) => (
+                <div 
+                  key={m.id} 
+                  draggable={true}
+                  onDragStart={() => onDragStart(idx)}
+                  onDragOver={(e) => onDragOver(e, idx)}
+                  onDragEnd={onDragEnd}
+                  className={`p-4 flex items-center gap-2 ${!m.isActive ? 'bg-gray-50 opacity-40' : ''} ${draggedIndex === idx ? 'opacity-20 bg-blue-100' : ''}`}
+                >
+                  {/* D&D ハンドル */}
+                  <div className="p-2 cursor-grab active:cursor-grabbing text-gray-300">
+                    <GripVertical size={20} />
+                  </div>
+
                   <div className="flex-1">
                     <input value={m.name} onChange={e => setMembers(prev => prev.map(x => x.id === m.id ? { ...x, name: e.target.value } : x))} className="w-full font-bold text-xl bg-transparent outline-none focus:text-blue-600" />
                     <div className="flex items-center gap-3 mt-1 flex-wrap">
@@ -767,6 +839,8 @@ export default function DoublesMatchupApp() {
                   cursor: pointer;
                   border: 2px solid white;
                 }
+                .no-scrollbar::-webkit-scrollbar { display: none; }
+                .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
               `}} />
             </div>
 
@@ -777,7 +851,7 @@ export default function DoublesMatchupApp() {
                 <button onClick={() => fileInputRef.current?.click()} className="py-3 bg-white text-indigo-600 border-2 border-indigo-600 rounded-xl font-bold flex items-center justify-center gap-2 active:bg-indigo-50 transition-colors"><Upload size={18} /> 復元(読込)</button>
                 <input type="file" ref={fileInputRef} onChange={importMembers} accept=".json" className="hidden" />
               </div>
-              <p className="text-[10px] text-gray-400 leading-relaxed italic">※「名前・レベル・固定ペア」のみを保存します。機種変更時や名簿のバックアップに利用してください。復元すると現在の試合履歴はリセットされます。</p>
+              <p className="text-[10px] text-gray-400 leading-relaxed italic">※「名前・レベル・固定ペア・表示順」を保存します。機種変更時や名簿のバックアップに利用してください。復元すると現在の試合履歴はリセットされます。</p>
             </div>
 
             <div className="flex items-center justify-between py-6 border-y border-gray-50">
