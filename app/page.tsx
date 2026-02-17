@@ -27,10 +27,8 @@ import {
 } from 'lucide-react';
 
 // --- 型定義 ---
-// 6パターンのレベル定義
 type Level = 'A/B/C' | 'A' | 'A/B' | 'B' | 'B/C' | 'C';
 
-// 各レベルがどのカテゴリに属するかを定義
 const LEVEL_MAP: Record<Level, string[]> = {
   'A/B/C': ['A', 'B', 'C'],
   'A': ['A'],
@@ -55,12 +53,13 @@ interface Member {
   memo: string; 
 }
 
+// 型エラー解消のため courtLevel を必須または optional で明示
 interface Match {
   p1: number;
   p2: number;
   p3: number;
   p4: number;
-  courtLevel?: string; // そのコートで現在行われているレベル(A or B or C)
+  courtLevel?: string; 
 }
 
 interface Court {
@@ -113,7 +112,7 @@ export default function DoublesMatchupApp() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
 
-  // --- データの読み込みと保存 (v19対応) ---
+  // --- データの読み込みと保存 ---
   useEffect(() => {
     const versions = ['v19', 'v18', 'v17', 'v16', 'v15', 'v14', 'v13', 'v12', 'v11', 'v10', 'v9', 'v8'];
     let loadedData: any = null;
@@ -124,7 +123,7 @@ export default function DoublesMatchupApp() {
           loadedData = JSON.parse(saved); 
           if (loadedData) break;
         } catch (e) {
-          console.error("Parse error in version", v);
+          console.error("Parse error", e);
         }
       }
     }
@@ -133,7 +132,7 @@ export default function DoublesMatchupApp() {
       const safeMembers = (loadedData.members || []).map((m: any, idx: number) => ({
         ...m,
         fixedPairMemberId: m.fixedPairMemberId !== undefined ? m.fixedPairMemberId : null,
-        level: (m.level as Level) || 'A/B/C', // 古い 'A'などはそのまま引き継げる
+        level: (m.level as Level) || 'A/B/C',
         matchHistory: m.matchHistory || {},
         pairHistory: m.pairHistory || {},
         sortOrder: m.sortOrder !== undefined ? m.sortOrder : idx,
@@ -168,7 +167,7 @@ export default function DoublesMatchupApp() {
       const data = { members, courts, nextMatches, matchHistory, config, nextMemberId };
       localStorage.setItem('doubles-app-data-v19', JSON.stringify(data));
     } catch (e) {
-      console.error("Failed to save data");
+      console.error("Save error", e);
     }
   }, [members, courts, nextMatches, matchHistory, config, nextMemberId, isInitialized]);
 
@@ -205,9 +204,8 @@ export default function DoublesMatchupApp() {
       const prev = prevMembersRef.current.find(p => p.id === m.id);
       if (!prev) return true;
       if (prev.fixedPairMemberId !== m.fixedPairMemberId) return true;
-      const isActiveChanged = prev.isActive !== m.isActive;
-      if (plannedIds.has(m.id) && isActiveChanged && !m.isActive) return true;
-      if (!plannedIds.has(m.id) && isActiveChanged && m.isActive) return true;
+      if (plannedIds.has(m.id) && prev.isActive !== m.isActive && !m.isActive) return true;
+      if (!plannedIds.has(m.id) && prev.isActive !== m.isActive && m.isActive) return true;
       if (currentConfig.levelStrict && plannedIds.has(m.id) && prev.level !== m.level) return true;
       return false;
     });
@@ -245,13 +243,12 @@ export default function DoublesMatchupApp() {
   const onDragEnd = () => setDraggedIndex(null);
 
   // --- マッチングアルゴリズム ---
-  const getMatchForCourt = (currentCourts: Court[], currentMembers: Member[]) => {
+  const getMatchForCourt = (currentCourts: Court[], currentMembers: Member[]): Match | null => {
     const playingIds = new Set<number>();
     (currentCourts || []).forEach(c => { if (c?.match) [c.match.p1, c.match.p2, c.match.p3, c.match.p4].forEach(id => playingIds.add(id)); });
     let candidates = (currentMembers || []).filter(m => m.isActive && !playingIds.has(m.id));
     if (candidates.length < 4) return null;
 
-    // 1巡目優先
     if (config.orderFirstMatchByList) {
       const firstTimers = candidates.filter(m => m.playCount === 0).sort((a, b) => a.sortOrder - b.sortOrder);
       if (firstTimers.length >= 4) {
@@ -260,37 +257,21 @@ export default function DoublesMatchupApp() {
       }
     }
 
-    // レベル厳格モード時のフィルタリング
-    // 6パターンあるため、「共通して入れるレベル(A or B or C)」が最低4人以上いるか確認
-    if (config.levelStrict) {
-      const counts: Record<string, number> = { 'A': 0, 'B': 0, 'C': 0 };
-      candidates.forEach(m => {
-        LEVEL_MAP[m.level].forEach(l => counts[l]++);
-      });
-      const validLevels = Object.keys(counts).filter(l => counts[l] >= 4);
-      if (validLevels.length === 0) return null;
-      // 候補者がいれば続行（後の pickMember で具体的に絞り込む）
-    }
-
     const minPlayCount = Math.min(...candidates.map(m => m.playCount));
     const minLastTime = Math.min(...candidates.map(m => m.lastPlayedTime));
 
     const pickMember = (currentSelection: Member[], step: 'W' | 'X' | 'Y' | 'Z', targetLevel?: string): Member | null => {
       let remaining = candidates.filter(m => !currentSelection.find(s => s.id === m.id));
-      
-      // レベル制約の適用
       if (config.levelStrict && targetLevel) {
         remaining = remaining.filter(m => LEVEL_MAP[m.level].includes(targetLevel));
       }
-
       if (remaining.length === 0) return null;
-      const w = currentSelection[0], x = currentSelection[1], y = currentSelection[2];
       
+      const w = currentSelection[0], x = currentSelection[1], y = currentSelection[2];
       const score = (m: Member): number[] => {
         const s: number[] = [];
-        if (step === 'W') { 
-          s.push(m.playCount, m.lastPlayedTime); 
-        } else if (step === 'X') {
+        if (step === 'W') { s.push(m.playCount, m.lastPlayedTime); }
+        else if (step === 'X') {
           const wFixed = candidates.find(c => c.id === w.fixedPairMemberId);
           s.push(wFixed && m.id === w.fixedPairMemberId ? 0 : 1);
           s.push(m.fixedPairMemberId && candidates.some(c => c.id === m.fixedPairMemberId) ? 1 : 0);
@@ -322,7 +303,7 @@ export default function DoublesMatchupApp() {
       return topCandidates[Math.floor(Math.random() * topCandidates.length)];
     };
 
-    const attemptMatch = (targetL?: string) => {
+    const attemptMatch = (targetL?: string): Match | null => {
       const s: Member[] = [];
       const W = pickMember(s, 'W', targetL); if (!W) return null; s.push(W);
       const X = pickMember(s, 'X', targetL); if (!X) return null; s.push(X);
@@ -332,10 +313,9 @@ export default function DoublesMatchupApp() {
     };
 
     if (config.levelStrict) {
-      // 全てのレベル(A,B,C)で試行し、最もマッチするものを探す
-      const results = ['A', 'B', 'C']
+      const results = (['A', 'B', 'C'] as const)
         .map(l => attemptMatch(l))
-        .filter(r => r !== null);
+        .filter((r): r is Match => r !== null);
       return results.length > 0 ? results[Math.floor(Math.random() * results.length)] : null;
     }
 
