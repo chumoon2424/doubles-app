@@ -625,7 +625,7 @@ export default function DoublesMatchupApp() {
                   <div key={pIdx} className={`rounded-lg flex flex-col justify-center items-stretch border px-3 overflow-hidden ${pIdx === 1 ? 'bg-blue-50/30 border-blue-100' : 'bg-red-50/30 border-red-100'}`}>
                     {[pIdx === 1 ? 'p1' : 'p3', pIdx === 1 ? 'p2' : 'p4'].map((pKey, i) => (
                       <div key={pKey} className="h-1/2 flex items-center">
-                        <div className={`w-full leading-tight font-black whitespace-nowrap overflow-hidden text-ellipsis ${pIdx === 1 ? 'text-blue-900' : 'text-red-900'} ${i === 1 ? 'text-right' : 'text-left'}`} style={{ fontSize: getDynamicFontSize(members.find(m => m.id === (court.match as any)?.[pKey])?.name, config.nameFontSizeModifier * 0.9) }}>{members.find(m => m.id === (court.match as any)?.[pKey])?.name}</div>
+                        <div className={`w-full leading-tight font-black whitespace-nowrap overflow-hidden text-ellipsis text-black ${i === 1 ? 'text-right' : 'text-left'}`} style={{ fontSize: getDynamicFontSize(members.find(m => m.id === (court.match as any)?.[pKey])?.name, config.nameFontSizeModifier * 0.9) }}>{members.find(m => m.id === (court.match as any)?.[pKey])?.name}</div>
                       </div>
                     ))}
                   </div>
