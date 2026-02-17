@@ -53,7 +53,6 @@ interface Member {
   memo: string; 
 }
 
-// 型エラー解消のため courtLevel を必須または optional で明示
 interface Match {
   p1: number;
   p2: number;
@@ -563,14 +562,14 @@ export default function DoublesMatchupApp() {
                         <select 
                           value={m.level} 
                           onChange={(e) => handleLevelUpdate(m.id, e.target.value as Level)}
-                          className={`appearance-none text-xs font-bold rounded-md px-3 py-1 pr-7 text-white cursor-pointer outline-none ${m.level.includes('A') && !m.level.includes('B') ? 'bg-blue-600' : m.level === 'B' ? 'bg-yellow-500' : m.level.includes('C') && !m.level.includes('B') ? 'bg-red-500' : 'bg-slate-500'}`}
+                          className={`appearance-none text-xs font-bold rounded-md px-3 py-1 pr-7 text-white cursor-pointer outline-none text-center ${m.level.includes('A') && !m.level.includes('B') ? 'bg-blue-600' : m.level === 'B' ? 'bg-yellow-500' : m.level.includes('C') && !m.level.includes('B') ? 'bg-red-500' : 'bg-slate-500'}`}
                         >
-                          <option value="A/B/C">レベルA/B/C</option>
-                          <option value="A">レベルA</option>
-                          <option value="A/B">レベルA/B</option>
-                          <option value="B">レベルB</option>
-                          <option value="B/C">レベルB/C</option>
-                          <option value="C">レベルC</option>
+                          <option value="A/B/C">A/B/C</option>
+                          <option value="A">A</option>
+                          <option value="A/B">A/B</option>
+                          <option value="B">B</option>
+                          <option value="B/C">B/C</option>
+                          <option value="C">C</option>
                         </select>
                         <ChevronDown size={12} className="absolute right-2 top-1.5 text-white pointer-events-none" />
                       </div>
