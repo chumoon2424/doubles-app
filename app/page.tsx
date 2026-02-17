@@ -599,63 +599,49 @@ export default function DoublesMatchupApp() {
   };
 
   const CourtCard = ({ court, isPlanned = false }: { court: Court, isPlanned?: boolean }) => {
-    const h = (config.bulkOnlyMode ? 140 : 180) * config.zoomLevel;
-    const border = isPlanned ? 'border-gray-400' : 'border-slate-900';
-    const bg = isPlanned ? 'bg-gray-50' : 'bg-white';
+    const h = (config.bulkOnlyMode ? 140 : 140) * config.zoomLevel;
+    const border = isPlanned ? 'border-gray-500' : 'border-slate-900';
+    const bg = isPlanned ? 'bg-gray-100' : 'bg-white';
+    
     return (
       <div 
-        className={`relative rounded-xl shadow-md border overflow-hidden flex ${config.bulkOnlyMode ? `border-l-8 ${border} ${bg}` : 'flex-col border-gray-300 bg-white'} ${isPlanned && !config.bulkOnlyMode ? 'opacity-80 border-orange-200 bg-orange-50/50' : ''}`}
+        className={`relative rounded-xl shadow-md border overflow-hidden flex border-l-8 ${border} ${bg} ${isPlanned && !config.bulkOnlyMode ? 'opacity-80 border-orange-200 bg-orange-50/50' : ''}`}
         style={{ height: `${h}px`, minHeight: `${h}px` }}
       >
-        {config.bulkOnlyMode ? (
-          <>
-            <div className={`w-10 shrink-0 flex flex-col items-center justify-center border-r border-gray-100 ${isPlanned ? 'bg-gray-100/50' : 'bg-slate-50'}`}>
-              <span className={`font-black text-2xl ${isPlanned ? 'text-gray-400' : 'text-slate-900'}`}>{court.id}</span>
-              {court.match?.level && <span className={`mt-1 px-1 py-0.5 rounded text-[8px] font-bold text-white ${court.match.level === 'A' ? 'bg-blue-600' : court.match.level === 'B' ? 'bg-yellow-500' : 'bg-red-500'}`}>{court.match.level}</span>}
-            </div>
-            <div className="flex-1 p-2 flex flex-col justify-center overflow-hidden">
-              {court.match ? (
-                <div className="flex items-center gap-2 h-full">
-                  <div className="flex-1 grid grid-cols-2 gap-2 h-full">
-                    {[1, 2].map(pIdx => (
-                      <div key={pIdx} className={`rounded-lg flex flex-col justify-center items-stretch border px-3 overflow-hidden ${pIdx === 1 ? 'bg-blue-50/30 border-blue-100' : 'bg-red-50/30 border-red-100'}`}>
-                        {[pIdx === 1 ? 'p1' : 'p3', pIdx === 1 ? 'p2' : 'p4'].map((pKey, i) => (
-                          <div key={pKey} className="h-1/2 flex items-center">
-                            <div className={`w-full leading-tight font-black whitespace-nowrap overflow-hidden text-ellipsis ${pIdx === 1 ? 'text-blue-900' : 'text-red-900'} ${i === 1 ? 'text-right' : 'text-left'}`} style={{ fontSize: getDynamicFontSize(members.find(m => m.id === (court.match as any)?.[pKey])?.name, config.nameFontSizeModifier * 0.9) }}>{members.find(m => m.id === (court.match as any)?.[pKey])?.name}</div>
-                          </div>
-                        ))}
+        <div className={`w-10 shrink-0 flex flex-col items-center justify-center border-r border-gray-100 ${isPlanned ? 'bg-gray-200/50' : 'bg-slate-50'}`}>
+          {!config.bulkOnlyMode && !isPlanned && court.match ? (
+            <button onClick={() => finishMatch(court.id)} className="absolute top-1 left-1 p-1 text-red-500 hover:bg-red-50 rounded-full transition-colors z-10">
+              <X size={16} strokeWidth={3} />
+            </button>
+          ) : null}
+          <span className={`font-black text-2xl ${isPlanned ? 'text-gray-500' : 'text-slate-900'}`}>{court.id}</span>
+          {court.match?.level && <span className={`mt-1 px-1 py-0.5 rounded text-[8px] font-bold text-white ${court.match.level === 'A' ? 'bg-blue-600' : court.match.level === 'B' ? 'bg-yellow-500' : 'bg-red-500'}`}>{court.match.level}</span>}
+        </div>
+        <div className="flex-1 p-2 flex flex-col justify-center overflow-hidden">
+          {court.match ? (
+            <div className="flex items-center gap-2 h-full">
+              <div className="flex-1 grid grid-cols-2 gap-2 h-full">
+                {[1, 2].map(pIdx => (
+                  <div key={pIdx} className={`rounded-lg flex flex-col justify-center items-stretch border px-3 overflow-hidden ${pIdx === 1 ? 'bg-blue-50/30 border-blue-100' : 'bg-red-50/30 border-red-100'}`}>
+                    {[pIdx === 1 ? 'p1' : 'p3', pIdx === 1 ? 'p2' : 'p4'].map((pKey, i) => (
+                      <div key={pKey} className="h-1/2 flex items-center">
+                        <div className={`w-full leading-tight font-black whitespace-nowrap overflow-hidden text-ellipsis ${isPlanned ? 'text-gray-600' : 'text-black'} ${i === 1 ? 'text-right' : 'text-left'}`} style={{ fontSize: getDynamicFontSize(members.find(m => m.id === (court.match as any)?.[pKey])?.name, config.nameFontSizeModifier * 0.9) }}>{members.find(m => m.id === (court.match as any)?.[pKey])?.name}</div>
                       </div>
                     ))}
                   </div>
-                </div>
-              ) : <div className="text-gray-300 font-bold text-center italic">No Match</div>}
+                ))}
+              </div>
             </div>
-          </>
-        ) : (
-          <>
-            <div className={`px-4 py-1.5 border-b flex justify-between items-center shrink-0 ${isPlanned ? 'bg-orange-50 border-orange-100' : 'bg-gray-100 border-gray-300'}`}>
-              <span className={`font-black text-sm uppercase tracking-tighter ${isPlanned ? 'text-orange-600' : 'text-gray-600'}`}>COURT {court.id} {isPlanned && '(予定)'} {court.match?.level && <span className={`ml-2 px-2 py-0.5 rounded text-[10px] text-white ${court.match.level === 'A' ? 'bg-blue-600' : court.match.level === 'B' ? 'bg-yellow-500' : 'bg-red-500'}`}>{court.match.level}</span>}</span>
-              {!isPlanned && court.match && <button onClick={() => finishMatch(court.id)} className="bg-gray-900 text-white px-4 py-1 rounded-md font-black text-xs">終了</button>}
-            </div>
-            <div className="flex-1 p-2 flex flex-col justify-center overflow-hidden bg-gray-50/50">
-              {court.match ? (
-                <div className="flex items-center gap-2 h-full overflow-hidden">
-                  <div className="flex-1 grid grid-cols-2 gap-3 h-full">
-                    {[1, 2].map(pIdx => (
-                      <div key={pIdx} className={`rounded-lg flex flex-col justify-center items-stretch border-2 px-3 overflow-hidden shadow-sm ${pIdx === 1 ? 'bg-blue-50/80 border-blue-200' : 'bg-red-50/80 border-red-200'}`}>
-                        {[pIdx === 1 ? 'p1' : 'p3', pIdx === 1 ? 'p2' : 'p4'].map((pKey, i) => (
-                          <div key={pKey} className="h-1/2 flex items-center">
-                            <div className={`w-full leading-tight font-black whitespace-nowrap overflow-hidden text-ellipsis ${pIdx === 1 ? 'text-blue-900' : 'text-red-900'} ${i === 1 ? 'text-right' : 'text-left'}`} style={{ fontSize: getDynamicFontSize(members.find(m => m.id === (court.match as any)?.[pKey])?.name, config.nameFontSizeModifier) }}>{members.find(m => m.id === (court.match as any)?.[pKey])?.name}</div>
-                          </div>
-                        ))}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : !isPlanned && <button onClick={() => generateNextMatch(court.id)} className="w-full h-full border-4 border-dashed border-gray-400 text-gray-500 font-black text-2xl rounded-xl flex items-center justify-center gap-3"><Play size={32} fill="currentColor" /> 割当</button>}
-            </div>
-          </>
-        )}
+          ) : (
+            !isPlanned && !config.bulkOnlyMode ? (
+              <button onClick={() => generateNextMatch(court.id)} className="w-full h-full border-2 border-dashed border-gray-300 text-gray-400 font-black text-xl rounded-lg flex items-center justify-center gap-2 hover:bg-gray-50 transition-colors italic">
+                <Play size={20} fill="currentColor" /> 割当
+              </button>
+            ) : (
+              <div className="text-gray-300 font-bold text-center italic">No Match</div>
+            )
+          )}
+        </div>
       </div>
     );
   };
@@ -685,7 +671,7 @@ export default function DoublesMatchupApp() {
             </section>
             {config.bulkOnlyMode && (
               <section className="grid grid-cols-1 landscape:grid-cols-2 gap-4 mt-8 pb-8">
-                <h2 className="col-span-full font-black text-xl text-gray-500 border-l-8 border-gray-400 pl-3">次回の予定</h2>
+                <h2 className="col-span-full font-black text-xl text-gray-600 border-l-8 border-gray-500 pl-3">次回の予定</h2>
                 {nextMatches.map(court => <CourtCard key={court.id} court={court} isPlanned={true} />)}
               </section>
             )}
@@ -784,7 +770,6 @@ export default function DoublesMatchupApp() {
             </div>
             <div className="flex items-center justify-between py-6 border-b border-gray-50">
               <div className="flex-1 pr-4 flex flex-col"><span className="font-bold text-lg text-gray-700">一括進行モード</span><span className="text-xs text-gray-400 leading-tight">一括更新のみ可能となり、次回の予定が表示されます</span></div>
-              {/* スイッチの色を bg-orange-600 から bg-blue-600 に修正 */}
               <button onClick={() => setConfig(prev => ({ ...prev, bulkOnlyMode: !prev.bulkOnlyMode }))} className={`shrink-0 w-14 h-7 rounded-full relative transition-colors ${config.bulkOnlyMode ? 'bg-blue-600' : 'bg-gray-200'}`}><div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-md ${config.bulkOnlyMode ? 'left-8' : 'left-1'}`} /></button>
             </div>
             <div className="space-y-4">
