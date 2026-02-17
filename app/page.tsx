@@ -600,21 +600,21 @@ export default function DoublesMatchupApp() {
 
   const CourtCard = ({ court, isPlanned = false }: { court: Court, isPlanned?: boolean }) => {
     const h = (config.bulkOnlyMode ? 140 : 140) * config.zoomLevel;
-    const border = isPlanned ? 'border-gray-400' : 'border-slate-900';
-    const bg = isPlanned ? 'bg-gray-50' : 'bg-white';
+    const border = isPlanned ? 'border-gray-500' : 'border-slate-900';
+    const bg = isPlanned ? 'bg-gray-100' : 'bg-white';
     
     return (
       <div 
         className={`relative rounded-xl shadow-md border overflow-hidden flex border-l-8 ${border} ${bg} ${isPlanned && !config.bulkOnlyMode ? 'opacity-80 border-orange-200 bg-orange-50/50' : ''}`}
         style={{ height: `${h}px`, minHeight: `${h}px` }}
       >
-        <div className={`w-10 shrink-0 flex flex-col items-center justify-center border-r border-gray-100 ${isPlanned ? 'bg-gray-100/50' : 'bg-slate-50'}`}>
+        <div className={`w-10 shrink-0 flex flex-col items-center justify-center border-r border-gray-100 ${isPlanned ? 'bg-gray-200/50' : 'bg-slate-50'}`}>
           {!config.bulkOnlyMode && !isPlanned && court.match ? (
             <button onClick={() => finishMatch(court.id)} className="absolute top-1 left-1 p-1 text-red-500 hover:bg-red-50 rounded-full transition-colors z-10">
               <X size={16} strokeWidth={3} />
             </button>
           ) : null}
-          <span className={`font-black text-2xl ${isPlanned ? 'text-gray-400' : 'text-slate-900'}`}>{court.id}</span>
+          <span className={`font-black text-2xl ${isPlanned ? 'text-gray-500' : 'text-slate-900'}`}>{court.id}</span>
           {court.match?.level && <span className={`mt-1 px-1 py-0.5 rounded text-[8px] font-bold text-white ${court.match.level === 'A' ? 'bg-blue-600' : court.match.level === 'B' ? 'bg-yellow-500' : 'bg-red-500'}`}>{court.match.level}</span>}
         </div>
         <div className="flex-1 p-2 flex flex-col justify-center overflow-hidden">
@@ -622,10 +622,10 @@ export default function DoublesMatchupApp() {
             <div className="flex items-center gap-2 h-full">
               <div className="flex-1 grid grid-cols-2 gap-2 h-full">
                 {[1, 2].map(pIdx => (
-                  <div key={pIdx} className={`rounded-lg flex flex-col justify-center items-stretch border px-3 overflow-hidden ${pIdx === 1 ? 'bg-blue-50/30 border-blue-100' : 'bg-red-50/30 border-red-100'}`}>
+                  <div key={pIdx} className={`rounded-lg flex flex-col justify-center items-stretch border px-3 overflow-hidden ${isPlanned ? 'bg-white/50 border-gray-200' : (pIdx === 1 ? 'bg-blue-50/30 border-blue-100' : 'bg-red-50/30 border-red-100')}`}>
                     {[pIdx === 1 ? 'p1' : 'p3', pIdx === 1 ? 'p2' : 'p4'].map((pKey, i) => (
                       <div key={pKey} className="h-1/2 flex items-center">
-                        <div className={`w-full leading-tight font-black whitespace-nowrap overflow-hidden text-ellipsis text-black ${i === 1 ? 'text-right' : 'text-left'}`} style={{ fontSize: getDynamicFontSize(members.find(m => m.id === (court.match as any)?.[pKey])?.name, config.nameFontSizeModifier * 0.9) }}>{members.find(m => m.id === (court.match as any)?.[pKey])?.name}</div>
+                        <div className={`w-full leading-tight font-black whitespace-nowrap overflow-hidden text-ellipsis ${isPlanned ? 'text-gray-600' : 'text-black'} ${i === 1 ? 'text-right' : 'text-left'}`} style={{ fontSize: getDynamicFontSize(members.find(m => m.id === (court.match as any)?.[pKey])?.name, config.nameFontSizeModifier * 0.9) }}>{members.find(m => m.id === (court.match as any)?.[pKey])?.name}</div>
                       </div>
                     ))}
                   </div>
@@ -671,7 +671,7 @@ export default function DoublesMatchupApp() {
             </section>
             {config.bulkOnlyMode && (
               <section className="grid grid-cols-1 landscape:grid-cols-2 gap-4 mt-8 pb-8">
-                <h2 className="col-span-full font-black text-xl text-gray-500 border-l-8 border-gray-400 pl-3">次回の予定</h2>
+                <h2 className="col-span-full font-black text-xl text-gray-600 border-l-8 border-gray-500 pl-3">次回の予定</h2>
                 {nextMatches.map(court => <CourtCard key={court.id} court={court} isPlanned={true} />)}
               </section>
             )}
