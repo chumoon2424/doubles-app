@@ -115,25 +115,16 @@ export default function DoublesMatchupApp() {
     }
   };
 
-  // レベル表示コンポーネント (別ブランチの表示ロジックを流用)
-  const LevelBadge = ({ pattern }: { pattern: LevelPattern }) => {
-    const segments = pattern.split('/');
-    const displayText = pattern.replace(/\//g, ''); // 表示用は「/」を抜く
-    
+  // --- レベルバッジ用コンポーネント ---
+  const LevelBadge = ({ level, className = "" }: { level: LevelPattern, className?: string }) => {
+    const segments = level.split('/');
     return (
-      <div className="flex w-14 h-6 rounded overflow-hidden border border-gray-300 text-[10px] font-bold text-white relative shadow-sm shrink-0">
-        {/* 背景の分割表示 */}
-        {segments.map((s, i) => {
-          let bg = 'bg-gray-400';
-          if (s === 'A') bg = 'bg-blue-600';
-          if (s === 'B') bg = 'bg-yellow-500';
-          if (s === 'C') bg = 'bg-red-500';
-          return <div key={i} className={`${bg} flex-1 h-full`} />;
-        })}
-        {/* 中央のテキスト表示 */}
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none drop-shadow-sm">
-          {displayText}
-        </div>
+      <div className={`flex h-6 rounded overflow-hidden border border-black/10 font-bold text-[10px] w-12 shrink-0 ${className}`}>
+        {segments.map((s, i) => (
+          <div key={i} className={`flex-1 flex items-center justify-center text-white ${s === 'A' ? 'bg-blue-600' : s === 'B' ? 'bg-yellow-500' : 'bg-red-500'}`}>
+            {s}
+          </div>
+        ))}
       </div>
     );
   };
@@ -850,9 +841,7 @@ export default function DoublesMatchupApp() {
                     </div>
                     <div className="flex items-center gap-3 mt-1 flex-wrap">
                       <div className="relative group">
-                        {/* 流用したLevelBadge */}
-                        <LevelBadge pattern={m.level} />
-                        {/* 選択肢内では「/」を維持 */}
+                        <LevelBadge level={m.level} />
                         <select 
                           value={m.level} 
                           onChange={e => handleLevelChange(m.id, e.target.value as LevelPattern)}
