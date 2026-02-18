@@ -629,7 +629,7 @@ export default function DoublesMatchupApp() {
     };
 
     const patterns: any[] = [];
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 8; i++) {
       const p = generatePattern();
       if (p) patterns.push(p);
     }
