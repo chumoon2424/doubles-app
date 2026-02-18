@@ -460,13 +460,13 @@ export default function DoublesMatchupApp() {
     setMembers(prev => calculateNextMemberState(prev, p1, p2, p3, p4));
   };
 
-  const getMatchForCourt = (currentCourts: Court[], currentMembers: Member[]) => {
+const getMatchForCourt = (currentCourts: Court[], currentMembers: Member[]) => {
     const playingIds = new Set<number>();
     (currentCourts || []).forEach(c => { if (c?.match) [c.match.p1, c.match.p2, c.match.p3, c.match.p4].forEach(id => playingIds.add(id)); });
     const available = (currentMembers || []).filter(m => m.isActive && !playingIds.has(m.id));
     if (available.length < 4) return null;
 
-    // 初回マッチ優先ロジック
+    // 初回マッチ優先ロジック（設定がONの場合）
     if (config.orderFirstMatchByList) {
       const firstTimers = available.filter(m => m.playCount === 0).sort((a, b) => a.sortOrder - b.sortOrder);
       if (firstTimers.length >= 4) {
@@ -479,12 +479,13 @@ export default function DoublesMatchupApp() {
       let selection: Member[] = [];
       let matchLevel: BaseLevel | undefined = undefined;
 
-      // 1. Wを決める
-      const minPlayW = Math.min(...available.map(m => m.playCount));
-      let candW = available.filter(m => m.playCount === minPlayW);
+      // --- 1. Wを決める ---
+      let candW = [...available];
+      const minPlayW = Math.min(...candW.map(m => m.playCount));
+      candW = candW.filter(m => m.playCount === minPlayW); // 1-1
       const minBlockW = Math.min(...candW.map(m => m.lastPlayedBlock));
-      candW = candW.filter(m => m.lastPlayedBlock === minBlockW);
-      const W = candW[Math.floor(Math.random() * candW.length)];
+      candW = candW.filter(m => m.lastPlayedBlock === minBlockW); // 1-2
+      const W = candW[Math.floor(Math.random() * candW.length)]; // 1-3
       selection.push(W);
 
       if (config.levelStrict) {
@@ -492,15 +493,17 @@ export default function DoublesMatchupApp() {
         if (wLevels.length === 1) matchLevel = wLevels[0];
       }
 
-      // 2. Xを決める
+      // --- 2. Xを決める ---
       const getX = () => {
         let cand = available.filter(m => m.id !== W.id);
+        // 2-1. 固定ペア
         const wFixed = cand.find(m => m.id === W.fixedPairMemberId);
-        if (wFixed) return wFixed; // 2-1
-
-        cand = cand.filter(m => !m.fixedPairMemberId || !available.some(a => a.id === m.fixedPairMemberId)); // 2-2
-
-        if (config.levelStrict) { // 2-3
+        if (wFixed) return wFixed;
+        // 2-2. 固定ペアがいない人、またはペアが休み中の人
+        const noActivePair = cand.filter(m => !m.fixedPairMemberId || !available.some(a => a.id === m.fixedPairMemberId));
+        if (noActivePair.length > 0) cand = noActivePair;
+        // 2-3. レベル制約
+        if (config.levelStrict) {
           if (matchLevel) {
             cand = cand.filter(m => getBelongingLevels(m.level).includes(matchLevel!));
           } else {
@@ -510,32 +513,25 @@ export default function DoublesMatchupApp() {
         }
         if (cand.length === 0) return null;
 
+        // 2-4〜2-6 優先順位ソート
         const minP = Math.min(...cand.map(m => m.playCount));
         const minB = Math.min(...cand.map(m => m.lastPlayedBlock));
 
         const sorted = cand.sort((a, b) => {
-          if (config.levelStrict) {
-            if (a.playCount !== b.playCount) return a.playCount - b.playCount; // 2-4
-            return a.lastPlayedBlock - b.lastPlayedBlock; // 2-5
-          } else {
-            if (a.playCount !== b.playCount) return a.playCount - b.playCount; // 2-3
-            if (a.lastPlayedBlock !== b.lastPlayedBlock) return a.lastPlayedBlock - b.lastPlayedBlock; // 2-4
-            if ((W.pairHistory?.[a.id] || 0) !== (W.pairHistory?.[b.id] || 0)) 
-              return (W.pairHistory?.[a.id] || 0) - (W.pairHistory?.[b.id] || 0); // 2-5
-            return (W.matchHistory?.[a.id] || 0) - (W.matchHistory?.[b.id] || 0); // 2-6
-          }
+          const scoreA = (a.playCount === minP || a.lastPlayedBlock === minB) ? 0 : 1;
+          const scoreB = (b.playCount === minP || b.lastPlayedBlock === minB) ? 0 : 1;
+          if (scoreA !== scoreB) return scoreA - scoreB; // 2-4
+          if ((W.pairHistory?.[a.id] || 0) !== (W.pairHistory?.[b.id] || 0)) 
+            return (W.pairHistory?.[a.id] || 0) - (W.pairHistory?.[b.id] || 0); // 2-5
+          return (W.matchHistory?.[a.id] || 0) - (W.matchHistory?.[b.id] || 0); // 2-6
         });
 
-        const top = sorted.filter(m => {
-          if (config.levelStrict) {
-            return m.playCount === sorted[0].playCount && m.lastPlayedBlock === sorted[0].lastPlayedBlock;
-          } else {
-            return m.playCount === sorted[0].playCount && m.lastPlayedBlock === sorted[0].lastPlayedBlock &&
-                   (W.pairHistory?.[m.id] || 0) === (W.pairHistory?.[sorted[0].id] || 0) &&
-                   (W.matchHistory?.[m.id] || 0) === (W.matchHistory?.[sorted[0].id] || 0);
-          }
-        });
-        return top[Math.floor(Math.random() * top.length)];
+        const top = sorted.filter(m => 
+          ((m.playCount === minP || m.lastPlayedBlock === minB) ? 0 : 1) === ((sorted[0].playCount === minP || sorted[0].lastPlayedBlock === minB) ? 0 : 1) &&
+          (W.pairHistory?.[m.id] || 0) === (W.pairHistory?.[sorted[0].id] || 0) &&
+          (W.matchHistory?.[m.id] || 0) === (W.matchHistory?.[sorted[0].id] || 0)
+        );
+        return top[Math.floor(Math.random() * top.length)]; // 2-7
       };
 
       const X = getX();
@@ -547,10 +543,11 @@ export default function DoublesMatchupApp() {
         if (common.length === 1) matchLevel = common[0];
       }
 
-      // 3. Yを決める
+      // --- 3. Yを決める ---
       const getY = () => {
         let cand = available.filter(m => !selection.some(s => s.id === m.id));
-        if (config.levelStrict) { // 3-1
+        // 3-1. レベル制約
+        if (config.levelStrict) {
           if (matchLevel) {
             cand = cand.filter(m => getBelongingLevels(m.level).includes(matchLevel!));
           } else {
@@ -564,31 +561,23 @@ export default function DoublesMatchupApp() {
         const minB = Math.min(...cand.map(m => m.lastPlayedBlock));
 
         const sorted = cand.sort((a, b) => {
-          if (config.levelStrict) {
-            if (a.playCount !== b.playCount) return a.playCount - b.playCount; // 3-2
-            return a.lastPlayedBlock - b.lastPlayedBlock; // 3-3
-          } else {
-            if (a.playCount !== b.playCount) return a.playCount - b.playCount; // 3-1
-            if (a.lastPlayedBlock !== b.lastPlayedBlock) return a.lastPlayedBlock - b.lastPlayedBlock; // 3-2
-            const costWA = (W.pairHistory?.[a.id] || 0) + (W.matchHistory?.[a.id] || 0);
-            const costWB = (W.pairHistory?.[b.id] || 0) + (W.matchHistory?.[b.id] || 0);
-            if (costWA !== costWB) return costWA - costWB; // 3-3
-            const costXA = (X.pairHistory?.[a.id] || 0) + (X.matchHistory?.[a.id] || 0);
-            const costXB = (X.pairHistory?.[b.id] || 0) + (X.matchHistory?.[b.id] || 0);
-            return costXA - costXB; // 3-4
-          }
+          const scoreA = (a.playCount === minP || a.lastPlayedBlock === minB) ? 0 : 1;
+          const scoreB = (b.playCount === minP || b.lastPlayedBlock === minB) ? 0 : 1;
+          if (scoreA !== scoreB) return scoreA - scoreB; // 3-2
+          const costWA = (W.pairHistory?.[a.id] || 0) + (W.matchHistory?.[a.id] || 0);
+          const costWB = (W.pairHistory?.[b.id] || 0) + (W.matchHistory?.[b.id] || 0);
+          if (costWA !== costWB) return costWA - costWB; // 3-3
+          const costXA = (X.pairHistory?.[a.id] || 0) + (X.matchHistory?.[a.id] || 0);
+          const costXB = (X.pairHistory?.[b.id] || 0) + (X.matchHistory?.[b.id] || 0);
+          return costXA - costXB; // 3-4
         });
 
-        const top = sorted.filter(m => {
-          if (config.levelStrict) {
-            return m.playCount === sorted[0].playCount && m.lastPlayedBlock === sorted[0].lastPlayedBlock;
-          } else {
-            return m.playCount === sorted[0].playCount && m.lastPlayedBlock === sorted[0].lastPlayedBlock &&
-                   ((W.pairHistory?.[m.id] || 0) + (W.matchHistory?.[m.id] || 0)) === ((W.pairHistory?.[sorted[0].id] || 0) + (W.matchHistory?.[sorted[0].id] || 0)) &&
-                   ((X.pairHistory?.[m.id] || 0) + (X.matchHistory?.[m.id] || 0)) === ((X.pairHistory?.[sorted[0].id] || 0) + (X.matchHistory?.[sorted[0].id] || 0));
-          }
-        });
-        return top[Math.floor(Math.random() * top.length)];
+        const top = sorted.filter(m => 
+          ((m.playCount === minP || m.lastPlayedBlock === minB) ? 0 : 1) === ((sorted[0].playCount === minP || sorted[0].lastPlayedBlock === minB) ? 0 : 1) &&
+          ((W.pairHistory?.[m.id] || 0) + (W.matchHistory?.[m.id] || 0)) === ((W.pairHistory?.[sorted[0].id] || 0) + (W.matchHistory?.[sorted[0].id] || 0)) &&
+          ((X.pairHistory?.[m.id] || 0) + (X.matchHistory?.[m.id] || 0)) === ((X.pairHistory?.[sorted[0].id] || 0) + (X.matchHistory?.[sorted[0].id] || 0))
+        );
+        return top[Math.floor(Math.random() * top.length)]; // 3-5
       };
 
       const Y = getY();
@@ -600,15 +589,17 @@ export default function DoublesMatchupApp() {
         if (common.length === 1) matchLevel = common[0];
       }
 
-      // 4. Zを決める
+      // --- 4. Zを決める ---
       const getZ = () => {
         let cand = available.filter(m => !selection.some(s => s.id === m.id));
+        // 4-1. 固定ペア
         const yFixed = cand.find(m => m.id === Y.fixedPairMemberId);
-        if (yFixed) return yFixed; // 4-1
-
-        cand = cand.filter(m => !m.fixedPairMemberId || !available.some(a => a.id === m.fixedPairMemberId)); // 4-2
-
-        if (config.levelStrict) { // 4-3
+        if (yFixed) return yFixed;
+        // 4-2. 固定ペアがいない人、またはペアが休み中の人
+        const noActivePair = cand.filter(m => !m.fixedPairMemberId || !available.some(a => a.id === m.fixedPairMemberId));
+        if (noActivePair.length > 0) cand = noActivePair;
+        // 4-3. レベル制約
+        if (config.levelStrict) {
           if (matchLevel) {
             cand = cand.filter(m => getBelongingLevels(m.level).includes(matchLevel!));
           } else {
@@ -622,41 +613,34 @@ export default function DoublesMatchupApp() {
         const minB = Math.min(...cand.map(m => m.lastPlayedBlock));
 
         const sorted = cand.sort((a, b) => {
-          if (config.levelStrict) {
-            if (a.playCount !== b.playCount) return a.playCount - b.playCount; // 4-4
-            return a.lastPlayedBlock - b.lastPlayedBlock; // 4-5
-          } else {
-            if (a.playCount !== b.playCount) return a.playCount - b.playCount; // 4-3
-            if (a.lastPlayedBlock !== b.lastPlayedBlock) return a.lastPlayedBlock - b.lastPlayedBlock; // 4-4
-            if ((Y.pairHistory?.[a.id] || 0) !== (Y.pairHistory?.[b.id] || 0)) return (Y.pairHistory?.[a.id] || 0) - (Y.pairHistory?.[b.id] || 0); // 4-5
-            if ((Y.matchHistory?.[a.id] || 0) !== (Y.matchHistory?.[b.id] || 0)) return (Y.matchHistory?.[a.id] || 0) - (Y.matchHistory?.[b.id] || 0); // 4-6
-            const costWA = (W.pairHistory?.[a.id] || 0) + (W.matchHistory?.[a.id] || 0);
-            const costWB = (W.pairHistory?.[b.id] || 0) + (W.matchHistory?.[b.id] || 0);
-            if (costWA !== costWB) return costWA - costWB; // 4-7
-            const costXA = (X.pairHistory?.[a.id] || 0) + (X.matchHistory?.[a.id] || 0);
-            const costXB = (X.pairHistory?.[b.id] || 0) + (X.matchHistory?.[b.id] || 0);
-            return costXA - costXB; // 4-8
-          }
+          const scoreA = (a.playCount === minP || a.lastPlayedBlock === minB) ? 0 : 1;
+          const scoreB = (b.playCount === minP || b.lastPlayedBlock === minB) ? 0 : 1;
+          if (scoreA !== scoreB) return scoreA - scoreB; // 4-4
+          if ((Y.pairHistory?.[a.id] || 0) !== (Y.pairHistory?.[b.id] || 0)) return (Y.pairHistory?.[a.id] || 0) - (Y.pairHistory?.[b.id] || 0); // 4-5
+          if ((Y.matchHistory?.[a.id] || 0) !== (Y.matchHistory?.[b.id] || 0)) return (Y.matchHistory?.[a.id] || 0) - (Y.matchHistory?.[b.id] || 0); // 4-6
+          const costWA = (W.pairHistory?.[a.id] || 0) + (W.matchHistory?.[a.id] || 0);
+          const costWB = (W.pairHistory?.[b.id] || 0) + (W.matchHistory?.[b.id] || 0);
+          if (costWA !== costWB) return costWA - costWB; // 4-7
+          const costXA = (X.pairHistory?.[a.id] || 0) + (X.matchHistory?.[a.id] || 0);
+          const costXB = (X.pairHistory?.[b.id] || 0) + (X.matchHistory?.[b.id] || 0);
+          return costXA - costXB; // 4-8
         });
 
-        const top = sorted.filter(m => {
-          if (config.levelStrict) {
-            return m.playCount === sorted[0].playCount && m.lastPlayedBlock === sorted[0].lastPlayedBlock;
-          } else {
-            return m.playCount === sorted[0].playCount && m.lastPlayedBlock === sorted[0].lastPlayedBlock &&
-                   (Y.pairHistory?.[m.id] || 0) === (Y.pairHistory?.[sorted[0].id] || 0) &&
-                   (Y.matchHistory?.[m.id] || 0) === (Y.matchHistory?.[sorted[0].id] || 0) &&
-                   ((W.pairHistory?.[m.id] || 0) + (W.matchHistory?.[m.id] || 0)) === ((W.pairHistory?.[sorted[0].id] || 0) + (W.matchHistory?.[sorted[0].id] || 0)) &&
-                   ((X.pairHistory?.[m.id] || 0) + (X.matchHistory?.[m.id] || 0)) === ((X.pairHistory?.[sorted[0].id] || 0) + (X.matchHistory?.[sorted[0].id] || 0));
-          }
-        });
-        return top[Math.floor(Math.random() * top.length)];
+        const top = sorted.filter(m => 
+          ((m.playCount === minP || m.lastPlayedBlock === minB) ? 0 : 1) === ((sorted[0].playCount === minP || sorted[0].lastPlayedBlock === minB) ? 0 : 1) &&
+          (Y.pairHistory?.[m.id] || 0) === (Y.pairHistory?.[sorted[0].id] || 0) &&
+          (Y.matchHistory?.[m.id] || 0) === (Y.matchHistory?.[sorted[0].id] || 0) &&
+          ((W.pairHistory?.[m.id] || 0) + (W.matchHistory?.[m.id] || 0)) === ((W.pairHistory?.[sorted[0].id] || 0) + (W.matchHistory?.[sorted[0].id] || 0)) &&
+          ((X.pairHistory?.[m.id] || 0) + (X.matchHistory?.[m.id] || 0)) === ((X.pairHistory?.[sorted[0].id] || 0) + (X.matchHistory?.[sorted[0].id] || 0))
+        );
+        return top[Math.floor(Math.random() * top.length)]; // 4-9
       };
 
       const Z = getZ();
       if (!Z) return null;
       selection.push(Z);
 
+      // レベル決定（4-9 レベル厳格モード）
       if (config.levelStrict && !matchLevel) {
         const common = getBelongingLevels(W.level).filter(l => 
           getBelongingLevels(X.level).includes(l) && 
@@ -669,6 +653,7 @@ export default function DoublesMatchupApp() {
       return { p1: W.id, p2: X.id, p3: Y.id, p4: Z.id, level: matchLevel };
     };
 
+    // --- 5, 6. 8回繰り返してパターンを生成 ---
     const patterns: any[] = [];
     for (let i = 0; i < 8; i++) {
       const p = generateOnePattern();
@@ -676,51 +661,31 @@ export default function DoublesMatchupApp() {
     }
     if (patterns.length === 0) return null;
 
-    const getPatternHistoryCost = (p: any) => {
+    // --- 7. 合計コストが最小のものを採用 ---
+    const getPatternCost = (p: any) => {
       const ids = [p.p1, p.p2, p.p3, p.p4];
       const s = ids.map(id => currentMembers.find(m => m.id === id)!);
       let total = 0;
+      // 全ペア（6通り）: [W,X], [Y,Z], [W,Y], [W,Z], [X,Y], [X,Z]
       const pairIndices = [[0,1], [2,3], [0,2], [0,3], [1,2], [1,3]];
       pairIndices.forEach(([i, j]) => {
         const m1 = s[i], m2 = s[j];
+        // 固定ペアの分を除く (設計7)
         if (m1.fixedPairMemberId === m2.id) return;
         total += (m1.pairHistory?.[m2.id] || 0) + (m1.matchHistory?.[m2.id] || 0);
       });
       return total;
     };
 
-    const getPlayCountDiff = (p: any) => {
-      const activeMembers = currentMembers.filter(m => m.isActive);
-      const ids = [p.p1, p.p2, p.p3, p.p4];
-      const nextCounts = activeMembers.map(m => ids.includes(m.id) ? m.playCount + 1 : m.playCount);
-      return Math.max(...nextCounts) - Math.min(...nextCounts);
-    };
-
+    // 最小コストのものを選択（同じ場合は配列の先頭＝先に作成したものが優先される）
     let bestPattern = patterns[0];
+    let minCost = getPatternCost(bestPattern);
 
-    if (config.levelStrict) {
-      // 厳格モード: 7-1. 試合数差 7-2. 履歴コスト 7-3. 先着
-      let minDiff = getPlayCountDiff(bestPattern);
-      let minCost = getPatternHistoryCost(bestPattern);
-
-      for (let i = 1; i < patterns.length; i++) {
-        const d = getPlayCountDiff(patterns[i]);
-        const c = getPatternHistoryCost(patterns[i]);
-        if (d < minDiff) {
-          minDiff = d; minCost = c; bestPattern = patterns[i];
-        } else if (d === minDiff && c < minCost) {
-          minCost = c; bestPattern = patterns[i];
-        }
-      }
-    } else {
-      // 通常モード: 7-1. 履歴コスト 7-2. 先着
-      let minCost = getPatternHistoryCost(bestPattern);
-      for (let i = 1; i < patterns.length; i++) {
-        const c = getPatternHistoryCost(patterns[i]);
-        if (c < minCost) {
-          minCost = c;
-          bestPattern = patterns[i];
-        }
+    for (let i = 1; i < patterns.length; i++) {
+      const c = getPatternCost(patterns[i]);
+      if (c < minCost) {
+        minCost = c;
+        bestPattern = patterns[i];
       }
     }
 
