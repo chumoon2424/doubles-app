@@ -32,12 +32,12 @@ type BaseLevel = 'A' | 'B' | 'C';
 interface Member {
   id: number;
   name: string;
-  level: LevelPattern; // 6パターンに変更
+  level: LevelPattern;
   isActive: boolean;
   playCount: number;
   imputedPlayCount: number;
   lastPlayedTime: number;
-  lastPlayedBlock: number; // ブロック判定用
+  lastPlayedBlock: number;
   matchHistory: Record<number, number>;
   pairHistory: Record<number, number>;
   fixedPairMemberId: number | null;
@@ -80,7 +80,6 @@ export default function DoublesMatchupApp() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'members' | 'history' | 'settings'>('dashboard');
   const [members, setMembers] = useState<Member[]>([]);
   const [displayMembers, setDisplayMembers] = useState<Member[]>([]);
-  
   const [courts, setCourts] = useState<Court[]>([]);
   const [nextMatches, setNextMatches] = useState<Court[]>([]);
   const [matchHistory, setMatchHistory] = useState<MatchRecord[]>([]);
@@ -116,24 +115,22 @@ export default function DoublesMatchupApp() {
     }
   };
 
-  // レベル表示コンポーネント
+  // レベル表示コンポーネント (幅固定・/抜き)
   const LevelBadge = ({ pattern }: { pattern: LevelPattern }) => {
     const segments = pattern.split('/');
+    const displayText = pattern.replace(/\//g, ''); // 表示用は/を抜く
     return (
-      <div className="flex w-20 h-6 rounded overflow-hidden border border-gray-300 text-[10px] font-bold text-white items-center justify-center text-center shadow-sm">
+      <div className="flex w-14 h-6 rounded overflow-hidden border border-gray-300 text-[10px] font-bold text-white relative shadow-sm shrink-0">
         {segments.map((s, i) => {
           let bg = 'bg-gray-400';
           if (s === 'A') bg = 'bg-blue-600';
           if (s === 'B') bg = 'bg-yellow-500';
           if (s === 'C') bg = 'bg-red-500';
-          return (
-            <div key={i} className={`${bg} flex-1 h-full flex items-center justify-center`}>
-              {pattern === 'A/B/C' ? (i === 1 ? 'A/B/C' : '') : (segments.length === 1 ? s : (i === 0 ? pattern : ''))}
-            </div>
-          );
+          return <div key={i} className={`${bg} flex-1 h-full`} />;
         })}
-        {/* テキストを中央揃えにするためのオーバーレイ（セグメント分割時の文字表示用） */}
-        <div className="absolute w-20 text-center pointer-events-none">{pattern}</div>
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none drop-shadow-sm">
+          {displayText}
+        </div>
       </div>
     );
   };
@@ -475,7 +472,6 @@ export default function DoublesMatchupApp() {
     const available = (currentMembers || []).filter(m => m.isActive && !playingIds.has(m.id));
     if (available.length < 4) return null;
 
-    // 1巡目優先ロジック（既存ロジックを流用）
     if (config.orderFirstMatchByList) {
       const firstTimers = available.filter(m => m.playCount === 0).sort((a, b) => a.sortOrder - b.sortOrder);
       if (firstTimers.length >= 4) {
@@ -483,9 +479,6 @@ export default function DoublesMatchupApp() {
         return { p1: p[0].id, p2: p[1].id, p3: p[2].id, p4: p[3].id };
       }
     }
-
-    const minPlayCount = Math.min(...available.map(m => m.playCount));
-    const minLastBlock = Math.min(...available.map(m => m.lastPlayedBlock));
 
     const generatePattern = () => {
       let selection: Member[] = [];
@@ -526,8 +519,6 @@ export default function DoublesMatchupApp() {
 
         const minPlayX = Math.min(...cand.map(m => m.playCount));
         const minBlockX = Math.min(...cand.map(m => m.lastPlayedBlock));
-        const minPairX = Math.min(...cand.map(m => W.pairHistory?.[m.id] || 0));
-        const minOpponentX = Math.min(...cand.map(m => W.matchHistory?.[m.id] || 0));
 
         const sorted = cand.sort((a, b) => {
           const scoreA = (a.playCount === minPlayX || a.lastPlayedBlock === minBlockX ? 0 : 1);
@@ -650,7 +641,6 @@ export default function DoublesMatchupApp() {
     }
     if (patterns.length === 0) return null;
 
-    // コスト最小のパターンを採用
     const getCost = (p: any) => {
       const ids = [p.p1, p.p2, p.p3, p.p4];
       const selected = ids.map(id => currentMembers.find(m => m.id === id)!);
@@ -658,7 +648,7 @@ export default function DoublesMatchupApp() {
       const pairs = [[0,1], [2,3], [0,2], [0,3], [1,2], [1,3]];
       pairs.forEach(([i, j]) => {
         const m1 = selected[i], m2 = selected[j];
-        if (m1.fixedPairMemberId === m2.id) return; // 固定ペア分は除外
+        if (m1.fixedPairMemberId === m2.id) return;
         total += (m1.pairHistory?.[m2.id] || 0) + (m1.matchHistory?.[m2.id] || 0);
       });
       return total;
@@ -748,7 +738,7 @@ export default function DoublesMatchupApp() {
   };
 
   const CourtCard = ({ court, isPlanned = false }: { court: Court, isPlanned?: boolean }) => {
-    const h = (config.bulkOnlyMode ? 140 : 140) * config.zoomLevel;
+    const h = 140 * config.zoomLevel;
     const border = isPlanned ? 'border-gray-500' : 'border-slate-900';
     const bg = isPlanned ? 'bg-gray-100' : 'bg-white';
     
@@ -856,12 +846,12 @@ export default function DoublesMatchupApp() {
                       </div>
                     </div>
                     <div className="flex items-center gap-3 mt-1 flex-wrap">
-                      <div className="relative">
+                      <div className="relative group">
                         <LevelBadge pattern={m.level} />
                         <select 
                           value={m.level} 
                           onChange={e => handleLevelChange(m.id, e.target.value as LevelPattern)}
-                          className="absolute inset-0 opacity-0 cursor-pointer"
+                          className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
                         >
                           <option value="A/B/C">A/B/C</option>
                           <option value="A">A</option>
@@ -924,7 +914,7 @@ export default function DoublesMatchupApp() {
               <p className="text-[10px] text-gray-400 leading-relaxed italic">※「名前・レベル・固定ペア・表示順・メモ」を保存します。機種変更時や名簿のバックアップに利用してください。復元すると現在の試合履歴はリセットされます。</p>
             </div>
             <div className="flex items-center justify-between py-6 border-y border-gray-50">
-              <div className="flex-1 pr-4 flex flex-col"><span className="font-bold text-lg text-gray-700">1巡目の試合は名簿順</span><span className="text-xs text-gray-400 leading-tight">未出場の人が4人以上いる場合、名簿の上位から（制約無視で）割り当てます</span></div>
+              <div className="flex-1 pr-4 flex flex-col"><span className="font-bold text-lg text-gray-700">1巡目の試合は名簿順</span><span className="text-xs text-gray-400 leading-tight">未出場の人が4人以上いる場合、名簿の上位から割り当てます</span></div>
               <button onClick={() => { const next = { ...config, orderFirstMatchByList: !config.orderFirstMatchByList }; if (checkChangeConfirmation(undefined, next)) setConfig(next); }} className={`shrink-0 w-14 h-7 rounded-full relative transition-colors ${config.orderFirstMatchByList ? 'bg-blue-600' : 'bg-gray-200'}`}><div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-md ${config.orderFirstMatchByList ? 'left-8' : 'left-1'}`} /></button>
             </div>
             <div className="flex items-center justify-between py-6 border-b border-gray-50">
@@ -946,7 +936,7 @@ export default function DoublesMatchupApp() {
       <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-300 flex justify-around pb-safe z-30 shadow-[0_-5px_20px_rgba(0,0,0,0.1)]">
         {[ { id: 'dashboard', icon: Play, label: '試合' }, { id: 'members', icon: Users, label: '名簿' }, { id: 'history', icon: History, label: '履歴' }, { id: 'settings', icon: Settings, label: '設定' } ]
           .map(tab => (
-            <button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`flex flex-col items-center py-3 px-8 transition-colors ${activeTab === tab.id ? 'text-blue-700 scale-110' : 'text-gray-700'}`}>
+            <button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`flex flex-col items-center py-3 px-8 transition-colors ${activeTab === tab.id ? 'text-blue-700 scale-110' : 'text-gray-400'}`}>
               <tab.icon size={26} strokeWidth={activeTab === tab.id ? 3 : 2} /><span className="text-[10px] font-black mt-1.5">{tab.label}</span>
             </button>
           ))}
