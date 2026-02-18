@@ -26,17 +26,18 @@ import {
 } from 'lucide-react';
 
 // --- 型定義 ---
-// 6パターンのレベル定義
-type Level = 'A/B/C' | 'A' | 'A/B' | 'B' | 'B/C' | 'C';
+type LevelPattern = 'A/B/C' | 'A' | 'A/B' | 'B' | 'B/C' | 'C';
+type BaseLevel = 'A' | 'B' | 'C';
 
 interface Member {
   id: number;
   name: string;
-  level: Level;
+  level: LevelPattern; // 6パターンに変更
   isActive: boolean;
   playCount: number;
   imputedPlayCount: number;
   lastPlayedTime: number;
+  lastPlayedBlock: number; // ブロック判定用
   matchHistory: Record<number, number>;
   pairHistory: Record<number, number>;
   fixedPairMemberId: number | null;
@@ -49,7 +50,7 @@ interface Match {
   p2: number;
   p3: number;
   p4: number;
-  level?: string; // アルゴリズム内で決定されたレベル
+  level?: BaseLevel;
 }
 
 interface Court {
@@ -63,7 +64,7 @@ interface MatchRecord {
   courtId: number;
   players: string[];
   playerIds: number[];
-  level?: string;
+  level?: BaseLevel;
 }
 
 interface AppConfig {
@@ -74,14 +75,6 @@ interface AppConfig {
   bulkOnlyMode: boolean;
   orderFirstMatchByList: boolean;
 }
-
-// レベルに所属する基本レベル(A,B,C)を取得するヘルパー
-const getBelongingLevels = (level: Level): string[] => {
-  if (level === 'A/B/C') return ['A', 'B', 'C'];
-  if (level === 'A/B') return ['A', 'B'];
-  if (level === 'B/C') return ['B', 'C'];
-  return [level];
-};
 
 export default function DoublesMatchupApp() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'members' | 'history' | 'settings'>('dashboard');
@@ -110,20 +103,51 @@ export default function DoublesMatchupApp() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
 
+  // レベル所属判定
+  const getBelongingLevels = (pattern: LevelPattern): BaseLevel[] => {
+    switch (pattern) {
+      case 'A': return ['A'];
+      case 'B': return ['B'];
+      case 'C': return ['C'];
+      case 'A/B': return ['A', 'B'];
+      case 'B/C': return ['B', 'C'];
+      case 'A/B/C': return ['A', 'B', 'C'];
+      default: return ['A', 'B', 'C'];
+    }
+  };
+
+  // レベル表示コンポーネント
+  const LevelBadge = ({ pattern }: { pattern: LevelPattern }) => {
+    const segments = pattern.split('/');
+    return (
+      <div className="flex w-20 h-6 rounded overflow-hidden border border-gray-300 text-[10px] font-bold text-white items-center justify-center text-center shadow-sm">
+        {segments.map((s, i) => {
+          let bg = 'bg-gray-400';
+          if (s === 'A') bg = 'bg-blue-600';
+          if (s === 'B') bg = 'bg-yellow-500';
+          if (s === 'C') bg = 'bg-red-500';
+          return (
+            <div key={i} className={`${bg} flex-1 h-full flex items-center justify-center`}>
+              {pattern === 'A/B/C' ? (i === 1 ? 'A/B/C' : '') : (segments.length === 1 ? s : (i === 0 ? pattern : ''))}
+            </div>
+          );
+        })}
+        {/* テキストを中央揃えにするためのオーバーレイ（セグメント分割時の文字表示用） */}
+        <div className="absolute w-20 text-center pointer-events-none">{pattern}</div>
+      </div>
+    );
+  };
+
   // --- データの読み込みと保存 (v19対応) ---
   useEffect(() => {
     const versions = ['v19', 'v18', 'v17', 'v16', 'v15', 'v14', 'v13', 'v12', 'v11', 'v10', 'v9', 'v8'];
     let loadedData: any = null;
-    let loadedVersion = '';
     for (const v of versions) {
       const saved = localStorage.getItem(`doubles-app-data-${v}`);
       if (saved) {
         try { 
           loadedData = JSON.parse(saved); 
-          if (loadedData) {
-            loadedVersion = v;
-            break;
-          }
+          if (loadedData) break;
         } catch (e) {
           console.error("Parse error in version", v);
         }
@@ -131,26 +155,16 @@ export default function DoublesMatchupApp() {
     }
 
     if (loadedData) {
-      const safeMembers = (loadedData.members || []).map((m: any, idx: number) => {
-        // v19未満からの移行処理
-        let level = m.level;
-        if (loadedVersion !== 'v19') {
-          if (level === 'A' || level === 'B' || level === 'C') {
-            // そのまま
-          } else {
-            level = 'A/B/C';
-          }
-        }
-        return {
-          ...m,
-          level: level as Level,
-          fixedPairMemberId: m.fixedPairMemberId !== undefined ? m.fixedPairMemberId : null,
-          matchHistory: m.matchHistory || {},
-          pairHistory: m.pairHistory || {},
-          sortOrder: m.sortOrder !== undefined ? m.sortOrder : idx,
-          memo: m.memo !== undefined ? m.memo : ''
-        };
-      });
+      const safeMembers = (loadedData.members || []).map((m: any, idx: number) => ({
+        ...m,
+        fixedPairMemberId: m.fixedPairMemberId !== undefined ? m.fixedPairMemberId : null,
+        level: (m.level === 'A' || m.level === 'B' || m.level === 'C') ? m.level : (m.level || 'A/B/C'),
+        matchHistory: m.matchHistory || {},
+        pairHistory: m.pairHistory || {},
+        sortOrder: m.sortOrder !== undefined ? m.sortOrder : idx,
+        memo: m.memo !== undefined ? m.memo : '',
+        lastPlayedBlock: m.lastPlayedBlock || 0
+      }));
       
       const sorted = [...safeMembers].sort((a, b) => a.sortOrder - b.sortOrder);
       setMembers(sorted);
@@ -321,7 +335,7 @@ export default function DoublesMatchupApp() {
   const resetPlayCountsOnly = () => {
     if (confirm('全員の試合数と対戦履歴、および履歴画面をリセットします。現在コートの試合もクリアされます。')) {
       const clearedMembers = members.map(m => ({ 
-        ...m, playCount: 0, imputedPlayCount: 0, lastPlayedTime: 0, 
+        ...m, playCount: 0, imputedPlayCount: 0, lastPlayedTime: 0, lastPlayedBlock: 0,
         matchHistory: {}, pairHistory: {} 
       }));
       setMembers(clearedMembers);
@@ -358,18 +372,7 @@ export default function DoublesMatchupApp() {
         if (!Array.isArray(data)) throw new Error('Invalid format');
         if (!confirm('名簿を復元します。現在の全ての試合データと履歴はリセットされますが、よろしいですか？')) return;
         const newMembers: Member[] = data.map((m, idx) => ({
-          ...m, 
-          name: m.name || '?', 
-          level: (m.level as Level) || 'A/B/C', 
-          isActive: true, 
-          playCount: 0, 
-          imputedPlayCount: 0, 
-          lastPlayedTime: 0, 
-          matchHistory: {}, 
-          pairHistory: {}, 
-          fixedPairMemberId: m.fixedPairMemberId || null, 
-          sortOrder: m.sortOrder !== undefined ? m.sortOrder : idx, 
-          memo: m.memo !== undefined ? m.memo : ''
+          ...m, name: m.name || '?', level: m.level || 'A/B/C', isActive: true, playCount: 0, imputedPlayCount: 0, lastPlayedTime: 0, lastPlayedBlock: 0, matchHistory: {}, pairHistory: {}, fixedPairMemberId: m.fixedPairMemberId || null, sortOrder: m.sortOrder !== undefined ? m.sortOrder : idx, memo: m.memo !== undefined ? m.memo : ''
         }));
         setMembers(newMembers);
         setMatchHistory([]);
@@ -394,7 +397,7 @@ export default function DoublesMatchupApp() {
 
     const newMember: Member = { 
       id: nextMemberId, name: `${nextMemberId}`, level: 'A/B/C', isActive: true, 
-      playCount: avgPlay, imputedPlayCount: avgPlay, lastPlayedTime: 0, 
+      playCount: avgPlay, imputedPlayCount: avgPlay, lastPlayedTime: 0, lastPlayedBlock: 0,
       matchHistory: {}, pairHistory: {}, fixedPairMemberId: null,
       sortOrder: members.length, memo: defaultMemo
     };
@@ -420,9 +423,13 @@ export default function DoublesMatchupApp() {
     setEditingPairMemberId(null);
   };
 
-  const handleLevelChange = (id: number, newLevel: Level) => {
+  const handleLevelChange = (id: number, newLevel: LevelPattern) => {
+    const target = displayMembers.find(m => m.id === id);
+    if (!target) return;
     const nextDisplay = displayMembers.map(m => {
-      if (m.id === id) return { ...m, level: newLevel };
+      if (m.id === id || (target.fixedPairMemberId && m.id === target.fixedPairMemberId)) {
+        return { ...m, level: newLevel };
+      }
       return m;
     });
     if (!checkChangeConfirmation(nextDisplay)) return;
@@ -431,6 +438,7 @@ export default function DoublesMatchupApp() {
 
   const calculateNextMemberState = (currentMembers: Member[], p1: number, p2: number, p3: number, p4: number) => {
     const now = Date.now();
+    const currentBlock = Math.floor(matchHistory.length / config.courtCount) + 1;
     const playerIds = [p1, p2, p3, p4];
     const updated = currentMembers.map(m => {
       if (!playerIds.includes(m.id)) return m;
@@ -443,7 +451,7 @@ export default function DoublesMatchupApp() {
       else if (m.id === p4) { partnerId = p3; opponents = [p1, p2]; }
       newPairH[partnerId] = (newPairH[partnerId] || 0) + 1;
       opponents.forEach(oid => { newMatchH[oid] = (newMatchH[oid] || 0) + 1; });
-      return { ...m, playCount: m.playCount + 1, lastPlayedTime: now, matchHistory: newMatchH, pairHistory: newPairH };
+      return { ...m, playCount: m.playCount + 1, lastPlayedTime: now, lastPlayedBlock: currentBlock, matchHistory: newMatchH, pairHistory: newPairH };
     });
     const activeMembers = updated.filter(m => m.isActive);
     if (activeMembers.length === 0) return updated;
@@ -461,154 +469,202 @@ export default function DoublesMatchupApp() {
     setMembers(prev => calculateNextMemberState(prev, p1, p2, p3, p4));
   };
 
-  // --- 新マッチングアルゴリズム ---
   const getMatchForCourt = (currentCourts: Court[], currentMembers: Member[]) => {
     const playingIds = new Set<number>();
     (currentCourts || []).forEach(c => { if (c?.match) [c.match.p1, c.match.p2, c.match.p3, c.match.p4].forEach(id => playingIds.add(id)); });
-    let candidates = (currentMembers || []).filter(m => m.isActive && !playingIds.has(m.id));
-    if (candidates.length < 4) return null;
+    const available = (currentMembers || []).filter(m => m.isActive && !playingIds.has(m.id));
+    if (available.length < 4) return null;
 
-    // 1巡目優先
+    // 1巡目優先ロジック（既存ロジックを流用）
     if (config.orderFirstMatchByList) {
-      const firstTimers = candidates.filter(m => m.playCount === 0).sort((a, b) => a.sortOrder - b.sortOrder);
+      const firstTimers = available.filter(m => m.playCount === 0).sort((a, b) => a.sortOrder - b.sortOrder);
       if (firstTimers.length >= 4) {
         const p = firstTimers.slice(0, 4);
         return { p1: p[0].id, p2: p[1].id, p3: p[2].id, p4: p[3].id };
       }
     }
 
-    // 最後に試合をしたブロックの算出 (matchHistoryを使用)
-    const getBlockAgo = (memberId: number) => {
-      const idx = matchHistory.findIndex(h => h.playerIds.includes(memberId));
-      if (idx === -1) return 999999; // 未試合は非常に古い扱い
-      return Math.floor(idx / config.courtCount);
-    };
+    const minPlayCount = Math.min(...available.map(m => m.playCount));
+    const minLastBlock = Math.min(...available.map(m => m.lastPlayedBlock));
 
-    // レベル所属判定
-    const levels = ['A', 'B', 'C'];
-    if (config.levelStrict) {
-      const levelCounts: Record<string, number> = { 'A': 0, 'B': 0, 'C': 0 };
-      candidates.forEach(m => {
-        getBelongingLevels(m.level).forEach(l => levelCounts[l]++);
-      });
-      // 4人未満のレベルにしか所属していない人を一旦除外
-      candidates = candidates.filter(m => {
-        const mLevels = getBelongingLevels(m.level);
-        return mLevels.some(l => levelCounts[l] >= 4);
-      });
-    }
+    const generatePattern = () => {
+      let selection: Member[] = [];
+      let matchLevel: BaseLevel | undefined = undefined;
 
-    if (candidates.length < 4) return null;
+      // 1. Wを決める
+      let candidatesW = [...available];
+      const minPlayW = Math.min(...candidatesW.map(m => m.playCount));
+      candidatesW = candidatesW.filter(m => m.playCount === minPlayW);
+      const minBlockW = Math.min(...candidatesW.map(m => m.lastPlayedBlock));
+      candidatesW = candidatesW.filter(m => m.lastPlayedBlock === minBlockW);
+      
+      const W = candidatesW[Math.floor(Math.random() * candidatesW.length)];
+      selection.push(W);
 
-    const generateOnePattern = () => {
-      let currentSelection: Member[] = [];
-      let currentLevel: string | null = null;
+      if (config.levelStrict) {
+        const wLevels = getBelongingLevels(W.level);
+        if (wLevels.length === 1) matchLevel = wLevels[0];
+      }
 
-      const pickMember = (step: 'W' | 'X' | 'Y' | 'Z'): Member | null => {
-        const remaining = candidates.filter(m => !currentSelection.find(s => s.id === m.id));
-        if (remaining.length === 0) return null;
+      // 2. Xを決める
+      const getX = () => {
+        let cand = available.filter(m => m.id !== W.id);
+        const wFixed = available.find(m => m.id === W.fixedPairMemberId);
+        if (wFixed) return wFixed;
 
-        const score = (m: Member): any[] => {
-          const criteria: any[] = [];
-          const W = currentSelection[0], X = currentSelection[1], Y = currentSelection[2];
-          
-          if (step === 'W') {
-            criteria.push(m.playCount);
-            criteria.push(-getBlockAgo(m.id)); // ブロックが古い（idxが大きい）ほど小さい値にするためマイナス
-          } else if (step === 'X') {
-            const wFixed = candidates.find(c => c.id === W.fixedPairMemberId);
-            criteria.push(wFixed && m.id === W.fixedPairMemberId ? 0 : 1);
-            criteria.push(m.fixedPairMemberId && candidates.some(c => c.id === m.fixedPairMemberId) ? 1 : 0);
-            if (config.levelStrict) {
-              if (currentLevel) criteria.push(getBelongingLevels(m.level).includes(currentLevel) ? 0 : 1);
-              else criteria.push(getBelongingLevels(m.level).some(l => getBelongingLevels(W.level).includes(l)) ? 0 : 1);
-            }
-            criteria.push(Math.min(m.playCount, -getBlockAgo(m.id))); // どちらかが最少・最古
-            criteria.push(W.pairHistory?.[m.id] || 0);
-            criteria.push(W.matchHistory?.[m.id] || 0);
-          } else if (step === 'Y') {
-            if (config.levelStrict) {
-              if (currentLevel) criteria.push(getBelongingLevels(m.level).includes(currentLevel) ? 0 : 1);
-              else criteria.push(getBelongingLevels(m.level).some(l => getBelongingLevels(W.level).includes(l) && getBelongingLevels(X.level).includes(l)) ? 0 : 1);
-            }
-            criteria.push(Math.min(m.playCount, -getBlockAgo(m.id)));
-            criteria.push((W.pairHistory?.[m.id] || 0) + (W.matchHistory?.[m.id] || 0));
-            criteria.push((X.pairHistory?.[m.id] || 0) + (X.matchHistory?.[m.id] || 0));
-          } else if (step === 'Z') {
-            const yFixed = candidates.find(c => c.id === Y.fixedPairMemberId);
-            criteria.push(yFixed && m.id === Y.fixedPairMemberId ? 0 : 1);
-            criteria.push(m.fixedPairMemberId && candidates.some(c => c.id === m.fixedPairMemberId) ? 1 : 0);
-            if (config.levelStrict) {
-              if (currentLevel) criteria.push(getBelongingLevels(m.level).includes(currentLevel) ? 0 : 1);
-              else criteria.push(getBelongingLevels(m.level).some(l => getBelongingLevels(W.level).includes(l) && getBelongingLevels(X.level).includes(l) && getBelongingLevels(Y.level).includes(l)) ? 0 : 1);
-            }
-            criteria.push(Math.min(m.playCount, -getBlockAgo(m.id)));
-            criteria.push(Y.pairHistory?.[m.id] || 0);
-            criteria.push(Y.matchHistory?.[m.id] || 0);
-            criteria.push((W.pairHistory?.[m.id] || 0) + (W.matchHistory?.[m.id] || 0));
-            criteria.push((X.pairHistory?.[m.id] || 0) + (X.matchHistory?.[m.id] || 0));
+        cand = cand.filter(m => !m.fixedPairMemberId || !available.some(a => a.id === m.fixedPairMemberId));
+        
+        if (config.levelStrict) {
+          if (matchLevel) {
+            cand = cand.filter(m => getBelongingLevels(m.level).includes(matchLevel!));
+          } else {
+            const wLevels = getBelongingLevels(W.level);
+            cand = cand.filter(m => getBelongingLevels(m.level).some(l => wLevels.includes(l)));
           }
-          return criteria;
-        };
-
-        const sorted = remaining.sort((a, b) => {
-          const sA = score(a), sB = score(b);
-          for (let i = 0; i < sA.length; i++) {
-            if (sA[i] !== sB[i]) return sA[i] - sB[i];
-          }
-          return Math.random() - 0.5;
-        });
-
-        const chosen = sorted[0];
-        if (config.levelStrict && !currentLevel) {
-          const common = levels.filter(l => {
-            const tempMembers = [...currentSelection, chosen];
-            return tempMembers.every(tm => getBelongingLevels(tm.level).includes(l));
-          });
-          if (common.length === 1) currentLevel = common[0];
-          else if (step === 'Z' && common.length > 0) currentLevel = common[0];
         }
-        return chosen;
+        if (cand.length === 0) return null;
+
+        const minPlayX = Math.min(...cand.map(m => m.playCount));
+        const minBlockX = Math.min(...cand.map(m => m.lastPlayedBlock));
+        const minPairX = Math.min(...cand.map(m => W.pairHistory?.[m.id] || 0));
+        const minOpponentX = Math.min(...cand.map(m => W.matchHistory?.[m.id] || 0));
+
+        const sorted = cand.sort((a, b) => {
+          const scoreA = (a.playCount === minPlayX || a.lastPlayedBlock === minBlockX ? 0 : 1);
+          const scoreB = (b.playCount === minPlayX || b.lastPlayedBlock === minBlockX ? 0 : 1);
+          if (scoreA !== scoreB) return scoreA - scoreB;
+          if ((W.pairHistory?.[a.id] || 0) !== (W.pairHistory?.[b.id] || 0)) return (W.pairHistory?.[a.id] || 0) - (W.pairHistory?.[b.id] || 0);
+          if ((W.matchHistory?.[a.id] || 0) !== (W.matchHistory?.[b.id] || 0)) return (W.matchHistory?.[a.id] || 0) - (W.matchHistory?.[b.id] || 0);
+          return 0;
+        });
+        const top = sorted.filter(m => 
+          (m.playCount === minPlayX || m.lastPlayedBlock === minBlockX ? 0 : 1) === (sorted[0].playCount === minPlayX || sorted[0].lastPlayedBlock === minBlockX ? 0 : 1) &&
+          (W.pairHistory?.[m.id] || 0) === (W.pairHistory?.[sorted[0].id] || 0) &&
+          (W.matchHistory?.[m.id] || 0) === (W.matchHistory?.[sorted[0].id] || 0)
+        );
+        return top[Math.floor(Math.random() * top.length)];
       };
 
-      const W = pickMember('W'); if (!W) return null; currentSelection.push(W);
-      const X = pickMember('X'); if (!X) return null; currentSelection.push(X);
-      const Y = pickMember('Y'); if (!Y) return null; currentSelection.push(Y);
-      const Z = pickMember('Z'); if (!Z) return null; currentSelection.push(Z);
-      return { players: currentSelection, level: currentLevel };
+      const X = getX();
+      if (!X) return null;
+      selection.push(X);
+
+      if (config.levelStrict && !matchLevel) {
+        const common = getBelongingLevels(W.level).filter(l => getBelongingLevels(X.level).includes(l));
+        if (common.length === 1) matchLevel = common[0];
+      }
+
+      // 3. Yを決める
+      const getY = () => {
+        let cand = available.filter(m => !selection.some(s => s.id === m.id));
+        if (config.levelStrict) {
+          if (matchLevel) {
+            cand = cand.filter(m => getBelongingLevels(m.level).includes(matchLevel!));
+          } else {
+            const wxLevels = Array.from(new Set([...getBelongingLevels(W.level), ...getBelongingLevels(X.level)]));
+            cand = cand.filter(m => getBelongingLevels(m.level).some(l => wxLevels.includes(l)));
+          }
+        }
+        if (cand.length === 0) return null;
+
+        const minPlayY = Math.min(...cand.map(m => m.playCount));
+        const minBlockY = Math.min(...cand.map(m => m.lastPlayedBlock));
+
+        const sorted = cand.sort((a, b) => {
+          const scoreA = (a.playCount === minPlayY || a.lastPlayedBlock === minBlockY ? 0 : 1);
+          const scoreB = (b.playCount === minPlayY || b.lastPlayedBlock === minBlockY ? 0 : 1);
+          if (scoreA !== scoreB) return scoreA - scoreB;
+          const costA = (W.pairHistory?.[a.id] || 0) + (W.matchHistory?.[a.id] || 0) + (X.pairHistory?.[a.id] || 0) + (X.matchHistory?.[a.id] || 0);
+          const costB = (W.pairHistory?.[b.id] || 0) + (W.matchHistory?.[b.id] || 0) + (X.pairHistory?.[b.id] || 0) + (X.matchHistory?.[b.id] || 0);
+          return costA - costB;
+        });
+        const top = sorted.filter(m => 
+          (m.playCount === minPlayY || m.lastPlayedBlock === minBlockY ? 0 : 1) === (sorted[0].playCount === minPlayY || sorted[0].lastPlayedBlock === minBlockY ? 0 : 1)
+        );
+        return top[Math.floor(Math.random() * top.length)];
+      };
+
+      const Y = getY();
+      if (!Y) return null;
+      selection.push(Y);
+
+      if (config.levelStrict && !matchLevel) {
+        const common = getBelongingLevels(W.level).filter(l => getBelongingLevels(X.level).includes(l) && getBelongingLevels(Y.level).includes(l));
+        if (common.length === 1) matchLevel = common[0];
+      }
+
+      // 4. Zを決める
+      const getZ = () => {
+        let cand = available.filter(m => !selection.some(s => s.id === m.id));
+        const yFixed = available.find(m => m.id === Y.fixedPairMemberId);
+        if (yFixed) return yFixed;
+
+        cand = cand.filter(m => !m.fixedPairMemberId || !available.some(a => a.id === m.fixedPairMemberId));
+
+        if (config.levelStrict) {
+          if (matchLevel) {
+            cand = cand.filter(m => getBelongingLevels(m.level).includes(matchLevel!));
+          } else {
+            const wxyLevels = Array.from(new Set([...getBelongingLevels(W.level), ...getBelongingLevels(X.level), ...getBelongingLevels(Y.level)]));
+            cand = cand.filter(m => getBelongingLevels(m.level).some(l => wxyLevels.includes(l)));
+          }
+        }
+        if (cand.length === 0) return null;
+
+        const minPlayZ = Math.min(...cand.map(m => m.playCount));
+        const minBlockZ = Math.min(...cand.map(m => m.lastPlayedBlock));
+
+        const sorted = cand.sort((a, b) => {
+          const scoreA = (a.playCount === minPlayZ || a.lastPlayedBlock === minBlockZ ? 0 : 1);
+          const scoreB = (b.playCount === minPlayZ || b.lastPlayedBlock === minBlockZ ? 0 : 1);
+          if (scoreA !== scoreB) return scoreA - scoreB;
+          if ((Y.pairHistory?.[a.id] || 0) !== (Y.pairHistory?.[b.id] || 0)) return (Y.pairHistory?.[a.id] || 0) - (Y.pairHistory?.[b.id] || 0);
+          if ((Y.matchHistory?.[a.id] || 0) !== (Y.matchHistory?.[b.id] || 0)) return (Y.matchHistory?.[a.id] || 0) - (Y.matchHistory?.[b.id] || 0);
+          const costA = (W.pairHistory?.[a.id] || 0) + (W.matchHistory?.[a.id] || 0) + (X.pairHistory?.[a.id] || 0) + (X.matchHistory?.[a.id] || 0);
+          const costB = (W.pairHistory?.[b.id] || 0) + (W.matchHistory?.[b.id] || 0) + (X.pairHistory?.[b.id] || 0) + (X.matchHistory?.[b.id] || 0);
+          return costA - costB;
+        });
+        return sorted[0];
+      };
+
+      const Z = getZ();
+      if (!Z) return null;
+      selection.push(Z);
+
+      if (config.levelStrict && !matchLevel) {
+        const common = getBelongingLevels(W.level).filter(l => 
+          getBelongingLevels(X.level).includes(l) && 
+          getBelongingLevels(Y.level).includes(l) && 
+          getBelongingLevels(Z.level).includes(l)
+        );
+        matchLevel = common[0]; 
+      }
+
+      return { p1: W.id, p2: X.id, p3: Y.id, p4: Z.id, level: matchLevel };
     };
 
     const patterns: any[] = [];
     for (let i = 0; i < 4; i++) {
-      const p = generateOnePattern();
+      const p = generatePattern();
       if (p) patterns.push(p);
     }
-
     if (patterns.length === 0) return null;
 
-    // コスト評価
-    const bestPattern = patterns.reduce((prev, curr) => {
-      const getCost = (p: any) => {
-        let total = 0;
-        const s = p.players;
-        const pairs = [[0, 1], [2, 3]]; // W-X, Y-Z
-        const matches = [[0, 2], [0, 3], [1, 2], [1, 3]];
-        pairs.forEach(([i, j]) => {
-          // 固定ペア分は除く
-          if (!(s[i].fixedPairMemberId === s[j].id)) {
-            total += (s[i].pairHistory?.[s[j].id] || 0);
-          }
-        });
-        matches.forEach(([i, j]) => {
-          total += (s[i].matchHistory?.[s[j].id] || 0);
-        });
-        return total;
-      };
-      return getCost(curr) < getCost(prev) ? curr : prev;
-    });
+    // コスト最小のパターンを採用
+    const getCost = (p: any) => {
+      const ids = [p.p1, p.p2, p.p3, p.p4];
+      const selected = ids.map(id => currentMembers.find(m => m.id === id)!);
+      let total = 0;
+      const pairs = [[0,1], [2,3], [0,2], [0,3], [1,2], [1,3]];
+      pairs.forEach(([i, j]) => {
+        const m1 = selected[i], m2 = selected[j];
+        if (m1.fixedPairMemberId === m2.id) return; // 固定ペア分は除外
+        total += (m1.pairHistory?.[m2.id] || 0) + (m1.matchHistory?.[m2.id] || 0);
+      });
+      return total;
+    };
 
-    const b = bestPattern.players;
-    return { p1: b[0].id, p2: b[1].id, p3: b[2].id, p4: b[3].id, level: bestPattern.level || undefined };
+    return patterns.reduce((prev, curr) => getCost(curr) < getCost(prev) ? curr : prev);
   };
 
   const regeneratePlannedMatches = (targetMembers?: Member[]) => {
@@ -620,9 +676,7 @@ export default function DoublesMatchupApp() {
         planned.push({ id: i + 1, match });
         const ids = [match.p1, match.p2, match.p3, match.p4];
         tempMembers = tempMembers.map(m => ids.includes(m.id) ? { ...m, playCount: m.playCount + 1, lastPlayedTime: Date.now() } : m);
-      } else { 
-        planned.push({ id: i + 1, match: null }); 
-      }
+      } else { planned.push({ id: i + 1, match: null }); }
     }
     setNextMatches(planned);
   };
@@ -631,11 +685,6 @@ export default function DoublesMatchupApp() {
     if (config.bulkOnlyMode) {
       const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       const matchesToApply = [...nextMatches];
-      // 4人揃わないエラーチェック（一括更新時、予定にマッチがないコートがあるが他のコートにはある場合を考慮）
-      if (matchesToApply.every(c => !c.match)) {
-        alert('待機メンバーが足りないため、試合を組めません。');
-        return;
-      }
       setCourts(prev => prev.map(c => ({ ...c, match: null })));
       setNextMatches(prev => prev.map(c => ({ ...c, match: null })));
       setTimeout(() => {
@@ -659,21 +708,20 @@ export default function DoublesMatchupApp() {
     } else {
       setCourts(prev => prev.map(c => ({ ...c, match: null })));
       setTimeout(() => {
-        let current = courts.map(c => ({ ...c, match: null })), temp = JSON.parse(JSON.stringify(members));
-        let matchMade = false;
-        for (let i = 0; i < current.length; i++) {
-          const m = getMatchForCourt(current, temp);
-          if (m) {
-            matchMade = true;
-            const ids = [m.p1, m.p2, m.p3, m.p4], names = ids.map(id => temp.find((x: any) => x.id === id)?.name || '?');
-            setMatchHistory(prevH => [{ id: Date.now().toString() + current[i].id, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), courtId: current[i].id, players: names, playerIds: ids, level: m.level }, ...prevH]);
-            current[i] = { ...current[i], match: m };
-            temp = temp.map((x: any) => ids.includes(x.id) ? { ...x, playCount: x.playCount + 1, lastPlayedTime: Date.now() } : x);
-            applyMatchToMembers(m.p1, m.p2, m.p3, m.p4);
+        setCourts(prev => {
+          let current = [...prev], temp = JSON.parse(JSON.stringify(members));
+          for (let i = 0; i < current.length; i++) {
+            const m = getMatchForCourt(current, temp);
+            if (m) {
+              const ids = [m.p1, m.p2, m.p3, m.p4], names = ids.map(id => temp.find((x: any) => x.id === id)?.name || '?');
+              setMatchHistory(prevH => [{ id: Date.now().toString() + current[i].id, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), courtId: current[i].id, players: names, playerIds: ids, level: m.level }, ...prevH]);
+              current[i] = { ...current[i], match: m };
+              temp = temp.map((x: any) => ids.includes(x.id) ? { ...x, playCount: x.playCount + 1, lastPlayedTime: Date.now() } : x);
+              applyMatchToMembers(m.p1, m.p2, m.p3, m.p4);
+            }
           }
-        }
-        if (!matchMade) alert('待機メンバーが足りないため、試合を組めません。');
-        setCourts(current);
+          return current;
+        });
       }, 200);
     }
   };
@@ -697,27 +745,6 @@ export default function DoublesMatchupApp() {
     const len = name.split('').reduce((acc, char) => acc + (/[\x20-\x7E]/.test(char) ? 0.6 : 1.0), 0);
     let base = len <= 2 ? '3.5rem' : len <= 4 ? '2.8rem' : len <= 6 ? '2rem' : len <= 8 ? '1.6rem' : '1.3rem';
     return `calc(${base} * ${mod})`;
-  };
-
-  // レベル表示コンポーネント
-  const LevelBadge = ({ level }: { level: Level }) => {
-    const segments = level.split('/');
-    return (
-      <div className="w-20 h-6 rounded overflow-hidden flex border border-gray-200 shadow-sm">
-        {segments.map((s, i) => {
-          let bg = 'bg-gray-400';
-          if (s === 'A') bg = 'bg-blue-600';
-          if (s === 'B') bg = 'bg-yellow-500';
-          if (s === 'C') bg = 'bg-red-500';
-          return (
-            <div key={i} className={`flex-1 h-full flex items-center justify-center text-[10px] font-black text-white ${bg}`}>
-              {level === s ? s : s}
-            </div>
-          );
-        })}
-        {segments.length === 1 && <div className="flex-[3] h-full flex items-center justify-center text-xs font-black text-white">{/* プレースホルダー */}</div>}
-      </div>
-    );
   };
 
   const CourtCard = ({ court, isPlanned = false }: { court: Court, isPlanned?: boolean }) => {
@@ -829,13 +856,21 @@ export default function DoublesMatchupApp() {
                       </div>
                     </div>
                     <div className="flex items-center gap-3 mt-1 flex-wrap">
-                      <select 
-                        value={m.level} 
-                        onChange={e => handleLevelChange(m.id, e.target.value as Level)}
-                        className="text-xs font-bold bg-gray-50 border border-gray-200 rounded px-1 py-0.5 outline-none focus:border-blue-500"
-                      >
-                        {['A/B/C', 'A', 'A/B', 'B', 'B/C', 'C'].map(lv => <option key={lv} value={lv}>{lv}</option>)}
-                      </select>
+                      <div className="relative">
+                        <LevelBadge pattern={m.level} />
+                        <select 
+                          value={m.level} 
+                          onChange={e => handleLevelChange(m.id, e.target.value as LevelPattern)}
+                          className="absolute inset-0 opacity-0 cursor-pointer"
+                        >
+                          <option value="A/B/C">A/B/C</option>
+                          <option value="A">A</option>
+                          <option value="A/B">A/B</option>
+                          <option value="B">B</option>
+                          <option value="B/C">B/C</option>
+                          <option value="C">C</option>
+                        </select>
+                      </div>
                       <button onClick={() => setEditingPairMemberId(m.id)} className={`flex items-center gap-1 text-xs font-bold px-2 py-1 rounded border ${m.fixedPairMemberId ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'text-gray-400 border-dashed border-gray-300'}`}>{m.fixedPairMemberId ? <><LinkIcon size={12} />{displayMembers.find(x => x.id === m.fixedPairMemberId)?.name}</> : <><Unlink size={12} />ペアなし</>}</button>
                       <span className="text-xs text-gray-400 font-bold">試合数: {m.playCount}{m.imputedPlayCount > 0 && <span className="text-gray-300 ml-1">({m.imputedPlayCount})</span>}</span>
                     </div>
@@ -850,12 +885,7 @@ export default function DoublesMatchupApp() {
                     <div className="bg-gray-100 px-4 py-3 flex justify-between items-center border-b"><h3 className="font-bold text-lg">ペアを選択</h3><button onClick={() => setEditingPairMemberId(null)} className="text-gray-500"><X size={20}/></button></div>
                     <div className="max-h-[60vh] overflow-y-auto p-2">
                       <button onClick={() => updateFixedPair(editingPairMemberId, null)} className="w-full text-left px-4 py-3 hover:bg-red-50 text-red-600 font-bold border-b flex items-center gap-2"><Unlink size={16} /> ペアを解消</button>
-                      {displayMembers.filter(m => 
-                        m.id !== editingPairMemberId && 
-                        m.isActive && 
-                        (!m.fixedPairMemberId || m.fixedPairMemberId === editingPairMemberId) && 
-                        m.level === displayMembers.find(x => x.id === editingPairMemberId)?.level // レベルパターンが同じ人のみ表示
-                      )
+                      {displayMembers.filter(m => m.id !== editingPairMemberId && m.isActive && (!m.fixedPairMemberId || m.fixedPairMemberId === editingPairMemberId) && m.level === displayMembers.find(x => x.id === editingPairMemberId)?.level)
                         .map(candidate => <button key={candidate.id} onClick={() => updateFixedPair(editingPairMemberId, candidate.id)} className={`w-full text-left px-4 py-3 hover:bg-blue-50 font-bold border-b flex items-center gap-2 ${displayMembers.find(x => x.id === editingPairMemberId)?.fixedPairMemberId === candidate.id ? 'bg-blue-50 text-blue-700' : 'text-gray-700'}`}><LinkIcon size={16} className="text-gray-400" />{candidate.name}</button>)}
                     </div>
                   </div>
@@ -898,7 +928,7 @@ export default function DoublesMatchupApp() {
               <button onClick={() => { const next = { ...config, orderFirstMatchByList: !config.orderFirstMatchByList }; if (checkChangeConfirmation(undefined, next)) setConfig(next); }} className={`shrink-0 w-14 h-7 rounded-full relative transition-colors ${config.orderFirstMatchByList ? 'bg-blue-600' : 'bg-gray-200'}`}><div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-md ${config.orderFirstMatchByList ? 'left-8' : 'left-1'}`} /></button>
             </div>
             <div className="flex items-center justify-between py-6 border-b border-gray-50">
-              <div className="flex-1 pr-4 flex flex-col"><span className="font-bold text-lg text-gray-700">レベル厳格モード</span><span className="text-xs text-gray-400 leading-tight">同一レベルの人が所属するコートに入ります</span></div>
+              <div className="flex-1 pr-4 flex flex-col"><span className="font-bold text-lg text-gray-700">レベル厳格モード</span><span className="text-xs text-gray-400 leading-tight">同一レベルに所属する人しか同じコートに入りません</span></div>
               <button onClick={() => { const next = { ...config, levelStrict: !config.levelStrict }; if (checkChangeConfirmation(undefined, next)) setConfig(next); }} className={`shrink-0 w-14 h-7 rounded-full relative transition-colors ${config.levelStrict ? 'bg-blue-600' : 'bg-gray-200'}`}><div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-md ${config.levelStrict ? 'left-8' : 'left-1'}`} /></button>
             </div>
             <div className="flex items-center justify-between py-6 border-b border-gray-50">
@@ -916,7 +946,7 @@ export default function DoublesMatchupApp() {
       <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-300 flex justify-around pb-safe z-30 shadow-[0_-5px_20px_rgba(0,0,0,0.1)]">
         {[ { id: 'dashboard', icon: Play, label: '試合' }, { id: 'members', icon: Users, label: '名簿' }, { id: 'history', icon: History, label: '履歴' }, { id: 'settings', icon: Settings, label: '設定' } ]
           .map(tab => (
-            <button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`flex flex-col items-center py-3 px-8 transition-colors ${activeTab === tab.id ? 'text-blue-700 scale-110' : 'text-gray-400'}`}>
+            <button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`flex flex-col items-center py-3 px-8 transition-colors ${activeTab === tab.id ? 'text-blue-700 scale-110' : 'text-gray-700'}`}>
               <tab.icon size={26} strokeWidth={activeTab === tab.id ? 3 : 2} /><span className="text-[10px] font-black mt-1.5">{tab.label}</span>
             </button>
           ))}
