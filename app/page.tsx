@@ -460,12 +460,14 @@ export default function DoublesMatchupApp() {
     const playingIds = new Set<number>();
     (currentCourts || []).forEach(c => { if (c?.match) [c.match.p1, c.match.p2, c.match.p3, c.match.p4].forEach(id => playingIds.add(id)); });
     
+    // 基本の待機メンバー
     let available = (currentMembers || []).filter(m => m.isActive && !playingIds.has(m.id));
     if (available.length < 4) return null;
 
     // --- 試合数格差の抑制 ---
     const minPlayCount = Math.min(...available.map(m => m.playCount));
     const filteredAvailable = available.filter(m => m.playCount < minPlayCount + 2);
+    // 絞り込んだ結果4人揃うなら採用、そうでなければ全員を対象とする
     if (filteredAvailable.length >= 4) {
       available = filteredAvailable;
     }
@@ -480,7 +482,7 @@ export default function DoublesMatchupApp() {
 
     const generateOnePattern = () => {
       let selection: Member[] = [];
-      let possibleLevels: BaseLevel[] = ['A', 'B', 'C'];
+      let matchLevel: BaseLevel | undefined = undefined;
 
       // --- 1. Wを決める ---
       let candW = [...available];
@@ -492,32 +494,29 @@ export default function DoublesMatchupApp() {
       selection.push(W);
 
       if (config.levelStrict) {
-        possibleLevels = getBelongingLevels(W.level);
+        const wLevels = getBelongingLevels(W.level);
+        if (wLevels.length === 1) matchLevel = wLevels[0];
       }
 
       // --- 2. Xを決める ---
       const getX = () => {
         let cand = available.filter(m => m.id !== W.id);
-        
-        // 2-1. 固定ペア判定
         const wFixed = cand.find(m => m.id === W.fixedPairMemberId);
-        if (wFixed) {
-          if (!config.levelStrict || getBelongingLevels(wFixed.level).some(l => possibleLevels.includes(l))) {
-            return wFixed;
-          }
-        }
+        if (wFixed) return wFixed;
 
-        // 2-2. 休み中でない
         const noActivePair = cand.filter(m => !m.fixedPairMemberId || !available.some(a => a.id === m.fixedPairMemberId));
         if (noActivePair.length > 0) cand = noActivePair;
 
-        // 2-3. レベル厳格モードの絞り込み
         if (config.levelStrict) {
-          cand = cand.filter(m => getBelongingLevels(m.level).some(l => possibleLevels.includes(l)));
+          if (matchLevel) {
+            cand = cand.filter(m => getBelongingLevels(m.level).includes(matchLevel!));
+          } else {
+            const wLevels = getBelongingLevels(W.level);
+            cand = cand.filter(m => getBelongingLevels(m.level).some(l => wLevels.includes(l)));
+          }
         }
         if (cand.length === 0) return null;
 
-        // 2-4〜2-6 優先順位
         const minP = Math.min(...cand.map(m => m.playCount));
         const minB = Math.min(...cand.map(m => m.lastPlayedBlock));
 
@@ -529,7 +528,6 @@ export default function DoublesMatchupApp() {
           return (W.matchHistory?.[a.id] || 0) - (W.matchHistory?.[b.id] || 0);
         });
 
-        // 2-7. ランダム
         const top = sorted.filter(m => 
           ((m.playCount === minP || m.lastPlayedBlock === minB) ? 0 : 1) === ((sorted[0].playCount === minP || sorted[0].lastPlayedBlock === minB) ? 0 : 1) &&
           (W.pairHistory?.[m.id] || 0) === (W.pairHistory?.[sorted[0].id] || 0) &&
@@ -542,15 +540,21 @@ export default function DoublesMatchupApp() {
       if (!X) return null;
       selection.push(X);
 
-      if (config.levelStrict) {
-        possibleLevels = possibleLevels.filter(l => getBelongingLevels(X.level).includes(l));
+      if (config.levelStrict && !matchLevel) {
+        const common = getBelongingLevels(W.level).filter(l => getBelongingLevels(X.level).includes(l));
+        if (common.length === 1) matchLevel = common[0];
       }
 
       // --- 3. Yを決める ---
       const getY = () => {
         let cand = available.filter(m => !selection.some(s => s.id === m.id));
         if (config.levelStrict) {
-          cand = cand.filter(m => getBelongingLevels(m.level).some(l => possibleLevels.includes(l)));
+          if (matchLevel) {
+            cand = cand.filter(m => getBelongingLevels(m.level).includes(matchLevel!));
+          } else {
+            const wxLevels = Array.from(new Set([...getBelongingLevels(W.level), ...getBelongingLevels(X.level)]));
+            cand = cand.filter(m => getBelongingLevels(m.level).some(l => wxLevels.includes(l)));
+          }
         }
         if (cand.length === 0) return null;
 
@@ -581,29 +585,27 @@ export default function DoublesMatchupApp() {
       if (!Y) return null;
       selection.push(Y);
 
-      if (config.levelStrict) {
-        possibleLevels = possibleLevels.filter(l => getBelongingLevels(Y.level).includes(l));
+      if (config.levelStrict && !matchLevel) {
+        const common = getBelongingLevels(W.level).filter(l => getBelongingLevels(X.level).includes(l) && getBelongingLevels(Y.level).includes(l));
+        if (common.length === 1) matchLevel = common[0];
       }
 
       // --- 4. Zを決める ---
       const getZ = () => {
         let cand = available.filter(m => !selection.some(s => s.id === m.id));
-        
-        // 4-1. 固定ペア
         const yFixed = cand.find(m => m.id === Y.fixedPairMemberId);
-        if (yFixed) {
-          if (!config.levelStrict || getBelongingLevels(yFixed.level).some(l => possibleLevels.includes(l))) {
-            return yFixed;
-          }
-        }
+        if (yFixed) return yFixed;
 
-        // 4-2. 休み中でない
         const noActivePair = cand.filter(m => !m.fixedPairMemberId || !available.some(a => a.id === m.fixedPairMemberId));
         if (noActivePair.length > 0) cand = noActivePair;
 
-        // 4-3. レベル制約
         if (config.levelStrict) {
-          cand = cand.filter(m => getBelongingLevels(m.level).some(l => possibleLevels.includes(l)));
+          if (matchLevel) {
+            cand = cand.filter(m => getBelongingLevels(m.level).includes(matchLevel!));
+          } else {
+            const wxyLevels = Array.from(new Set([...getBelongingLevels(W.level), ...getBelongingLevels(X.level), ...getBelongingLevels(Y.level)]));
+            cand = cand.filter(m => getBelongingLevels(m.level).some(l => wxyLevels.includes(l)));
+          }
         }
         if (cand.length === 0) return null;
 
@@ -638,13 +640,16 @@ export default function DoublesMatchupApp() {
       if (!Z) return null;
       selection.push(Z);
 
-      let finalLevel: BaseLevel | undefined = undefined;
-      if (config.levelStrict) {
-        const finalCommons = possibleLevels.filter(l => getBelongingLevels(Z.level).includes(l));
-        finalLevel = finalCommons[0]; 
+      if (config.levelStrict && !matchLevel) {
+        const common = getBelongingLevels(W.level).filter(l => 
+          getBelongingLevels(X.level).includes(l) && 
+          getBelongingLevels(Y.level).includes(l) && 
+          getBelongingLevels(Z.level).includes(l)
+        );
+        matchLevel = common[0]; 
       }
 
-      return { p1: W.id, p2: X.id, p3: Y.id, p4: Z.id, level: finalLevel };
+      return { p1: W.id, p2: X.id, p3: Y.id, p4: Z.id, level: matchLevel };
     };
 
     const patterns: any[] = [];
