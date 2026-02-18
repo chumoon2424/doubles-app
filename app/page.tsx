@@ -482,8 +482,8 @@ export default function DoublesMatchupApp() {
       let candidatesW = [...available];
       const minPlayW = Math.min(...candidatesW.map(m => m.playCount));
       candidatesW = candidatesW.filter(m => m.playCount === minPlayW);
-      const minBlockW = Math.min(...candidatesW.map(m => m.lastPlayedBlock));
-      candidatesW = candidatesW.filter(m => m.lastPlayedBlock === minBlockW);
+      const minTimeW = Math.min(...candidatesW.map(m => m.lastPlayedTime));
+      candidatesW = candidatesW.filter(m => m.lastPlayedTime === minTimeW);
       
       const W = candidatesW[Math.floor(Math.random() * candidatesW.length)];
       selection.push(W);
@@ -512,18 +512,18 @@ export default function DoublesMatchupApp() {
         if (cand.length === 0) return null;
 
         const minPlayX = Math.min(...cand.map(m => m.playCount));
-        const minBlockX = Math.min(...cand.map(m => m.lastPlayedBlock));
+        const minTimeX = Math.min(...cand.map(m => m.lastPlayedTime));
 
         const sorted = cand.sort((a, b) => {
-          const scoreA = (a.playCount === minPlayX || a.lastPlayedBlock === minBlockX ? 0 : 1);
-          const scoreB = (b.playCount === minPlayX || b.lastPlayedBlock === minBlockX ? 0 : 1);
+          const scoreA = (a.playCount === minPlayX || a.lastPlayedTime === minTimeX ? 0 : 1);
+          const scoreB = (b.playCount === minPlayX || b.lastPlayedTime === minTimeX ? 0 : 1);
           if (scoreA !== scoreB) return scoreA - scoreB;
           if ((W.pairHistory?.[a.id] || 0) !== (W.pairHistory?.[b.id] || 0)) return (W.pairHistory?.[a.id] || 0) - (W.pairHistory?.[b.id] || 0);
           if ((W.matchHistory?.[a.id] || 0) !== (W.matchHistory?.[b.id] || 0)) return (W.matchHistory?.[a.id] || 0) - (W.matchHistory?.[b.id] || 0);
           return 0;
         });
         const top = sorted.filter(m => 
-          (m.playCount === minPlayX || m.lastPlayedBlock === minBlockX ? 0 : 1) === (sorted[0].playCount === minPlayX || sorted[0].lastPlayedBlock === minBlockX ? 0 : 1) &&
+          (m.playCount === minPlayX || m.lastPlayedTime === minTimeX ? 0 : 1) === (sorted[0].playCount === minPlayX || sorted[0].lastPlayedTime === minTimeX ? 0 : 1) &&
           (W.pairHistory?.[m.id] || 0) === (W.pairHistory?.[sorted[0].id] || 0) &&
           (W.matchHistory?.[m.id] || 0) === (W.matchHistory?.[sorted[0].id] || 0)
         );
@@ -553,18 +553,18 @@ export default function DoublesMatchupApp() {
         if (cand.length === 0) return null;
 
         const minPlayY = Math.min(...cand.map(m => m.playCount));
-        const minBlockY = Math.min(...cand.map(m => m.lastPlayedBlock));
+        const minTimeY = Math.min(...cand.map(m => m.lastPlayedTime));
 
         const sorted = cand.sort((a, b) => {
-          const scoreA = (a.playCount === minPlayY || a.lastPlayedBlock === minBlockY ? 0 : 1);
-          const scoreB = (b.playCount === minPlayY || b.lastPlayedBlock === minBlockY ? 0 : 1);
+          const scoreA = (a.playCount === minPlayY || a.lastPlayedTime === minTimeY ? 0 : 1);
+          const scoreB = (b.playCount === minPlayY || b.lastPlayedTime === minTimeY ? 0 : 1);
           if (scoreA !== scoreB) return scoreA - scoreB;
           const costA = (W.pairHistory?.[a.id] || 0) + (W.matchHistory?.[a.id] || 0) + (X.pairHistory?.[a.id] || 0) + (X.matchHistory?.[a.id] || 0);
           const costB = (W.pairHistory?.[b.id] || 0) + (W.matchHistory?.[b.id] || 0) + (X.pairHistory?.[b.id] || 0) + (X.matchHistory?.[b.id] || 0);
           return costA - costB;
         });
         const top = sorted.filter(m => 
-          (m.playCount === minPlayY || m.lastPlayedBlock === minBlockY ? 0 : 1) === (sorted[0].playCount === minPlayY || sorted[0].lastPlayedBlock === minBlockY ? 0 : 1)
+          (m.playCount === minPlayY || m.lastPlayedTime === minTimeY ? 0 : 1) === (sorted[0].playCount === minPlayY || sorted[0].lastPlayedTime === minTimeY ? 0 : 1)
         );
         return top[Math.floor(Math.random() * top.length)];
       };
@@ -597,11 +597,11 @@ export default function DoublesMatchupApp() {
         if (cand.length === 0) return null;
 
         const minPlayZ = Math.min(...cand.map(m => m.playCount));
-        const minBlockZ = Math.min(...cand.map(m => m.lastPlayedBlock));
+        const minTimeZ = Math.min(...cand.map(m => m.lastPlayedTime));
 
         const sorted = cand.sort((a, b) => {
-          const scoreA = (a.playCount === minPlayZ || a.lastPlayedBlock === minBlockZ ? 0 : 1);
-          const scoreB = (b.playCount === minPlayZ || b.lastPlayedBlock === minBlockZ ? 0 : 1);
+          const scoreA = (a.playCount === minPlayZ || a.lastPlayedTime === minTimeZ ? 0 : 1);
+          const scoreB = (b.playCount === minPlayZ || b.lastPlayedTime === minTimeZ ? 0 : 1);
           if (scoreA !== scoreB) return scoreA - scoreB;
           if ((Y.pairHistory?.[a.id] || 0) !== (Y.pairHistory?.[b.id] || 0)) return (Y.pairHistory?.[a.id] || 0) - (Y.pairHistory?.[b.id] || 0);
           if ((Y.matchHistory?.[a.id] || 0) !== (Y.matchHistory?.[b.id] || 0)) return (Y.matchHistory?.[a.id] || 0) - (Y.matchHistory?.[b.id] || 0);
