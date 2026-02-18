@@ -672,13 +672,38 @@ export default function DoublesMatchupApp() {
       return total;
     };
 
+    const getPlayCountRange = (p: any) => {
+      const ids = [p.p1, p.p2, p.p3, p.p4];
+      const nextActiveMembers = currentMembers.filter(m => m.isActive).map(m => {
+        return ids.includes(m.id) ? m.playCount + 1 : m.playCount;
+      });
+      return Math.max(...nextActiveMembers) - Math.min(...nextActiveMembers);
+    };
+
     let bestPattern = patterns[0];
+    let minRange = config.levelStrict ? getPlayCountRange(bestPattern) : Infinity;
     let minCost = getPatternCost(bestPattern);
+
     for (let i = 1; i < patterns.length; i++) {
-      const c = getPatternCost(patterns[i]);
-      if (c < minCost) {
+      const p = patterns[i];
+      const c = getPatternCost(p);
+      const r = config.levelStrict ? getPlayCountRange(p) : Infinity;
+
+      let better = false;
+      if (config.levelStrict) {
+        if (r < minRange) {
+          better = true;
+        } else if (r === minRange) {
+          if (c < minCost) better = true;
+        }
+      } else {
+        if (c < minCost) better = true;
+      }
+
+      if (better) {
+        minRange = r;
         minCost = c;
-        bestPattern = patterns[i];
+        bestPattern = p;
       }
     }
 
