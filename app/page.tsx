@@ -465,7 +465,7 @@ export default function DoublesMatchupApp() {
 
     // --- 試合数格差の抑制 ---
     const minPlayCount = Math.min(...available.map(m => m.playCount));
-    const filteredAvailable = available.filter(m => m.playCount < minPlayCount + 1);
+    const filteredAvailable = available.filter(m => m.playCount < minPlayCount + 2);
     if (filteredAvailable.length >= 4) {
       available = filteredAvailable;
     }
