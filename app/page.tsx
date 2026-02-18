@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
@@ -71,7 +72,6 @@ interface AppConfig {
   zoomLevel: number;
   nameFontSizeModifier: number;
   bulkOnlyMode: boolean;
-  orderFirstMatchByList: boolean;
 }
 
 export default function DoublesMatchupApp() {
@@ -88,7 +88,6 @@ export default function DoublesMatchupApp() {
     zoomLevel: 1.0,
     nameFontSizeModifier: 1.0,
     bulkOnlyMode: false,
-    orderFirstMatchByList: false,
   });
   const [nextMemberId, setNextMemberId] = useState(1);
   const [isInitialized, setIsInitialized] = useState(false);
@@ -101,9 +100,9 @@ export default function DoublesMatchupApp() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
 
-  // --- データの読み込みと保存 (v18対応) ---
+  // --- データの読み込みと保存 ---
   useEffect(() => {
-    const versions = ['v18', 'v17', 'v16', 'v15', 'v14', 'v13', 'v12', 'v11', 'v10', 'v9', 'v8'];
+    const versions = ['v17', 'v16', 'v15', 'v14', 'v13', 'v12', 'v11', 'v10', 'v9', 'v8'];
     let loadedData: any = null;
     for (const v of versions) {
       const saved = localStorage.getItem(`doubles-app-data-${v}`);
@@ -133,11 +132,7 @@ export default function DoublesMatchupApp() {
       setDisplayMembers(sorted);
       setCourts(loadedData.courts || Array.from({ length: loadedData.config?.courtCount || 4 }, (_, i) => ({ id: i + 1, match: null })));
       setNextMatches(loadedData.nextMatches || Array.from({ length: loadedData.config?.courtCount || 4 }, (_, i) => ({ id: i + 1, match: null })));
-      setConfig(prev => ({ 
-        ...prev, 
-        ...(loadedData.config || {}),
-        orderFirstMatchByList: loadedData.config?.orderFirstMatchByList ?? false 
-      }));
+      setConfig(prev => ({ ...prev, ...(loadedData.config || {}) }));
       setNextMemberId(loadedData.nextMemberId || (safeMembers.length > 0 ? Math.max(...safeMembers.map((m: any) => m.id)) + 1 : 1));
       setMatchHistory(loadedData.matchHistory || []);
       prevMembersRef.current = JSON.parse(JSON.stringify(sorted));
@@ -154,7 +149,7 @@ export default function DoublesMatchupApp() {
     if (!isInitialized) return;
     try {
       const data = { members, courts, nextMatches, matchHistory, config, nextMemberId };
-      localStorage.setItem('doubles-app-data-v18', JSON.stringify(data));
+      localStorage.setItem('doubles-app-data-v17', JSON.stringify(data));
     } catch (e) {
       console.error("Failed to save data");
     }
@@ -225,16 +220,16 @@ export default function DoublesMatchupApp() {
         }
         return s;
       }).sort().join('|');
-      return `${status}_C${config.courtCount}_S${config.levelStrict}_B${config.bulkOnlyMode}_F${config.orderFirstMatchByList}`;
+      return `${status}_C${config.courtCount}_S${config.levelStrict}_B${config.bulkOnlyMode}`;
     } catch (e) { return ''; }
-  }, [members, config.courtCount, config.levelStrict, config.bulkOnlyMode, config.orderFirstMatchByList, nextMatches]);
+  }, [members, config.courtCount, config.levelStrict, config.bulkOnlyMode, nextMatches]);
 
   const isRegenRequired = (currentMembers: Member[], currentConfig: AppConfig) => {
     const plannedIds = new Set<number>();
     nextMatches.forEach(c => {
       if (c?.match) [c.match.p1, c.match.p2, c.match.p3, c.match.p4].forEach(id => plannedIds.add(id));
     });
-    const configPart = `_C${currentConfig.courtCount}_S${currentConfig.levelStrict}_B${currentConfig.bulkOnlyMode}_F${currentConfig.orderFirstMatchByList}`;
+    const configPart = `_C${currentConfig.courtCount}_S${currentConfig.levelStrict}_B${currentConfig.bulkOnlyMode}`;
     if (lastFingerprint !== '' && !lastFingerprint.endsWith(configPart)) return true;
     const currentMemberIds = new Set(currentMembers.map(m => m.id));
     const wasPlannedMemberDeleted = Array.from(plannedIds).some(id => !currentMemberIds.has(id));
@@ -277,7 +272,7 @@ export default function DoublesMatchupApp() {
         prevMembersRef.current = JSON.parse(JSON.stringify(members));
       }
     }
-  }, [activeTab, isInitialized, memberFingerprint, config.bulkOnlyMode, config.levelStrict, config.courtCount, config.orderFirstMatchByList]);
+  }, [activeTab, isInitialized, memberFingerprint, config.bulkOnlyMode, config.levelStrict, config.courtCount]);
 
   const handleCourtCountChange = (count: number) => {
     const nextConfig = { ...config, courtCount: count };
@@ -437,15 +432,6 @@ export default function DoublesMatchupApp() {
     (currentCourts || []).forEach(c => { if (c?.match) [c.match.p1, c.match.p2, c.match.p3, c.match.p4].forEach(id => playingIds.add(id)); });
     let candidates = (currentMembers || []).filter(m => m.isActive && !playingIds.has(m.id));
     if (candidates.length < 4) return null;
-
-    if (config.orderFirstMatchByList) {
-      const firstTimers = candidates.filter(m => m.playCount === 0).sort((a, b) => a.sortOrder - b.sortOrder);
-      if (firstTimers.length >= 4) {
-        const p = firstTimers.slice(0, 4);
-        return { p1: p[0].id, p2: p[1].id, p3: p[2].id, p4: p[3].id };
-      }
-    }
-
     if (config.levelStrict) {
       const counts: Record<string, number> = { 'A': 0, 'B': 0, 'C': 0 };
       candidates.forEach(m => counts[m.level]++);
@@ -775,17 +761,12 @@ export default function DoublesMatchupApp() {
               <p className="text-[10px] text-gray-400 leading-relaxed italic">※「名前・レベル・固定ペア・表示順・メモ」を保存します。機種変更時や名簿のバックアップに利用してください。復元すると現在の試合履歴はリセットされます。</p>
             </div>
             <div className="flex items-center justify-between py-6 border-y border-gray-50">
-              <div className="flex-1 pr-4 flex flex-col"><span className="font-bold text-lg text-gray-700">1巡目の試合は名簿順</span><span className="text-xs text-gray-400 leading-tight">未出場の人が4人以上いる場合、名簿の上位から（制約無視で）割り当てます</span></div>
-              <button onClick={() => { const next = { ...config, orderFirstMatchByList: !config.orderFirstMatchByList }; if (checkChangeConfirmation(undefined, next)) setConfig(next); }} className={`shrink-0 w-14 h-7 rounded-full relative transition-colors ${config.orderFirstMatchByList ? 'bg-blue-600' : 'bg-gray-200'}`}><div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-md ${config.orderFirstMatchByList ? 'left-8' : 'left-1'}`} /></button>
+              <div className="flex flex-col"><span className="font-bold text-lg text-gray-700">レベル厳格モード</span><span className="text-xs text-gray-400">同一レベルの人しか同じコートに入りません</span></div>
+              <button onClick={() => { const next = { ...config, levelStrict: !config.levelStrict }; if (checkChangeConfirmation(undefined, next)) setConfig(next); }} className={`w-14 h-7 rounded-full relative transition-colors ${config.levelStrict ? 'bg-blue-600' : 'bg-gray-200'}`}><div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-md ${config.levelStrict ? 'left-8' : 'left-1'}`} /></button>
             </div>
             <div className="flex items-center justify-between py-6 border-b border-gray-50">
-              <div className="flex-1 pr-4 flex flex-col"><span className="font-bold text-lg text-gray-700">レベル厳格モード</span><span className="text-xs text-gray-400 leading-tight">同一レベルの人しか同じコートに入りません</span></div>
-              <button onClick={() => { const next = { ...config, levelStrict: !config.levelStrict }; if (checkChangeConfirmation(undefined, next)) setConfig(next); }} className={`shrink-0 w-14 h-7 rounded-full relative transition-colors ${config.levelStrict ? 'bg-blue-600' : 'bg-gray-200'}`}><div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-md ${config.levelStrict ? 'left-8' : 'left-1'}`} /></button>
-            </div>
-            <div className="flex items-center justify-between py-6 border-b border-gray-50">
-              <div className="flex-1 pr-4 flex flex-col"><span className="font-bold text-lg text-gray-700">一括進行モード</span><span className="text-xs text-gray-400 leading-tight">一括更新のみ可能となり、次回の予定が表示されます</span></div>
-              {/* スイッチの色を bg-orange-600 から bg-blue-600 に修正 */}
-              <button onClick={() => setConfig(prev => ({ ...prev, bulkOnlyMode: !prev.bulkOnlyMode }))} className={`shrink-0 w-14 h-7 rounded-full relative transition-colors ${config.bulkOnlyMode ? 'bg-blue-600' : 'bg-gray-200'}`}><div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-md ${config.bulkOnlyMode ? 'left-8' : 'left-1'}`} /></button>
+              <div className="flex flex-col"><span className="font-bold text-lg text-gray-700">一括進行モード</span><span className="text-xs text-gray-400">一括更新のみ可能となり、次回の予定が表示されます</span></div>
+              <button onClick={() => setConfig(prev => ({ ...prev, bulkOnlyMode: !prev.bulkOnlyMode }))} className={`w-14 h-7 rounded-full relative transition-colors ${config.bulkOnlyMode ? 'bg-orange-600' : 'bg-gray-200'}`}><div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-md ${config.bulkOnlyMode ? 'left-8' : 'left-1'}`} /></button>
             </div>
             <div className="space-y-4">
               <button onClick={resetPlayCountsOnly} className="w-full py-4 bg-gray-50 text-gray-700 rounded-2xl font-bold flex items-center justify-center gap-3 border active:bg-gray-100 transition-colors"><RotateCcw size={20} /> 試合数と履歴をリセット</button>
