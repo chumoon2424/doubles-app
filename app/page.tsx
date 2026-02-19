@@ -435,8 +435,13 @@ export default function DoublesMatchupApp() {
   };
 
   const handleLevelChange = (id: number, newLevel: LevelPattern) => {
+    const targetMember = displayMembers.find(m => m.id === id);
     const nextDisplay = displayMembers.map(m => {
       if (m.id === id) {
+        return { ...m, level: newLevel };
+      }
+      // ペアを設定している人のレベルを変更した場合、そのペアのレベルも同じように変更する
+      if (targetMember?.fixedPairMemberId && m.id === targetMember.fixedPairMemberId) {
         return { ...m, level: newLevel };
       }
       return m;
@@ -477,8 +482,11 @@ export default function DoublesMatchupApp() {
     setMembers(prev => calculateNextMemberState(prev, p1, p2, p3, p4));
   };
 
-  // --- マッチングロジック (従来版: レベル優先なし) ---
-  const getMatchNonePriority = (candidates: Member[], minPlayCount: number, minLastTime: number): Match | null => {
+  // --- マッチングロジック (レベル優先なし: 改修版) ---
+  const getMatchNonePriority = (candidates: Member[]): Match | null => {
+    const minPlayCount = Math.min(...candidates.map(m => m.playCount));
+    const minLastTime = Math.min(...candidates.map(m => m.lastPlayedTime));
+
     const pickMember = (currentSelection: Member[], step: 'W' | 'X' | 'Y' | 'Z'): Member | null => {
       const remaining = candidates.filter(m => !currentSelection.find(s => s.id === m.id));
       if (remaining.length === 0) return null;
@@ -515,32 +523,59 @@ export default function DoublesMatchupApp() {
       const topCandidates = sorted.filter(m => score(m).every((v, i) => v === topScore[i]));
       return topCandidates[Math.floor(Math.random() * topCandidates.length)];
     };
-    
-    const s: Member[] = [];
-    for (const step of ['W', 'X', 'Y', 'Z'] as const) {
-      const p = pickMember(s, step);
-      if (p) s.push(p); else return null;
+
+    const patterns: Member[][] = [];
+    for (let i = 0; i < 4; i++) {
+      const s: Member[] = [];
+      const W = pickMember(s, 'W'); if (W) s.push(W); else continue;
+      const X = pickMember(s, 'X'); if (X) s.push(X); else continue;
+      const Y = pickMember(s, 'Y'); if (Y) s.push(Y); else continue;
+      const Z = pickMember(s, 'Z'); if (Z) s.push(Z); else continue;
+      if (s.length === 4) patterns.push(s);
     }
-    return { p1: s[0].id, p2: s[1].id, p3: s[2].id, p4: s[3].id, levelPattern: s[0].level };
+    if (patterns.length === 0) return null;
+    const best = patterns.reduce((prev, curr) => {
+      const cost = (p: Member[]) => {
+        let total = 0;
+        [[0,1],[0,2],[0,3],[1,2],[1,3],[2,3]].forEach(([i,j]) => {
+          if (!(p[i].fixedPairMemberId === p[j].id && candidates.some(c=>c.id===p[i].id))) {
+            total += (p[i].pairHistory?.[p[j].id] || 0) + (p[i].matchHistory?.[p[j].id] || 0);
+          }
+        });
+        return total;
+      };
+      return cost(curr) < cost(prev) ? curr : prev;
+    });
+    return { p1: best[0].id, p2: best[1].id, p3: best[2].id, p4: best[3].id, levelPattern: best[0].level };
   };
 
-  // --- マッチングロジック (新ロジック: レベル優先 弱/強) ---
+  // --- マッチングロジック (レベル優先 弱/強: 高度な探索版) ---
   const getMatchWithPriority = (candidates: Member[], priority: 'weak' | 'strong'): Match | null => {
     const sortedByUrgency = [...candidates].sort((a, b) => {
+      // 1. 試合数が少ない人を優先。中でも「見なし(imputed)」が多い人を最優先
       if (a.playCount !== b.playCount) return a.playCount - b.playCount;
+      if (a.imputedPlayCount !== b.imputedPlayCount) return b.imputedPlayCount - a.imputedPlayCount;
+      // 同条件ならランダム性を出すために、ここでは一旦そのまま（後でランダムに抽出）
       return a.lastPlayedTime - b.lastPlayedTime;
     });
 
-    const topCandidates = sortedByUrgency.slice(0, Math.min(candidates.length, 12));
+    const minPC = sortedByUrgency[0].playCount;
+    // 6. 試合数の差を1以下に保つため、最小試合数+1までのメンバーを抽出
+    const pool = sortedByUrgency.filter(m => m.playCount <= minPC + 1);
+    // 候補が少なすぎる場合は少し広げる
+    const topCandidates = pool.length >= 4 ? pool : sortedByUrgency.slice(0, 12);
     
     let bestMatch: Match | null = null;
     let bestScore = Infinity;
 
+    // 7. 高度な探索
     for (let i = 0; i < topCandidates.length - 3; i++) {
       for (let j = i + 1; j < topCandidates.length - 2; j++) {
         for (let k = j + 1; k < topCandidates.length - 1; k++) {
           for (let l = k + 1; l < topCandidates.length; l++) {
             const p = [topCandidates[i], topCandidates[j], topCandidates[k], topCandidates[l]];
+            
+            // 6. 試合数差の再チェック
             const counts = p.map(m => m.playCount);
             if (Math.max(...counts) - Math.min(...counts) > 1) continue;
 
@@ -548,34 +583,44 @@ export default function DoublesMatchupApp() {
             pairings.forEach(idx => {
               const m1=p[idx[0]], m2=p[idx[1]], m3=p[idx[2]], m4=p[idx[3]];
               let score = 0;
+
+              // 2. 固定ペアの評価 (最優先)
               const hasFixed1 = m1.fixedPairMemberId === m2.id;
               const hasFixed2 = m3.fixedPairMemberId === m4.id;
-              if (m1.fixedPairMemberId && !hasFixed1) score += 1000;
-              if (m2.fixedPairMemberId && !hasFixed1) score += 1000;
-              if (m3.fixedPairMemberId && !hasFixed2) score += 1000;
-              if (m4.fixedPairMemberId && !hasFixed2) score += 1000;
+              if (m1.fixedPairMemberId && !hasFixed1) score += 10000;
+              if (m2.fixedPairMemberId && !hasFixed1) score += 10000;
+              if (m3.fixedPairMemberId && !hasFixed2) score += 10000;
+              if (m4.fixedPairMemberId && !hasFixed2) score += 10000;
 
+              // 分散度の計算
               const scatter = (m1.pairHistory[m2.id] || 0) * 10 + (m3.pairHistory[m4.id] || 0) * 10
                             + (m1.matchHistory[m3.id] || 0) + (m1.matchHistory[m4.id] || 0)
                             + (m2.matchHistory[m3.id] || 0) + (m2.matchHistory[m4.id] || 0);
 
+              // レベル一致度の計算
               const levelMatch = (m1.level === m2.level ? 0 : 1) + (m3.level === m4.level ? 0 : 1) + (m1.level === m3.level ? 0 : 1);
 
               if (priority === 'strong') {
-                score += levelMatch * 100 + scatter;
+                // 3. 強モード: レベル一致優先
+                score += levelMatch * 500 + scatter;
               } else {
-                score += scatter * 10 + levelMatch;
+                // 4. 弱モード: 分散優先、次点でレベル
+                score += scatter * 100 + levelMatch;
               }
 
-              if (score < bestScore) {
-                bestScore = score;
+              // 5. 条件が同じ場合のランダム性
+              const finalScore = score + (Math.random() * 0.1);
+
+              if (finalScore < bestScore) {
+                bestScore = finalScore;
                 bestMatch = { p1: m1.id, p2: m2.id, p3: m3.id, p4: m4.id, levelPattern: m1.level };
               }
             });
           }
         }
       }
-      if (bestMatch) break;
+      // ある程度良い組み合わせが見つかれば早期終了（計算負荷軽減）
+      if (bestMatch && bestScore < 500) break;
     }
     return bestMatch;
   };
@@ -595,9 +640,7 @@ export default function DoublesMatchupApp() {
     }
 
     if (config.levelPriority === 'none') {
-      const minPlayCount = Math.min(...candidates.map(m => m.playCount));
-      const minLastTime = Math.min(...candidates.map(m => m.lastPlayedTime));
-      return getMatchNonePriority(candidates, minPlayCount, minLastTime);
+      return getMatchNonePriority(candidates);
     } else {
       return getMatchWithPriority(candidates, config.levelPriority);
     }
