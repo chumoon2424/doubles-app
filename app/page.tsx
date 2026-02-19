@@ -264,7 +264,6 @@ export default function DoublesMatchupApp() {
 
   useEffect(() => {
     if (isInitialized && activeTab === 'dashboard' && config.bulkOnlyMode) {
-      // 全ての予定がnull（初期化直後など）の場合も生成を行う
       const isNextEmpty = nextMatches.every(c => c.match === null);
       if (isNextEmpty || (lastFingerprint !== memberFingerprint && memberFingerprint !== '')) {
         if (isNextEmpty || isRegenRequired(members, config)) {
@@ -532,6 +531,27 @@ export default function DoublesMatchupApp() {
       } else { planned.push({ id: i + 1, match: null }); }
     }
     setNextMatches(planned);
+    
+    // 生成後に指紋（フィンガープリント）を更新しておくことで、
+    // useEffect側での「変化検知による再実行」を防ぐ。
+    const updatedIds = new Set<number>();
+    planned.forEach(c => {
+      if (c.match) [c.match.p1, c.match.p2, c.match.p3, c.match.p4].forEach(id => updatedIds.add(id));
+    });
+    const mSource = targetMembers || members;
+    const status = mSource.map(m => {
+      let s = `${m.id}-${m.fixedPairMemberId || 'none'}`;
+      if (updatedIds.has(m.id)) {
+        s += `-${m.isActive}`;
+        if (config.levelStrict) s += `-${m.level}`;
+      } else {
+        s += `-${m.isActive === true ? 'active' : 'inactive'}`;
+      }
+      return s;
+    }).sort().join('|');
+    const newFingerprint = `${status}_C${config.courtCount}_S${config.levelStrict}_B${config.bulkOnlyMode}_F${config.orderFirstMatchByList}`;
+    setLastFingerprint(newFingerprint);
+    prevMembersRef.current = JSON.parse(JSON.stringify(mSource));
   };
 
   const handleBulkAction = () => {
@@ -540,6 +560,8 @@ export default function DoublesMatchupApp() {
       const matchesToApply = [...nextMatches];
       setCourts(prev => prev.map(c => ({ ...c, match: null })));
       setNextMatches(prev => prev.map(c => ({ ...c, match: null })));
+      
+      // 非同期での反映（ガタつき防止のわずかなディレイ）
       setTimeout(() => {
         let currentMembersState = [...members];
         let newHistoryEntries: MatchRecord[] = [];
@@ -555,8 +577,8 @@ export default function DoublesMatchupApp() {
         setMembers(currentMembersState);
         setCourts(matchesToApply);
         setHasUserConfirmedRegen(false);
+        // ここで次回の予定を生成し、lastFingerprintも内部で更新する
         regeneratePlannedMatches(currentMembersState);
-        prevMembersRef.current = JSON.parse(JSON.stringify(currentMembersState));
       }, 200);
     } else {
       setCourts(prev => prev.map(c => ({ ...c, match: null })));
