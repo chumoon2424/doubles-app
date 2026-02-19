@@ -519,18 +519,22 @@ export default function DoublesMatchupApp() {
 
   // --- マッチングロジック (レベル優先 弱/強: 高度な探索版) ---
   const getMatchWithPriority = (candidates: Member[], priority: 'weak' | 'strong'): Match | null => {
-    // 探索前に候補者をシャッフルして初期順（名簿順）の影響を排除
-    const shuffled = [...candidates].sort(() => Math.random() - 0.5);
+    const minPC = Math.min(...candidates.map(m => m.playCount));
+    // 2試合以上の差を出さないため、最小試合数と最小+1のメンバーのみに絞り込む
+    const filteredCandidates = candidates.filter(m => m.playCount <= minPC + 1);
     
+    // 探索前にシャッフルして初期順の影響を排除
+    const shuffled = [...filteredCandidates].sort(() => Math.random() - 0.5);
+    
+    // 探索用のプールを作成（緊急度順。ただしfilteredにより最大1差以内は保証済み）
     const sortedByUrgency = shuffled.sort((a, b) => {
       if (a.playCount !== b.playCount) return a.playCount - b.playCount;
       if (a.imputedPlayCount !== b.imputedPlayCount) return b.imputedPlayCount - a.imputedPlayCount;
       return a.lastPlayedTime - b.lastPlayedTime;
     });
 
-    const minPC = sortedByUrgency[0].playCount;
-    const pool = sortedByUrgency.filter(m => m.playCount <= minPC + 1);
-    const topCandidates = pool.length >= 4 ? pool : sortedByUrgency.slice(0, 12);
+    // 計算コストのため上位から抽出
+    const topCandidates = sortedByUrgency.slice(0, 16);
     
     let bestMatch: Match | null = null;
     let bestScore = Infinity;
@@ -540,33 +544,42 @@ export default function DoublesMatchupApp() {
         for (let k = j + 1; k < topCandidates.length - 1; k++) {
           for (let l = k + 1; l < topCandidates.length; l++) {
             const p = [topCandidates[i], topCandidates[j], topCandidates[k], topCandidates[l]];
-            const counts = p.map(m => m.playCount);
-            if (Math.max(...counts) - Math.min(...counts) > 1) continue;
-
+            
             const pairings = [[0,1,2,3], [0,2,1,3], [0,3,1,2]];
             pairings.forEach(idx => {
               const m1=p[idx[0]], m2=p[idx[1]], m3=p[idx[2]], m4=p[idx[3]];
               let score = 0;
 
+              // --- 1. 固定ペア制約 (絶対最優先) ---
               const hasFixed1 = m1.fixedPairMemberId === m2.id;
               const hasFixed2 = m3.fixedPairMemberId === m4.id;
-              if (m1.fixedPairMemberId && !hasFixed1) score += 10000;
-              if (m2.fixedPairMemberId && !hasFixed1) score += 10000;
-              if (m3.fixedPairMemberId && !hasFixed2) score += 10000;
-              if (m4.fixedPairMemberId && !hasFixed2) score += 10000;
+              if (m1.fixedPairMemberId && !hasFixed1) score += 100000;
+              if (m2.fixedPairMemberId && !hasFixed1) score += 100000;
+              if (m3.fixedPairMemberId && !hasFixed2) score += 100000;
+              if (m4.fixedPairMemberId && !hasFixed2) score += 100000;
 
-              const scatter = (m1.pairHistory[m2.id] || 0) * 10 + (m3.pairHistory[m4.id] || 0) * 10
+              // --- 2. 試合数の偏り抑制 (プール内でも最小試合数の人を優先) ---
+              const sumPC = m1.playCount + m2.playCount + m3.playCount + m4.playCount;
+              score += (sumPC - minPC * 4) * 5000;
+
+              // --- 3. 指示に基づく優先順位の切り替え ---
+              // 分散度（過去の履歴）
+              const scatter = (m1.pairHistory[m2.id] || 0) * 20 + (m3.pairHistory[m4.id] || 0) * 20
                             + (m1.matchHistory[m3.id] || 0) + (m1.matchHistory[m4.id] || 0)
                             + (m2.matchHistory[m3.id] || 0) + (m2.matchHistory[m4.id] || 0);
 
+              // レベル一致度 (0が理想)
               const levelMatch = (m1.level === m2.level ? 0 : 1) + (m3.level === m4.level ? 0 : 1) + (m1.level === m3.level ? 0 : 1);
 
               if (priority === 'strong') {
-                score += levelMatch * 500 + scatter;
+                // 強: レベル一致度 ＞ 分散度
+                score += levelMatch * 1000 + scatter;
               } else {
+                // 弱: 分散度 ＞ レベル一致度
                 score += scatter * 100 + levelMatch;
               }
 
+              // 同スコア時のための微小な乱数
               const finalScore = score + (Math.random() * 0.1);
 
               if (finalScore < bestScore) {
@@ -577,7 +590,8 @@ export default function DoublesMatchupApp() {
           }
         }
       }
-      if (bestMatch && bestScore < 500) break;
+      // 十分に良いスコアが見つかれば早期終了
+      if (bestMatch && bestScore < 100) break;
     }
     return bestMatch;
   };
