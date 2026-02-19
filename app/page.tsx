@@ -608,20 +608,34 @@ export default function DoublesMatchupApp() {
         className={`relative rounded-xl shadow-md border overflow-hidden flex border-l-8 ${border} ${bg} ${isPlanned && !config.bulkOnlyMode ? 'opacity-80 border-orange-200 bg-orange-50/50' : ''}`}
         style={{ height: `${h}px`, minHeight: `${h}px` }}
       >
-        {/* --- 修正箇所：常に中央揃え (justify-center) に固定 --- */}
-        <div className={`w-12 shrink-0 flex flex-col items-center justify-center border-r border-gray-100 relative ${isPlanned ? 'bg-gray-200/50' : 'bg-slate-50'}`}>
+        {/* --- コート番号エリア：要素を絶対配置にして、番号を完全に中央固定 --- */}
+        <div className={`w-12 shrink-0 relative border-r border-gray-100 ${isPlanned ? 'bg-gray-200/50' : 'bg-slate-50'}`}>
+          {/* コート番号本体（常に中央） */}
+          <div className="absolute inset-0 flex items-center justify-center">
+            <span className={`font-black text-2xl ${isPlanned ? 'text-gray-500' : 'text-slate-900'}`}>{court.id}</span>
+          </div>
+          
+          {/* 試合終了ボタン（絶対配置） */}
           {!config.bulkOnlyMode && !isPlanned && court.match ? (
             <button 
               onClick={() => finishMatch(court.id)} 
-              className="absolute top-2 left-1/2 -translate-x-1/2 w-8 h-8 flex items-center justify-center bg-red-100 text-red-600 hover:bg-red-600 hover:text-white rounded-full transition-all z-10 shadow-sm border border-red-200"
+              className="absolute top-1.5 left-1/2 -translate-x-1/2 w-8 h-8 flex items-center justify-center bg-red-100 text-red-600 hover:bg-red-600 hover:text-white rounded-full transition-all z-10 shadow-sm border border-red-200"
               title="試合終了"
             >
               <X size={18} strokeWidth={3} />
             </button>
           ) : null}
-          <span className={`font-black text-2xl ${isPlanned ? 'text-gray-500' : 'text-slate-900'}`}>{court.id}</span>
-          {court.match?.level && <span className={`mt-1 px-1 py-0.5 rounded text-[8px] font-bold text-white ${court.match.level === 'A' ? 'bg-blue-600' : court.match.level === 'B' ? 'bg-yellow-500' : 'bg-red-500'}`}>{court.match.level}</span>}
+
+          {/* レベルアイコン（絶対配置・下部） */}
+          {court.match?.level && (
+            <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 z-10">
+              <span className={`px-1 py-0.5 rounded text-[8px] font-bold text-white shadow-sm whitespace-nowrap ${court.match.level === 'A' ? 'bg-blue-600' : court.match.level === 'B' ? 'bg-yellow-500' : 'bg-red-500'}`}>
+                {court.match.level}
+              </span>
+            </div>
+          )}
         </div>
+
         <div className="flex-1 p-2 flex flex-col justify-center overflow-hidden">
           {court.match ? (
             <div className="flex items-center gap-2 h-full">
