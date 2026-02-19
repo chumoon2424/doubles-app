@@ -119,7 +119,7 @@ export default function DoublesMatchupApp() {
 
   const LEVEL_PATTERNS: LevelPattern[] = ['A/B/C', 'A', 'A/B', 'B', 'B/C', 'C'];
 
-  // --- データの読み込みと保存 (v19対応) ---
+  // --- データの読み込みと保存 ---
   useEffect(() => {
     const versions = ['v19', 'v18', 'v17', 'v16', 'v15', 'v14', 'v13', 'v12', 'v11', 'v10', 'v9', 'v8'];
     let loadedData: any = null;
@@ -142,9 +142,8 @@ export default function DoublesMatchupApp() {
     if (loadedData) {
       const safeMembers = (loadedData.members || []).map((m: any, idx: number) => {
         let level = m.level || 'A/B/C';
-        // 旧バージョン(A, B, C単一文字)からの変換
         if (level === 'A' || level === 'B' || level === 'C') {
-          // 何もしない(既にパターンの一部)
+          // 既存データを尊重
         } else if (!LEVEL_PATTERNS.includes(level as LevelPattern)) {
           level = 'A/B/C';
         }
@@ -166,7 +165,6 @@ export default function DoublesMatchupApp() {
       setCourts(loadedData.courts || Array.from({ length: loadedData.config?.courtCount || 4 }, (_, i) => ({ id: i + 1, match: null })));
       setNextMatches(loadedData.nextMatches || Array.from({ length: loadedData.config?.courtCount || 4 }, (_, i) => ({ id: i + 1, match: null })));
       
-      // レベル厳格モードから優先モードへの引き継ぎ
       let initialPriority: LevelPriority = 'none';
       if (loadedData.config?.levelPriority) {
         initialPriority = loadedData.config.levelPriority;
@@ -480,7 +478,7 @@ export default function DoublesMatchupApp() {
   };
 
   // --- マッチングロジック (従来版: レベル優先なし) ---
-  const getMatchNonePriority = (candidates: Member[], minPlayCount: number, minLastTime: number) => {
+  const getMatchNonePriority = (candidates: Member[], minPlayCount: number, minLastTime: number): Match | null => {
     const pickMember = (currentSelection: Member[], step: 'W' | 'X' | 'Y' | 'Z'): Member | null => {
       const remaining = candidates.filter(m => !currentSelection.find(s => s.id === m.id));
       if (remaining.length === 0) return null;
@@ -523,42 +521,33 @@ export default function DoublesMatchupApp() {
       const p = pickMember(s, step);
       if (p) s.push(p); else return null;
     }
-    return { p1: s[0].id, p2: s[1].id, p3: s[2].id, p4: s[3].id };
+    return { p1: s[0].id, p2: s[1].id, p3: s[2].id, p4: s[3].id, levelPattern: s[0].level };
   };
 
   // --- マッチングロジック (新ロジック: レベル優先 弱/強) ---
-  const getMatchWithPriority = (candidates: Member[], priority: 'weak' | 'strong') => {
-    // 1. 試合数と最終プレイ時間でソート（ベースの優先順位）
+  const getMatchWithPriority = (candidates: Member[], priority: 'weak' | 'strong'): Match | null => {
     const sortedByUrgency = [...candidates].sort((a, b) => {
       if (a.playCount !== b.playCount) return a.playCount - b.playCount;
       return a.lastPlayedTime - b.lastPlayedTime;
     });
 
-    // 2. 組み合わせの全パターンを評価（負荷軽減のため候補者を絞る）
     const topCandidates = sortedByUrgency.slice(0, Math.min(candidates.length, 12));
     
     let bestMatch: Match | null = null;
     let bestScore = Infinity;
 
-    // 4人選ぶ全組み合わせをシミュレーション（簡略化のため最初の4人をベースに検討）
-    // 実際にはより高度な探索が可能だが、ここでは要件に基づきスコアリングで決定
     for (let i = 0; i < topCandidates.length - 3; i++) {
       for (let j = i + 1; j < topCandidates.length - 2; j++) {
         for (let k = j + 1; k < topCandidates.length - 1; k++) {
           for (let l = k + 1; l < topCandidates.length; l++) {
             const p = [topCandidates[i], topCandidates[j], topCandidates[k], topCandidates[l]];
-            
-            // 試合数差のチェック（最大と最小の差が1以下を目標とするが、ここでは候補者の選定時点で概ね満たされる）
             const counts = p.map(m => m.playCount);
             if (Math.max(...counts) - Math.min(...counts) > 1) continue;
 
-            // ペアの組み合わせ（(0,1)vs(2,3), (0,2)vs(1,3), (0,3)vs(1,2)）
             const pairings = [[0,1,2,3], [0,2,1,3], [0,3,1,2]];
             pairings.forEach(idx => {
               const m1=p[idx[0]], m2=p[idx[1]], m3=p[idx[2]], m4=p[idx[3]];
-              
               let score = 0;
-              // A. 固定ペア設定 (極力優先)
               const hasFixed1 = m1.fixedPairMemberId === m2.id;
               const hasFixed2 = m3.fixedPairMemberId === m4.id;
               if (m1.fixedPairMemberId && !hasFixed1) score += 1000;
@@ -566,12 +555,10 @@ export default function DoublesMatchupApp() {
               if (m3.fixedPairMemberId && !hasFixed2) score += 1000;
               if (m4.fixedPairMemberId && !hasFixed2) score += 1000;
 
-              // B. 分散度 (既に対戦・ペアになった回数)
               const scatter = (m1.pairHistory[m2.id] || 0) * 10 + (m3.pairHistory[m4.id] || 0) * 10
                             + (m1.matchHistory[m3.id] || 0) + (m1.matchHistory[m4.id] || 0)
                             + (m2.matchHistory[m3.id] || 0) + (m2.matchHistory[m4.id] || 0);
 
-              // C. レベル一致度
               const levelMatch = (m1.level === m2.level ? 0 : 1) + (m3.level === m4.level ? 0 : 1) + (m1.level === m3.level ? 0 : 1);
 
               if (priority === 'strong') {
@@ -582,33 +569,31 @@ export default function DoublesMatchupApp() {
 
               if (score < bestScore) {
                 bestScore = score;
-                bestMatch = { p1: m1.id, p2: m2.id, p3: m3.id, p4: m4.id };
+                bestMatch = { p1: m1.id, p2: m2.id, p3: m3.id, p4: m4.id, levelPattern: m1.level };
               }
             });
           }
         }
       }
-      if (bestMatch) break; // 計算短縮のため
+      if (bestMatch) break;
     }
     return bestMatch;
   };
 
-  const getMatchForCourt = (currentCourts: Court[], currentMembers: Member[]) => {
+  const getMatchForCourt = (currentCourts: Court[], currentMembers: Member[]): Match | null => {
     const playingIds = new Set<number>();
     (currentCourts || []).forEach(c => { if (c?.match) [c.match.p1, c.match.p2, c.match.p3, c.match.p4].forEach(id => playingIds.add(id)); });
     let candidates = (currentMembers || []).filter(m => m.isActive && !playingIds.has(m.id));
     if (candidates.length < 4) return null;
 
-    // 1. 1巡目は名簿順 (設定ONかつ未出場者が4名以上)
     if (config.orderFirstMatchByList) {
       const firstTimers = candidates.filter(m => m.playCount === 0).sort((a, b) => a.sortOrder - b.sortOrder);
       if (firstTimers.length >= 4) {
         const p = firstTimers.slice(0, 4);
-        return { p1: p[0].id, p2: p[1].id, p3: p[2].id, p4: p[3].id };
+        return { p1: p[0].id, p2: p[1].id, p3: p[2].id, p4: p[3].id, levelPattern: p[0].level };
       }
     }
 
-    // 2. 分岐
     if (config.levelPriority === 'none') {
       const minPlayCount = Math.min(...candidates.map(m => m.playCount));
       const minLastTime = Math.min(...candidates.map(m => m.lastPlayedTime));
@@ -712,18 +697,10 @@ export default function DoublesMatchupApp() {
           <div className="absolute inset-0 flex items-center justify-center">
             <span className={`font-black text-2xl ${isPlanned ? 'text-gray-500' : 'text-slate-900'}`}>{court.id}</span>
           </div>
-          
           {!config.bulkOnlyMode && !isPlanned && court.match ? (
-            <button 
-              onClick={() => finishMatch(court.id)} 
-              className="absolute top-1.5 left-1/2 -translate-x-1/2 w-8 h-8 flex items-center justify-center bg-red-100 text-red-600 hover:bg-red-600 hover:text-white rounded-full transition-all z-10 shadow-sm border border-red-200"
-              title="試合終了"
-            >
-              <X size={18} strokeWidth={3} />
-            </button>
+            <button onClick={() => finishMatch(court.id)} className="absolute top-1.5 left-1/2 -translate-x-1/2 w-8 h-8 flex items-center justify-center bg-red-100 text-red-600 hover:bg-red-600 hover:text-white rounded-full transition-all z-10 shadow-sm border border-red-200" title="試合終了"><X size={18} strokeWidth={3} /></button>
           ) : null}
         </div>
-
         <div className="flex-1 p-2 flex flex-col justify-center overflow-hidden">
           {court.match ? (
             <div className="flex items-center gap-2 h-full">
@@ -739,15 +716,7 @@ export default function DoublesMatchupApp() {
                 ))}
               </div>
             </div>
-          ) : (
-            !isPlanned && !config.bulkOnlyMode ? (
-              <button onClick={() => generateNextMatch(court.id)} className="w-full h-full border-2 border-dashed border-gray-300 text-gray-400 font-black text-xl rounded-lg flex items-center justify-center gap-2 hover:bg-gray-50 transition-colors italic">
-                <Play size={20} fill="currentColor" /> 割当
-              </button>
-            ) : (
-              <div className="text-gray-300 font-bold text-center italic">No Match</div>
-            )
-          )}
+          ) : (!isPlanned && !config.bulkOnlyMode ? (<button onClick={() => generateNextMatch(court.id)} className="w-full h-full border-2 border-dashed border-gray-300 text-gray-400 font-black text-xl rounded-lg flex items-center justify-center gap-2 hover:bg-gray-50 transition-colors italic"><Play size={20} fill="currentColor" /> 割当</button>) : (<div className="text-gray-300 font-bold text-center italic">No Match</div>))}
         </div>
       </div>
     );
@@ -767,7 +736,6 @@ export default function DoublesMatchupApp() {
           )}
         </div>
       </header>
-
       <main className="p-2 w-full max-w-[1400px] mx-auto">
         {activeTab === 'dashboard' && (
           <div className="space-y-6">
@@ -784,49 +752,17 @@ export default function DoublesMatchupApp() {
             )}
           </div>
         )}
-
         {activeTab === 'members' && (
           <div className="space-y-3 max-w-2xl mx-auto">
-            <div className="flex justify-between items-center p-2">
-              <h2 className="font-bold text-xl text-gray-700">名簿 ({members.filter(m => m.isActive).length}/{members.length})</h2>
-              <button onClick={addMember} className="bg-green-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-1 shadow-lg"><Plus size={20} />選手追加</button>
-            </div>
-
-            <div className="flex justify-between items-center px-2 pb-2">
-              <div className="flex gap-2 overflow-x-auto no-scrollbar">
-                <button onClick={resetToSavedOrder} className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-full text-xs font-bold text-gray-600 shadow-sm active:bg-gray-50"><RotateCcw size={14}/> 保存した順</button>
-                <button onClick={sortByName} className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-full text-xs font-bold text-gray-600 shadow-sm active:bg-gray-50"><SortAsc size={14}/> 名前順</button>
-                <button onClick={sortByMemo} className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-full text-xs font-bold text-gray-600 shadow-sm active:bg-gray-50"><StickyNote size={14}/> メモ順</button>
-              </div>
-              <button onClick={saveCurrentOrder} className="shrink-0 flex items-center gap-1.5 px-4 py-1.5 bg-blue-600 border border-blue-500 rounded-full text-xs font-bold text-white shadow-md active:bg-blue-700 transition-colors ml-4"><Save size={14}/> 順序を保存</button>
-            </div>
-
+            <div className="flex justify-between items-center p-2"><h2 className="font-bold text-xl text-gray-700">名簿 ({members.filter(m => m.isActive).length}/{members.length})</h2><button onClick={addMember} className="bg-green-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-1 shadow-lg"><Plus size={20} />選手追加</button></div>
+            <div className="flex justify-between items-center px-2 pb-2"><div className="flex gap-2 overflow-x-auto no-scrollbar"><button onClick={resetToSavedOrder} className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-full text-xs font-bold text-gray-600 shadow-sm active:bg-gray-50"><RotateCcw size={14}/> 保存した順</button><button onClick={sortByName} className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-full text-xs font-bold text-gray-600 shadow-sm active:bg-gray-50"><SortAsc size={14}/> 名前順</button><button onClick={sortByMemo} className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-full text-xs font-bold text-gray-600 shadow-sm active:bg-gray-50"><StickyNote size={14}/> メモ順</button></div><button onClick={saveCurrentOrder} className="shrink-0 flex items-center gap-1.5 px-4 py-1.5 bg-blue-600 border border-blue-500 rounded-full text-xs font-bold text-white shadow-md active:bg-blue-700 transition-colors ml-4"><Save size={14}/> 順序を保存</button></div>
             <div className="bg-white rounded-2xl shadow-sm divide-y overflow-hidden relative">
               {displayMembers.map((m, idx) => (
                 <div key={m.id} draggable={true} onDragStart={() => onDragStart(idx)} onDragOver={(e) => onDragOver(e, idx)} onDragEnd={onDragEnd} className={`p-4 flex items-center gap-2 ${!m.isActive ? 'bg-gray-50 opacity-40' : ''} ${draggedIndex === idx ? 'opacity-20 bg-blue-100' : ''}`}>
                   <div className="p-2 cursor-grab active:cursor-grabbing text-gray-300"><GripVertical size={20} /></div>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <input value={m.name} onChange={e => syncMemberUpdate(displayMembers.map(x => x.id === m.id ? { ...x, name: e.target.value } : x))} className="flex-1 font-bold text-xl bg-transparent outline-none focus:text-blue-600 min-w-0" />
-                      <div className="flex items-center gap-1 bg-gray-50 px-2 py-1 rounded-lg border border-gray-200 shrink-0">
-                        <StickyNote size={12} className="text-gray-400" />
-                        <input value={m.memo} maxLength={12} onChange={e => syncMemberUpdate(displayMembers.map(x => x.id === m.id ? { ...x, memo: e.target.value } : x))} className="w-16 text-xs font-bold bg-transparent outline-none text-gray-600" placeholder="メモ" />
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3 mt-1 flex-wrap">
-                      <div className="relative group">
-                        <select 
-                          value={m.level} 
-                          onChange={(e) => handleLevelChange(m.id, e.target.value as LevelPattern)}
-                          className="absolute inset-0 opacity-0 cursor-pointer z-10 w-full"
-                        >
-                          {LEVEL_PATTERNS.map(p => <option key={p} value={p}>{p}</option>)}
-                        </select>
-                        <LevelBadge level={m.level} />
-                      </div>
-                      <button onClick={() => setEditingPairMemberId(m.id)} className={`flex items-center gap-1 text-xs font-bold px-2 py-1 rounded border ${m.fixedPairMemberId ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'text-gray-400 border-dashed border-gray-300'}`}>{m.fixedPairMemberId ? <><LinkIcon size={12} />{displayMembers.find(x => x.id === m.fixedPairMemberId)?.name}</> : <><Unlink size={12} />ペアなし</>}</button>
-                      <span className="text-xs text-gray-400 font-bold">試合数: {m.playCount}{m.imputedPlayCount > 0 && <span className="text-gray-300 ml-1">({m.imputedPlayCount})</span>}</span>
-                    </div>
+                    <div className="flex items-center gap-2"><input value={m.name} onChange={e => syncMemberUpdate(displayMembers.map(x => x.id === m.id ? { ...x, name: e.target.value } : x))} className="flex-1 font-bold text-xl bg-transparent outline-none focus:text-blue-600 min-w-0" /><div className="flex items-center gap-1 bg-gray-50 px-2 py-1 rounded-lg border border-gray-200 shrink-0"><StickyNote size={12} className="text-gray-400" /><input value={m.memo} maxLength={12} onChange={e => syncMemberUpdate(displayMembers.map(x => x.id === m.id ? { ...x, memo: e.target.value } : x))} className="w-16 text-xs font-bold bg-transparent outline-none text-gray-600" placeholder="メモ" /></div></div>
+                    <div className="flex items-center gap-3 mt-1 flex-wrap"><div className="relative group"><select value={m.level} onChange={(e) => handleLevelChange(m.id, e.target.value as LevelPattern)} className="absolute inset-0 opacity-0 cursor-pointer z-10 w-full">{LEVEL_PATTERNS.map(p => <option key={p} value={p}>{p}</option>)}</select><LevelBadge level={m.level} /></div><button onClick={() => setEditingPairMemberId(m.id)} className={`flex items-center gap-1 text-xs font-bold px-2 py-1 rounded border ${m.fixedPairMemberId ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'text-gray-400 border-dashed border-gray-300'}`}>{m.fixedPairMemberId ? <><LinkIcon size={12} />{displayMembers.find(x => x.id === m.fixedPairMemberId)?.name}</> : <><Unlink size={12} />ペアなし</>}</button><span className="text-xs text-gray-400 font-bold">試合数: {m.playCount}{m.imputedPlayCount > 0 && <span className="text-gray-300 ml-1">({m.imputedPlayCount})</span>}</span></div>
                   </div>
                   <button onClick={() => { const next = displayMembers.map(x => x.id === m.id ? { ...x, isActive: !x.isActive } : x); if (checkChangeConfirmation(next)) syncMemberUpdate(next); }} className={`px-4 py-2 rounded-xl font-bold border-2 shrink-0 ${m.isActive ? 'border-blue-600 text-blue-600 bg-blue-50' : 'border-gray-200 text-gray-300'}`}>{m.isActive ? '参加' : '休み'}</button>
                   <button onClick={() => { if(confirm(`${m.name}を削除してよろしいですか？`)) { const next = displayMembers.filter(x => x.id !== m.id); if (checkChangeConfirmation(next)) { setDisplayMembers(next); setMembers(prev => prev.filter(x => x.id !== m.id)); } } }} className="text-gray-200 hover:text-red-500 px-2 shrink-0"><Trash2 size={24} /></button>
@@ -847,78 +783,33 @@ export default function DoublesMatchupApp() {
             </div>
           </div>
         )}
-
         {activeTab === 'history' && (
           <div className="bg-white rounded-2xl shadow-sm overflow-hidden max-w-2xl mx-auto">
             <table className="w-full text-left">
               <thead className="bg-gray-50 text-gray-400"><tr><th className="p-4 text-xs font-bold uppercase">時刻</th><th className="p-4 text-xs font-bold uppercase">対戦</th></tr></thead>
               <tbody className="divide-y divide-gray-100">
                 {matchHistory.map(h => (
-                  <tr key={h.id}><td className="p-4 text-gray-400 font-mono text-sm whitespace-nowrap">{h.timestamp}</td><td className="p-4 font-bold text-base flex items-center gap-2">
-                    {h.levelPattern && <LevelBadge level={h.levelPattern} />}
-                    {h.players[0]}, {h.players[1]} <span className="text-gray-300 font-normal italic">vs</span> {h.players[2]}, {h.players[3]}
-                  </td></tr>
+                  <tr key={h.id}><td className="p-4 text-gray-400 font-mono text-sm whitespace-nowrap">{h.timestamp}</td><td className="p-4 font-bold text-base flex items-center gap-2">{h.levelPattern && <LevelBadge level={h.levelPattern} />}{h.players[0]}, {h.players[1]} <span className="text-gray-300 font-normal italic">vs</span> {h.players[2]}, {h.players[3]}</td></tr>
                 ))}
               </tbody>
             </table>
           </div>
         )}
-
         {activeTab === 'settings' && (
           <div className="bg-white rounded-2xl shadow-sm p-8 space-y-8 max-w-2xl mx-auto">
-            <div>
-              <label className="block text-sm font-bold text-gray-400 mb-6 uppercase tracking-[0.2em]">コート数: <span className="text-blue-600 text-2xl ml-2">{config.courtCount}</span></label>
-              <input type="range" min="1" max="8" value={config.courtCount} onChange={e => handleCourtCountChange(parseInt(e.target.value))} className="w-full h-3 bg-gray-100 rounded-lg appearance-none cursor-pointer accent-blue-600" style={{ WebkitAppearance: 'none' }} />
-            </div>
-            <div className="space-y-4 pt-4 border-t border-gray-100">
-              <span className="block text-sm font-bold text-gray-400 uppercase tracking-widest">名簿データの管理</span>
-              <div className="grid grid-cols-2 gap-3">
-                <button onClick={exportMembers} className="py-3 bg-indigo-600 text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow-sm active:bg-indigo-700 transition-colors"><Download size={18} /> 退避(保存)</button>
-                <button onClick={() => fileInputRef.current?.click()} className="py-3 bg-white text-indigo-600 border-2 border-indigo-600 rounded-xl font-bold flex items-center justify-center gap-2 active:bg-indigo-50 transition-colors"><Upload size={18} /> 復元(読込)</button>
-                <input type="file" ref={fileInputRef} onChange={importMembers} accept=".json" className="hidden" />
-              </div>
-              <p className="text-[10px] text-gray-400 leading-relaxed italic">※「名前・レベル・固定ペア・表示順・メモ」を保存します。機種変更時や名簿のバックアップに利用してください。復元すると現在の試合履歴はリセットされます。</p>
-            </div>
-            <div className="flex items-center justify-between py-6 border-y border-gray-50">
-              <div className="flex-1 pr-4 flex flex-col"><span className="font-bold text-lg text-gray-700">1巡目の試合は名簿順</span><span className="text-xs text-gray-400 leading-tight">未出場の人が4人以上いる場合、名簿の上位から（制約無視で）割り当てます</span></div>
-              <button onClick={() => { const next = { ...config, orderFirstMatchByList: !config.orderFirstMatchByList }; if (checkChangeConfirmation(undefined, next)) setConfig(next); }} className={`shrink-0 w-14 h-7 rounded-full relative transition-colors ${config.orderFirstMatchByList ? 'bg-blue-600' : 'bg-gray-200'}`}><div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-md ${config.orderFirstMatchByList ? 'left-8' : 'left-1'}`} /></button>
-            </div>
-            <div className="flex items-center justify-between py-6 border-b border-gray-50">
-              <div className="flex-1 pr-4 flex flex-col"><span className="font-bold text-lg text-gray-700">レベル優先モード</span><span className="text-xs text-gray-400 leading-tight">レベルを考慮して組み合わせます（強：レベル一致優先、弱：分散優先）</span></div>
-              <div className="relative">
-                <select 
-                  value={config.levelPriority} 
-                  onChange={(e) => {
-                    const next = { ...config, levelPriority: e.target.value as LevelPriority };
-                    if (checkChangeConfirmation(undefined, next)) setConfig(next);
-                  }}
-                  className="bg-gray-100 border-none rounded-lg px-3 py-2 text-sm font-bold text-gray-700 appearance-none pr-8 focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="none">なし</option>
-                  <option value="weak">弱</option>
-                  <option value="strong">強</option>
-                </select>
-                <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400" />
-              </div>
-            </div>
-            <div className="flex items-center justify-between py-6 border-b border-gray-50">
-              <div className="flex-1 pr-4 flex flex-col"><span className="font-bold text-lg text-gray-700">一括進行モード</span><span className="text-xs text-gray-400 leading-tight">一括更新のみ可能となり、次回の予定が表示されます</span></div>
-              <button onClick={() => setConfig(prev => ({ ...prev, bulkOnlyMode: !prev.bulkOnlyMode }))} className={`shrink-0 w-14 h-7 rounded-full relative transition-colors ${config.bulkOnlyMode ? 'bg-blue-600' : 'bg-gray-200'}`}><div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-md ${config.bulkOnlyMode ? 'left-8' : 'left-1'}`} /></button>
-            </div>
-            <div className="space-y-4">
-              <button onClick={resetPlayCountsOnly} className="w-full py-4 bg-gray-50 text-gray-700 rounded-2xl font-bold flex items-center justify-center gap-3 border active:bg-gray-100 transition-colors"><RotateCcw size={20} /> 試合数と履歴をリセット</button>
-              <button onClick={() => {if(confirm('全てリセットしますか？')) {localStorage.clear(); location.reload();}}} className="w-full py-4 bg-red-50 text-red-500 rounded-2xl font-bold border border-red-100 active:bg-red-100 transition-colors">データを完全消去</button>
-            </div>
+            <div><label className="block text-sm font-bold text-gray-400 mb-6 uppercase tracking-[0.2em]">コート数: <span className="text-blue-600 text-2xl ml-2">{config.courtCount}</span></label><input type="range" min="1" max="8" value={config.courtCount} onChange={e => handleCourtCountChange(parseInt(e.target.value))} className="w-full h-3 bg-gray-100 rounded-lg appearance-none cursor-pointer accent-blue-600" style={{ WebkitAppearance: 'none' }} /></div>
+            <div className="space-y-4 pt-4 border-t border-gray-100"><span className="block text-sm font-bold text-gray-400 uppercase tracking-widest">名簿データの管理</span><div className="grid grid-cols-2 gap-3"><button onClick={exportMembers} className="py-3 bg-indigo-600 text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow-sm active:bg-indigo-700 transition-colors"><Download size={18} /> 退避(保存)</button><button onClick={() => fileInputRef.current?.click()} className="py-3 bg-white text-indigo-600 border-2 border-indigo-600 rounded-xl font-bold flex items-center justify-center gap-2 active:bg-indigo-50 transition-colors"><Upload size={18} /> 復元(読込)</button><input type="file" ref={fileInputRef} onChange={importMembers} accept=".json" className="hidden" /></div></div>
+            <div className="flex items-center justify-between py-6 border-y border-gray-50"><div className="flex-1 pr-4 flex flex-col"><span className="font-bold text-lg text-gray-700">1巡目の試合は名簿順</span><span className="text-xs text-gray-400 leading-tight">未出場の人が4人以上いる場合、名簿の上位から（制約無視で）割り当てます</span></div><button onClick={() => { const next = { ...config, orderFirstMatchByList: !config.orderFirstMatchByList }; if (checkChangeConfirmation(undefined, next)) setConfig(next); }} className={`shrink-0 w-14 h-7 rounded-full relative transition-colors ${config.orderFirstMatchByList ? 'bg-blue-600' : 'bg-gray-200'}`}><div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-md ${config.orderFirstMatchByList ? 'left-8' : 'left-1'}`} /></button></div>
+            <div className="flex items-center justify-between py-6 border-b border-gray-50"><div className="flex-1 pr-4 flex flex-col"><span className="font-bold text-lg text-gray-700">レベル優先モード</span><span className="text-xs text-gray-400 leading-tight">レベルを考慮して組み合わせます（強：レベル一致優先、弱：分散優先）</span></div><div className="relative"><select value={config.levelPriority} onChange={(e) => { const next = { ...config, levelPriority: e.target.value as LevelPriority }; if (checkChangeConfirmation(undefined, next)) setConfig(next); }} className="bg-gray-100 border-none rounded-lg px-3 py-2 text-sm font-bold text-gray-700 appearance-none pr-8 focus:ring-2 focus:ring-blue-500"><option value="none">なし</option><option value="weak">弱</option><option value="strong">強</option></select><ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400" /></div></div>
+            <div className="flex items-center justify-between py-6 border-b border-gray-50"><div className="flex-1 pr-4 flex flex-col"><span className="font-bold text-lg text-gray-700">一括進行モード</span><span className="text-xs text-gray-400 leading-tight">一括更新のみ可能となり、次回の予定が表示されます</span></div><button onClick={() => setConfig(prev => ({ ...prev, bulkOnlyMode: !prev.bulkOnlyMode }))} className={`shrink-0 w-14 h-7 rounded-full relative transition-colors ${config.bulkOnlyMode ? 'bg-blue-600' : 'bg-gray-200'}`}><div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-md ${config.bulkOnlyMode ? 'left-8' : 'left-1'}`} /></button></div>
+            <div className="space-y-4"><button onClick={resetPlayCountsOnly} className="w-full py-4 bg-gray-50 text-gray-700 rounded-2xl font-bold flex items-center justify-center gap-3 border active:bg-gray-100 transition-colors"><RotateCcw size={20} /> 試合数と履歴をリセット</button><button onClick={() => {if(confirm('全てリセットしますか？')) {localStorage.clear(); location.reload();}}} className="w-full py-4 bg-red-50 text-red-500 rounded-2xl font-bold border border-red-100 active:bg-red-100 transition-colors">データを完全消去</button></div>
           </div>
         )}
       </main>
-
       <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-300 flex justify-around pb-safe z-30 shadow-[0_-5px_20px_rgba(0,0,0,0.1)]">
         {[ { id: 'dashboard', icon: Play, label: '試合' }, { id: 'members', icon: Users, label: '名簿' }, { id: 'history', icon: History, label: '履歴' }, { id: 'settings', icon: Settings, label: '設定' } ]
           .map(tab => (
-            <button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`flex flex-col items-center py-3 px-8 transition-colors ${activeTab === tab.id ? 'text-blue-700 scale-110' : 'text-gray-400'}`}>
-              <tab.icon size={26} strokeWidth={activeTab === tab.id ? 3 : 2} /><span className="text-[10px] font-black mt-1.5">{tab.label}</span>
-            </button>
+            <button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`flex flex-col items-center py-3 px-8 transition-colors ${activeTab === tab.id ? 'text-blue-700 scale-110' : 'text-gray-400'}`}><tab.icon size={26} strokeWidth={activeTab === tab.id ? 3 : 2} /><span className="text-[10px] font-black mt-1.5">{tab.label}</span></button>
           ))}
       </nav>
       <style dangerouslySetInnerHTML={{ __html: `.no-scrollbar::-webkit-scrollbar { display: none; } .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }` }} />
