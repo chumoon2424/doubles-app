@@ -450,6 +450,24 @@ export default function DoublesMatchupApp() {
     syncMemberUpdate(nextDisplay);
   };
 
+  // 4人の共通レベルを取得する関数
+  const getCommonLevel = (pIds: number[], currentMembers: Member[]): LevelPattern | undefined => {
+    const players = pIds.map(id => currentMembers.find(m => m.id === id)).filter((m): m is Member => !!m);
+    if (players.length < 4) return undefined;
+    
+    // 全員のレベルセットを取得
+    const levelSets = players.map(p => new Set(p.level.split('/')));
+    
+    // 共通部分を抽出
+    const common = ['A', 'B', 'C'].filter(lvl => levelSets.every(set => set.has(lvl)));
+    
+    // AとCのみ、または空の場合は非表示
+    if (common.length === 0) return undefined;
+    if (common.length === 2 && common.includes('A') && common.includes('C') && !common.includes('B')) return undefined;
+    
+    return common.join('/') as LevelPattern;
+  };
+
   // --- マッチングロジック (レベル優先なし) ---
   const getMatchNonePriority = (candidates: Member[]): Match | null => {
     const minPlayCount = Math.min(...candidates.map(m => m.playCount));
@@ -478,6 +496,7 @@ export default function DoublesMatchupApp() {
           criteria.push(m.fixedPairMemberId && candidates.some(c => c.id === m.fixedPairMemberId) ? 1 : 0);
           criteria.push((m.playCount === minPlayCount || m.lastPlayedTime === minLastTime) ? 0 : 1);
           criteria.push((y.pairHistory?.[m.id] || 0), (y.matchHistory?.[m.id] || 0));
+          // 指摘箇所の修正: w.pairHistory + w.matchHistory
           criteria.push((w.pairHistory?.[m.id] || 0) + (w.matchHistory?.[m.id] || 0), (x.pairHistory?.[m.id] || 0) + (x.matchHistory?.[m.id] || 0));
         }
         return criteria;
@@ -514,7 +533,8 @@ export default function DoublesMatchupApp() {
       };
       return cost(curr) < cost(prev) ? curr : prev;
     });
-    return { p1: best[0].id, p2: best[1].id, p3: best[2].id, p4: best[3].id, levelPattern: best[0].level };
+    // 4人の共通レベルを算出して設定
+    return { p1: best[0].id, p2: best[1].id, p3: best[2].id, p4: best[3].id, levelPattern: getCommonLevel([best[0].id, best[1].id, best[2].id, best[3].id], candidates) };
   };
 
   // --- マッチングロジック (レベル優先 弱/強: 高度な探索版) ---
@@ -606,7 +626,7 @@ export default function DoublesMatchupApp() {
 
               if (finalScore < bestScore) {
                 bestScore = finalScore;
-                bestMatch = { p1: m1.id, p2: m2.id, p3: m3.id, p4: m4.id, levelPattern: m1.level };
+                bestMatch = { p1: m1.id, p2: m2.id, p3: m3.id, p4: m4.id, levelPattern: getCommonLevel([m1.id, m2.id, m3.id, m4.id], candidates) };
               }
             });
           }
@@ -628,7 +648,7 @@ export default function DoublesMatchupApp() {
       const firstTimers = candidates.filter(m => m.playCount === 0).sort((a, b) => a.sortOrder - b.sortOrder);
       if (firstTimers.length >= 4) {
         const p = firstTimers.slice(0, 4);
-        return { p1: p[0].id, p2: p[1].id, p3: p[2].id, p4: p[3].id, levelPattern: p[0].level };
+        return { p1: p[0].id, p2: p[1].id, p3: p[2].id, p4: p[3].id, levelPattern: getCommonLevel([p[0].id, p[1].id, p[2].id, p[3].id], currentMembers) };
       }
     }
 
