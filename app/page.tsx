@@ -262,6 +262,16 @@ export default function DoublesMatchupApp() {
     return true;
   };
 
+  // --- 試合画面に移動した際、もし次回の予定が空なら生成する修正 ---
+  useEffect(() => {
+    if (isInitialized && activeTab === 'dashboard' && config.bulkOnlyMode) {
+      const isNextEmpty = nextMatches.every(c => c.match === null);
+      if (isNextEmpty) {
+        regeneratePlannedMatches();
+      }
+    }
+  }, [activeTab, isInitialized, config.bulkOnlyMode]);
+
   useEffect(() => {
     if (isInitialized && activeTab === 'dashboard' && config.bulkOnlyMode) {
       if (lastFingerprint !== memberFingerprint && memberFingerprint !== '') {
@@ -608,14 +618,11 @@ export default function DoublesMatchupApp() {
         className={`relative rounded-xl shadow-md border overflow-hidden flex border-l-8 ${border} ${bg} ${isPlanned && !config.bulkOnlyMode ? 'opacity-80 border-orange-200 bg-orange-50/50' : ''}`}
         style={{ height: `${h}px`, minHeight: `${h}px` }}
       >
-        {/* --- コート番号エリア：要素を絶対配置にして、番号を完全に中央固定 --- */}
         <div className={`w-12 shrink-0 relative border-r border-gray-100 ${isPlanned ? 'bg-gray-200/50' : 'bg-slate-50'}`}>
-          {/* コート番号本体（常に中央） */}
           <div className="absolute inset-0 flex items-center justify-center">
             <span className={`font-black text-2xl ${isPlanned ? 'text-gray-500' : 'text-slate-900'}`}>{court.id}</span>
           </div>
           
-          {/* 試合終了ボタン（絶対配置） */}
           {!config.bulkOnlyMode && !isPlanned && court.match ? (
             <button 
               onClick={() => finishMatch(court.id)} 
@@ -626,7 +633,6 @@ export default function DoublesMatchupApp() {
             </button>
           ) : null}
 
-          {/* レベルアイコン（絶対配置・下部） - bottom-3 から bottom-6 へ調整 */}
           {court.match?.level && (
             <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10">
               <span className={`px-1 py-0.5 rounded text-[8px] font-bold text-white shadow-sm whitespace-nowrap ${court.match.level === 'A' ? 'bg-blue-600' : court.match.level === 'B' ? 'bg-yellow-500' : 'bg-red-500'}`}>
