@@ -519,6 +519,13 @@ export default function DoublesMatchupApp() {
 
   // --- マッチングロジック (レベル優先 弱/強: 高度な探索版) ---
   const getMatchWithPriority = (candidates: Member[], priority: 'weak' | 'strong'): Match | null => {
+    // ヘルパー: レベルが一つでも重なっているか判定
+    const isLevelCompatible = (l1: LevelPattern, l2: LevelPattern) => {
+      const s1 = l1.split('/');
+      const s2 = l2.split('/');
+      return s1.some(v => s2.includes(v));
+    };
+
     const minPC = Math.min(...candidates.map(m => m.playCount));
     // 2試合以上の差を出さないため、最小試合数と最小+1のメンバーのみに絞り込む
     const filteredCandidates = candidates.filter(m => m.playCount <= minPC + 1);
@@ -568,15 +575,19 @@ export default function DoublesMatchupApp() {
                             + (m1.matchHistory[m3.id] || 0) + (m1.matchHistory[m4.id] || 0)
                             + (m2.matchHistory[m3.id] || 0) + (m2.matchHistory[m4.id] || 0);
 
-              // レベル一致度 (0が理想)
-              const levelMatch = (m1.level === m2.level ? 0 : 1) + (m3.level === m4.level ? 0 : 1) + (m1.level === m3.level ? 0 : 1);
+              // レベル一致度 (重なりがない場合にペナルティ)
+              // コート内の全4名のレベル互換性を評価
+              const levelPenalty = 
+                (isLevelCompatible(m1.level, m2.level) ? 0 : 1) +
+                (isLevelCompatible(m3.level, m4.level) ? 0 : 1) +
+                (isLevelCompatible(m1.level, m3.level) ? 0 : 1);
 
               if (priority === 'strong') {
                 // 強: レベル一致度 ＞ 分散度
-                score += levelMatch * 1000 + scatter;
+                score += levelPenalty * 1000 + scatter;
               } else {
                 // 弱: 分散度 ＞ レベル一致度
-                score += scatter * 100 + levelMatch;
+                score += scatter * 100 + levelPenalty;
               }
 
               // 同スコア時のための微小な乱数
