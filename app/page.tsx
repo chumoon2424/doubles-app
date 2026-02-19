@@ -554,20 +554,21 @@ export default function DoublesMatchupApp() {
 
   const handleBulkAction = () => {
     if (config.bulkOnlyMode) {
-      const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      const matchesToApply = JSON.parse(JSON.stringify(nextMatches)) as Court[];
-      
-      // 1. 一旦すべてクリア（視覚的なリセット）
+      // 1. 視覚的に一旦クリアする
       setCourts(prev => prev.map(c => ({ ...c, match: null })));
       setNextMatches(prev => prev.map(c => ({ ...c, match: null })));
-      
-      // 2. 微小なラグを置いてから繰り上げと新規生成を行う
+
+      // 微小な時間差で現在の予定を確定し、次の予定を立てる
       setTimeout(() => {
+        const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        
+        // 直前まで「次回」に表示されていた予定をコピー
+        const currentToApply = JSON.parse(JSON.stringify(nextMatches)) as Court[];
         let currentMembersState = [...members];
         let newHistoryEntries: MatchRecord[] = [];
-        
-        // 履歴の作成とメンバー状態の更新
-        matchesToApply.forEach(c => {
+
+        // 履歴作成とメンバー状態の更新
+        currentToApply.forEach(c => {
           if (c?.match) {
             const ids = [c.match.p1, c.match.p2, c.match.p3, c.match.p4];
             const names = ids.map(id => currentMembersState.find(m => m.id === id)?.name || '?');
@@ -583,13 +584,13 @@ export default function DoublesMatchupApp() {
           }
         });
 
-        // 繰り上げ実行
+        // 状態の確定
         setMatchHistory(prev => [...newHistoryEntries, ...prev]);
         setMembers(currentMembersState);
-        setCourts(matchesToApply);
+        setCourts(currentToApply);
         setHasUserConfirmedRegen(false);
 
-        // 次回を新規生成
+        // 新しい「次回」の予定を生成
         let tempMembersForNext = JSON.parse(JSON.stringify(currentMembersState)) as Member[];
         let newlyPlanned: Court[] = [];
         for (let i = 0; i < config.courtCount; i++) {
@@ -604,7 +605,7 @@ export default function DoublesMatchupApp() {
         }
         setNextMatches(newlyPlanned);
 
-        // 指紋を更新して自動再生成を抑止
+        // 指紋（fingerprint）を更新して、useEffectによる不必要な再生成を防止
         const updatedIds = new Set<number>();
         newlyPlanned.forEach(c => { if (c.match) [c.match.p1, c.match.p2, c.match.p3, c.match.p4].forEach(id => updatedIds.add(id)); });
         const status = currentMembersState.map(m => {
@@ -615,7 +616,7 @@ export default function DoublesMatchupApp() {
         }).sort().join('|');
         setLastFingerprint(`${status}_C${config.courtCount}_S${config.levelStrict}_B${config.bulkOnlyMode}_F${config.orderFirstMatchByList}`);
         prevMembersRef.current = JSON.parse(JSON.stringify(currentMembersState));
-      }, 150);
+      }, 50);
     } else {
       setCourts(prev => prev.map(c => ({ ...c, match: null })));
       setTimeout(() => {
