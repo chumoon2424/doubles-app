@@ -626,9 +626,9 @@ export default function DoublesMatchupApp() {
             </button>
           ) : null}
 
-          {/* レベルアイコン（絶対配置・下部） - bottom-1.5 から bottom-3 へ調整 */}
+          {/* レベルアイコン（絶対配置・下部） - bottom-3 から bottom-6 へ調整 */}
           {court.match?.level && (
-            <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10">
+            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10">
               <span className={`px-1 py-0.5 rounded text-[8px] font-bold text-white shadow-sm whitespace-nowrap ${court.match.level === 'A' ? 'bg-blue-600' : court.match.level === 'B' ? 'bg-yellow-500' : 'bg-red-500'}`}>
                 {court.match.level}
               </span>
