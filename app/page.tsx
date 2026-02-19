@@ -532,8 +532,6 @@ export default function DoublesMatchupApp() {
     }
     setNextMatches(planned);
     
-    // 生成後に指紋（フィンガープリント）を更新しておくことで、
-    // useEffect側での「変化検知による再実行」を防ぐ。
     const updatedIds = new Set<number>();
     planned.forEach(c => {
       if (c.match) [c.match.p1, c.match.p2, c.match.p3, c.match.p4].forEach(id => updatedIds.add(id));
@@ -557,29 +555,67 @@ export default function DoublesMatchupApp() {
   const handleBulkAction = () => {
     if (config.bulkOnlyMode) {
       const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      const matchesToApply = [...nextMatches];
+      const matchesToApply = JSON.parse(JSON.stringify(nextMatches)) as Court[];
+      
+      // 1. 一旦すべてクリア（視覚的なリセット）
       setCourts(prev => prev.map(c => ({ ...c, match: null })));
       setNextMatches(prev => prev.map(c => ({ ...c, match: null })));
       
-      // 非同期での反映（ガタつき防止のわずかなディレイ）
+      // 2. 微小なラグを置いてから繰り上げと新規生成を行う
       setTimeout(() => {
         let currentMembersState = [...members];
         let newHistoryEntries: MatchRecord[] = [];
+        
+        // 履歴の作成とメンバー状態の更新
         matchesToApply.forEach(c => {
           if (c?.match) {
             const ids = [c.match.p1, c.match.p2, c.match.p3, c.match.p4];
             const names = ids.map(id => currentMembersState.find(m => m.id === id)?.name || '?');
-            newHistoryEntries.push({ id: Date.now().toString() + c.id, timestamp, courtId: c.id, players: names, playerIds: ids, level: c.match?.level });
+            newHistoryEntries.push({ 
+              id: Date.now().toString() + c.id, 
+              timestamp, 
+              courtId: c.id, 
+              players: names, 
+              playerIds: ids, 
+              level: c.match?.level 
+            });
             currentMembersState = calculateNextMemberState(currentMembersState, c.match.p1, c.match.p2, c.match.p3, c.match.p4);
           }
         });
+
+        // 繰り上げ実行
         setMatchHistory(prev => [...newHistoryEntries, ...prev]);
         setMembers(currentMembersState);
         setCourts(matchesToApply);
         setHasUserConfirmedRegen(false);
-        // ここで次回の予定を生成し、lastFingerprintも内部で更新する
-        regeneratePlannedMatches(currentMembersState);
-      }, 200);
+
+        // 次回を新規生成
+        let tempMembersForNext = JSON.parse(JSON.stringify(currentMembersState)) as Member[];
+        let newlyPlanned: Court[] = [];
+        for (let i = 0; i < config.courtCount; i++) {
+          const m = getMatchForCourt(newlyPlanned, tempMembersForNext);
+          if (m) {
+            newlyPlanned.push({ id: i + 1, match: m });
+            const ids = [m.p1, m.p2, m.p3, m.p4];
+            tempMembersForNext = tempMembersForNext.map(mem => ids.includes(mem.id) ? { ...mem, playCount: mem.playCount + 1, lastPlayedTime: Date.now() } : mem);
+          } else {
+            newlyPlanned.push({ id: i + 1, match: null });
+          }
+        }
+        setNextMatches(newlyPlanned);
+
+        // 指紋を更新して自動再生成を抑止
+        const updatedIds = new Set<number>();
+        newlyPlanned.forEach(c => { if (c.match) [c.match.p1, c.match.p2, c.match.p3, c.match.p4].forEach(id => updatedIds.add(id)); });
+        const status = currentMembersState.map(m => {
+          let s = `${m.id}-${m.fixedPairMemberId || 'none'}`;
+          if (updatedIds.has(m.id)) { s += `-${m.isActive}`; if (config.levelStrict) s += `-${m.level}`; }
+          else { s += `-${m.isActive === true ? 'active' : 'inactive'}`; }
+          return s;
+        }).sort().join('|');
+        setLastFingerprint(`${status}_C${config.courtCount}_S${config.levelStrict}_B${config.bulkOnlyMode}_F${config.orderFirstMatchByList}`);
+        prevMembersRef.current = JSON.parse(JSON.stringify(currentMembersState));
+      }, 150);
     } else {
       setCourts(prev => prev.map(c => ({ ...c, match: null })));
       setTimeout(() => {
