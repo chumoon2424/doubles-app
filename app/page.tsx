@@ -519,11 +519,19 @@ export default function DoublesMatchupApp() {
 
   // --- マッチングロジック (レベル優先 弱/強: 高度な探索版) ---
   const getMatchWithPriority = (candidates: Member[], priority: 'weak' | 'strong'): Match | null => {
-    // ヘルパー: レベルが一つでも重なっているか判定
-    const isLevelCompatible = (l1: LevelPattern, l2: LevelPattern) => {
+    // レベル間の最小距離を計算するヘルパー
+    const getLevelDistance = (l1: LevelPattern, l2: LevelPattern) => {
+      const levelMap: Record<string, number> = { 'A': 1, 'B': 2, 'C': 3 };
       const s1 = l1.split('/');
       const s2 = l2.split('/');
-      return s1.some(v => s2.includes(v));
+      let minDistance = 999;
+      for (const v1 of s1) {
+        for (const v2 of s2) {
+          const d = Math.abs(levelMap[v1] - levelMap[v2]);
+          if (d < minDistance) minDistance = d;
+        }
+      }
+      return minDistance;
     };
 
     const minPC = Math.min(...candidates.map(m => m.playCount));
@@ -575,12 +583,15 @@ export default function DoublesMatchupApp() {
                             + (m1.matchHistory[m3.id] || 0) + (m1.matchHistory[m4.id] || 0)
                             + (m2.matchHistory[m3.id] || 0) + (m2.matchHistory[m4.id] || 0);
 
-              // レベル一致度 (重なりがない場合にペナルティ)
-              // コート内の全4名のレベル互換性を評価
+              // レベル一致度 (「距離」に基づく判定)
+              // コート内の全組み合わせ（6ペア）の距離を合計して評価を厳格化
               const levelPenalty = 
-                (isLevelCompatible(m1.level, m2.level) ? 0 : 1) +
-                (isLevelCompatible(m3.level, m4.level) ? 0 : 1) +
-                (isLevelCompatible(m1.level, m3.level) ? 0 : 1);
+                getLevelDistance(m1.level, m2.level) + // 自ペア1
+                getLevelDistance(m3.level, m4.level) + // 自ペア2
+                getLevelDistance(m1.level, m3.level) + // 相手1
+                getLevelDistance(m1.level, m4.level) + // 相手2
+                getLevelDistance(m2.level, m3.level) + // 相手3
+                getLevelDistance(m2.level, m4.level);  // 相手4
 
               if (priority === 'strong') {
                 // 強: レベル一致度 ＞ 分散度
