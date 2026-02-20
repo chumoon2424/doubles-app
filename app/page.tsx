@@ -143,7 +143,6 @@ export default function DoublesMatchupApp() {
       const safeMembers = (loadedData.members || []).map((m: any, idx: number) => {
         let level = m.level || 'A/B/C';
         if (level === 'A' || level === 'B' || level === 'C') {
-          // 既存データを尊重
         } else if (!LEVEL_PATTERNS.includes(level as LevelPattern)) {
           level = 'A/B/C';
         }
@@ -207,7 +206,6 @@ export default function DoublesMatchupApp() {
     }
   }, [members, activeTab]);
 
-  // --- 並べ替えロジック ---
   const sortByName = () => {
     const sorted = [...displayMembers].sort((a, b) => a.name.localeCompare(b.name, 'ja'));
     setDisplayMembers(sorted);
@@ -440,7 +438,6 @@ export default function DoublesMatchupApp() {
       if (m.id === id) {
         return { ...m, level: newLevel };
       }
-      // ペアを設定している人のレベルを変更した場合、そのペアのレベルも同じように変更する
       if (targetMember?.fixedPairMemberId && m.id === targetMember.fixedPairMemberId) {
         return { ...m, level: newLevel };
       }
@@ -450,25 +447,16 @@ export default function DoublesMatchupApp() {
     syncMemberUpdate(nextDisplay);
   };
 
-  // 4人の共通レベルを取得する関数
   const getCommonLevel = (pIds: number[], currentMembers: Member[]): LevelPattern | undefined => {
     const players = pIds.map(id => currentMembers.find(m => m.id === id)).filter((m): m is Member => !!m);
     if (players.length < 4) return undefined;
-    
-    // 全員のレベルセットを取得
     const levelSets = players.map(p => new Set(p.level.split('/')));
-    
-    // 共通部分を抽出
     const common = ['A', 'B', 'C'].filter(lvl => levelSets.every(set => set.has(lvl)));
-    
-    // AとCのみ、または空の場合は非表示
     if (common.length === 0) return undefined;
     if (common.length === 2 && common.includes('A') && common.includes('C') && !common.includes('B')) return undefined;
-    
     return common.join('/') as LevelPattern;
   };
 
-  // --- マッチングロジック (レベル優先なし) ---
   const getMatchNonePriority = (candidates: Member[]): Match | null => {
     const minPlayCount = Math.min(...candidates.map(m => m.playCount));
     const minLastTime = Math.min(...candidates.map(m => m.lastPlayedTime));
@@ -496,7 +484,6 @@ export default function DoublesMatchupApp() {
           criteria.push(m.fixedPairMemberId && candidates.some(c => c.id === m.fixedPairMemberId) ? 1 : 0);
           criteria.push((m.playCount === minPlayCount || m.lastPlayedTime === minLastTime) ? 0 : 1);
           criteria.push((y.pairHistory?.[m.id] || 0), (y.matchHistory?.[m.id] || 0));
-          // 指摘箇所の修正: w.pairHistory + w.matchHistory
           criteria.push((w.pairHistory?.[m.id] || 0) + (w.matchHistory?.[m.id] || 0), (x.pairHistory?.[m.id] || 0) + (x.matchHistory?.[m.id] || 0));
         }
         return criteria;
@@ -533,43 +520,48 @@ export default function DoublesMatchupApp() {
       };
       return cost(curr) < cost(prev) ? curr : prev;
     });
-    // 4人の共通レベルを算出して設定
-    return { p1: best[0].id, p2: best[1].id, p3: best[2].id, p4: best[3].id, levelPattern: getCommonLevel([best[0].id, best[1].id, best[2].id, best[3].id], candidates) };
+    
+    return { 
+      p1: best[0].id, p2: best[1].id, p3: best[2].id, p4: best[3].id, 
+      levelPattern: getCommonLevel([best[0].id, best[1].id, best[2].id, best[3].id], candidates) 
+    };
   };
 
-  // --- マッチングロジック (レベル優先 弱/強: 高度な探索版) ---
   const getMatchWithPriority = (candidates: Member[], priority: 'weak' | 'strong'): Match | null => {
-    // レベル間の最小距離を計算するヘルパー
+    // レベル間の論理的距離を計算する関数
     const getLevelDistance = (l1: LevelPattern, l2: LevelPattern) => {
-      const levelMap: Record<string, number> = { 'A': 1, 'B': 2, 'C': 3 };
+      const levelWeight: Record<string, number> = { 'A': 1, 'B': 5, 'C': 10 };
       const s1 = l1.split('/');
       const s2 = l2.split('/');
-      let minDistance = 999;
+      let minDistance = Infinity;
       for (const v1 of s1) {
         for (const v2 of s2) {
-          const d = Math.abs(levelMap[v1] - levelMap[v2]);
+          const d = Math.abs(levelWeight[v1] - levelWeight[v2]);
           if (d < minDistance) minDistance = d;
         }
       }
       return minDistance;
     };
 
-    const minPC = Math.min(...candidates.map(m => m.playCount));
-    // 2試合以上の差を出さないため、最小試合数と最小+1のメンバーのみに絞り込む
-    const filteredCandidates = candidates.filter(m => m.playCount <= minPC + 1);
+    // 1. 全体候補における最小試合数を特定
+    const globalMinPlayCount = Math.min(...candidates.map(m => m.playCount));
     
-    // 探索前にシャッフルして初期順の影響を排除
-    const shuffled = [...filteredCandidates].sort(() => Math.random() - 0.5);
-    
-    // 探索用のプールを作成（緊急度順。ただしfilteredにより最大1差以内は保証済み）
-    const sortedByUrgency = shuffled.sort((a, b) => {
+    // 2. 「最小試合数」または「最小+1」のメンバーのみに厳格に制限
+    const filteredCandidates = candidates.filter(m => 
+      m.playCount === globalMinPlayCount || m.playCount === globalMinPlayCount + 1
+    );
+
+    // 3. 緊急度でソート（試合数が少ない > 見なし試合数が多い）
+    const sortedByUrgency = [...filteredCandidates].sort((a, b) => {
       if (a.playCount !== b.playCount) return a.playCount - b.playCount;
-      if (a.imputedPlayCount !== b.imputedPlayCount) return b.imputedPlayCount - a.imputedPlayCount;
-      return a.lastPlayedTime - b.lastPlayedTime;
+      if ((b.imputedPlayCount || 0) !== (a.imputedPlayCount || 0)) {
+        return (b.imputedPlayCount || 0) - (a.imputedPlayCount || 0);
+      }
+      return 0;
     });
 
-    // 計算コストのため上位から抽出
-    const topCandidates = sortedByUrgency.slice(0, 16);
+    // 計算負荷を考慮し上位16名を探索
+    const topCandidates = sortedByUrgency.slice(0, Math.min(sortedByUrgency.length, 16));
     
     let bestMatch: Match | null = null;
     let bestScore = Infinity;
@@ -580,12 +572,16 @@ export default function DoublesMatchupApp() {
           for (let l = k + 1; l < topCandidates.length; l++) {
             const p = [topCandidates[i], topCandidates[j], topCandidates[k], topCandidates[l]];
             
+            // 選ばれた4人の中で試合数に2以上の差がないか再チェック
+            const counts = p.map(m => m.playCount);
+            if (Math.max(...counts) - Math.min(...counts) > 1) continue;
+
             const pairings = [[0,1,2,3], [0,2,1,3], [0,3,1,2]];
             pairings.forEach(idx => {
               const m1=p[idx[0]], m2=p[idx[1]], m3=p[idx[2]], m4=p[idx[3]];
               let score = 0;
 
-              // --- 1. 固定ペア制約 (絶対最優先) ---
+              // 固定ペア制約
               const hasFixed1 = m1.fixedPairMemberId === m2.id;
               const hasFixed2 = m3.fixedPairMemberId === m4.id;
               if (m1.fixedPairMemberId && !hasFixed1) score += 100000;
@@ -593,46 +589,40 @@ export default function DoublesMatchupApp() {
               if (m3.fixedPairMemberId && !hasFixed2) score += 100000;
               if (m4.fixedPairMemberId && !hasFixed2) score += 100000;
 
-              // --- 2. 試合数の偏り抑制 (プール内でも最小試合数の人を優先) ---
-              const sumPC = m1.playCount + m2.playCount + m3.playCount + m4.playCount;
-              score += (sumPC - minPC * 4) * 5000;
-
-              // --- 3. 指示に基づく優先順位の切り替え ---
-              // 分散度（過去の履歴）
+              // 履歴の分散（ペア回数・対戦回数）
               const scatter = (m1.pairHistory[m2.id] || 0) * 20 + (m3.pairHistory[m4.id] || 0) * 20
                             + (m1.matchHistory[m3.id] || 0) + (m1.matchHistory[m4.id] || 0)
                             + (m2.matchHistory[m3.id] || 0) + (m2.matchHistory[m4.id] || 0);
 
-              // レベル一致度 (「距離」に基づく判定)
-              // コート内の全組み合わせ（6ペア）の距離を合計して評価を厳格化
+              // レベル一致度（距離ベース）
               const levelPenalty = 
-                getLevelDistance(m1.level, m2.level) + // 自ペア1
-                getLevelDistance(m3.level, m4.level) + // 自ペア2
-                getLevelDistance(m1.level, m3.level) + // 相手1
-                getLevelDistance(m1.level, m4.level) + // 相手2
-                getLevelDistance(m2.level, m3.level) + // 相手3
-                getLevelDistance(m2.level, m4.level);  // 相手4
+                getLevelDistance(m1.level, m2.level) + 
+                getLevelDistance(m3.level, m4.level) + 
+                getLevelDistance(m1.level, m3.level) + 
+                getLevelDistance(m1.level, m4.level) + 
+                getLevelDistance(m2.level, m3.level) + 
+                getLevelDistance(m2.level, m4.level);
 
               if (priority === 'strong') {
-                // 強: レベル一致度 ＞ 分散度
                 score += levelPenalty * 1000 + scatter;
               } else {
-                // 弱: 分散度 ＞ レベル一致度
                 score += scatter * 100 + levelPenalty;
               }
 
-              // 同スコア時のための微小な乱数
+              // 同一スコア時のランダム性
               const finalScore = score + (Math.random() * 0.1);
 
               if (finalScore < bestScore) {
                 bestScore = finalScore;
-                bestMatch = { p1: m1.id, p2: m2.id, p3: m3.id, p4: m4.id, levelPattern: getCommonLevel([m1.id, m2.id, m3.id, m4.id], candidates) };
+                bestMatch = { 
+                  p1: m1.id, p2: m2.id, p3: m3.id, p4: m4.id, 
+                  levelPattern: getCommonLevel([m1.id, m2.id, m3.id, m4.id], candidates) 
+                };
               }
             });
           }
         }
       }
-      // 十分に良いスコアが見つかれば早期終了
       if (bestMatch && bestScore < 100) break;
     }
     return bestMatch;
@@ -648,7 +638,10 @@ export default function DoublesMatchupApp() {
       const firstTimers = candidates.filter(m => m.playCount === 0).sort((a, b) => a.sortOrder - b.sortOrder);
       if (firstTimers.length >= 4) {
         const p = firstTimers.slice(0, 4);
-        return { p1: p[0].id, p2: p[1].id, p3: p[2].id, p4: p[3].id, levelPattern: getCommonLevel([p[0].id, p[1].id, p[2].id, p[3].id], currentMembers) };
+        return { 
+          p1: p[0].id, p2: p[1].id, p3: p[2].id, p4: p[3].id, 
+          levelPattern: getCommonLevel([p[0].id, p[1].id, p[2].id, p[3].id], currentMembers) 
+        };
       }
     }
 
