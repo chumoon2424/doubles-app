@@ -780,6 +780,20 @@ export default function DoublesMatchupApp() {
     return `calc(${base} * ${mod})`;
   };
 
+  // --- 待機中メンバーの取得 ---
+  const waitingMembers = useMemo(() => {
+    const playingIds = new Set<number>();
+    courts.forEach(c => {
+      if (c.match) {
+        playingIds.add(c.match.p1);
+        playingIds.add(c.match.p2);
+        playingIds.add(c.match.p3);
+        playingIds.add(c.match.p4);
+      }
+    });
+    return members.filter(m => m.isActive && !playingIds.has(m.id));
+  }, [members, courts]);
+
   const CourtCard = ({ court, isPlanned = false }: { court: Court, isPlanned?: boolean }) => {
     const h = (config.bulkOnlyMode ? 140 : 140) * config.zoomLevel;
     const border = isPlanned ? 'border-gray-500' : 'border-slate-900';
@@ -837,6 +851,25 @@ export default function DoublesMatchupApp() {
         {activeTab === 'dashboard' && (
           <div className="space-y-6">
             {showScheduleNotice && <div className="bg-orange-100 border border-orange-200 text-orange-800 px-4 py-2 rounded-lg flex items-center gap-2 animate-bounce"><AlertCircle size={18} /> <span className="text-sm font-bold">状況に合わせて予定を更新しました</span></div>}
+            
+            {!config.bulkOnlyMode && (
+              <section className="bg-white/50 rounded-xl p-3 border border-white/80 shadow-sm">
+                <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 flex items-center gap-1"><Users size={12}/> 待機中 ({waitingMembers.length})</h3>
+                <div className="flex flex-wrap gap-1.5">
+                  {waitingMembers.length > 0 ? (
+                    waitingMembers.map(m => (
+                      <div key={m.id} className="bg-white px-2.5 py-1 rounded-full text-sm font-bold shadow-sm border border-gray-100 flex items-center gap-1.5 animate-in fade-in zoom-in duration-200">
+                        <span className="text-slate-700">{m.name}</span>
+                        <span className="text-[10px] text-gray-300 font-mono">#{m.playCount}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <span className="text-xs text-gray-300 italic py-1">待機中のメンバーはいません</span>
+                  )}
+                </div>
+              </section>
+            )}
+
             <section className="grid grid-cols-1 landscape:grid-cols-2 gap-4">
               {config.bulkOnlyMode && <h2 className="col-span-full font-black text-xl text-slate-900 border-l-8 border-slate-900 pl-3">現在の対戦</h2>}
               {courts.map(court => <CourtCard key={court.id} court={court} />)}
