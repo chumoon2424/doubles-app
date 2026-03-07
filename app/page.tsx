@@ -77,6 +77,13 @@ interface AppConfig {
   orderFirstMatchByList: boolean;
 }
 
+// 入れ替え用型定義
+interface SwapTarget {
+  memberId: number;
+  courtId?: number; // 指定があれば試合中、なければ待機中
+  position?: 'p1' | 'p2' | 'p3' | 'p4';
+}
+
 // --- レベルバッジ用コンポーネント ---
 const LevelBadge = ({ level, className = "" }: { level: LevelPattern, className?: string }) => {
   const segments = level.split('/');
@@ -112,6 +119,9 @@ export default function DoublesMatchupApp() {
   const [editingPairMemberId, setEditingPairMemberId] = useState<number | null>(null);
   const [showScheduleNotice, setShowScheduleNotice] = useState(false);
   const [hasUserConfirmedRegen, setHasUserConfirmedRegen] = useState(false);
+  
+  // 入れ替え状態管理
+  const [selectedSwap, setSelectedSwap] = useState<SwapTarget | null>(null);
 
   const prevMembersRef = useRef<Member[]>([]);
   const [lastFingerprint, setLastFingerprint] = useState('');
@@ -696,6 +706,25 @@ export default function DoublesMatchupApp() {
     });
   };
 
+  // --- メンバー履歴の差し戻しロジック ---
+  const revertMemberState = (currentMembers: Member[], p1: number, p2: number, p3: number, p4: number) => {
+    const playerIds = [p1, p2, p3, p4];
+    return currentMembers.map(m => {
+      if (!playerIds.includes(m.id)) return m;
+      const newMatchH = { ...(m.matchHistory || {}) };
+      const newPairH = { ...(m.pairHistory || {}) };
+      let partnerId = 0, opponents: number[] = [];
+      if (m.id === p1) { partnerId = p2; opponents = [p3, p4]; }
+      else if (m.id === p2) { partnerId = p1; opponents = [p3, p4]; }
+      else if (m.id === p3) { partnerId = p4; opponents = [p1, p2]; }
+      else if (m.id === p4) { partnerId = p3; opponents = [p1, p2]; }
+      
+      newPairH[partnerId] = Math.max(0, (newPairH[partnerId] || 0) - 1);
+      opponents.forEach(oid => { newMatchH[oid] = Math.max(0, (newMatchH[oid] || 0) - 1); });
+      return { ...m, playCount: Math.max(0, m.playCount - 1), matchHistory: newMatchH, pairHistory: newPairH };
+    });
+  };
+
   const applyMatchToMembers = (p1: number, p2: number, p3: number, p4: number) => {
     setMembers(prev => calculateNextMemberState(prev, p1, p2, p3, p4));
   };
@@ -769,12 +798,16 @@ export default function DoublesMatchupApp() {
     setCourts(prev => prev.map(c => c.id === courtId ? { ...c, match } : c));
   };
 
-  const finishMatch = (courtId: number) => setCourts(prev => prev.map(c => {
-    if (c.id === courtId) {
-      return { ...c, match: null };
-    }
-    return c;
-  }));
+  const finishMatch = (courtId: number) => {
+    setSelectedSwap(null);
+    setCourts(prev => prev.map(c => {
+      if (c.id === courtId) {
+        return { ...c, match: null };
+      }
+      return c;
+    }));
+  };
+
   const changeZoom = (d: number) => setConfig(p => ({ ...p, zoomLevel: Math.max(0.5, Math.min(2.0, p.zoomLevel + d)) }));
   const changeNameFontSize = (d: number) => setConfig(p => ({ ...p, nameFontSizeModifier: Math.max(0.5, Math.min(2.0, p.nameFontSizeModifier + d)) }));
 
@@ -783,6 +816,105 @@ export default function DoublesMatchupApp() {
     const len = name.split('').reduce((acc, char) => acc + (/[\x20-\x7E]/.test(char) ? 0.6 : 1.0), 0);
     let base = len <= 2 ? '3.5rem' : len <= 4 ? '2.8rem' : len <= 6 ? '2rem' : len <= 8 ? '1.6rem' : '1.3rem';
     return `calc(${base} * ${mod})`;
+  };
+
+  // --- メンバー入れ替え実行ロジック ---
+  const handleSwap = (target: SwapTarget) => {
+    if (!selectedSwap) {
+      setSelectedSwap(target);
+      return;
+    }
+
+    const s1 = selectedSwap;
+    const s2 = target;
+
+    // 同一人物ならキャンセル
+    if (s1.memberId === s2.memberId) {
+      setSelectedSwap(null);
+      return;
+    }
+
+    // 待機中同士の入れ替えは不要
+    if (!s1.courtId && !s2.courtId) {
+      setSelectedSwap(null);
+      return;
+    }
+
+    setMembers(prev => {
+      let nextMembers = [...prev];
+
+      // 履歴の整合性を保つための更新
+      // 1. 試合中のメンバーがいれば、そのコートの既存履歴を一旦差し戻す
+      [s1, s2].forEach(s => {
+        if (s.courtId) {
+          const court = courts.find(c => c.id === s.courtId);
+          if (court?.match) {
+            nextMembers = revertMemberState(nextMembers, court.match.p1, court.match.p2, court.match.p3, court.match.p4);
+          }
+        }
+      });
+
+      // 2. コートの状態（プレイヤーID）を更新する
+      setCourts(prevCourts => {
+        const nextCourts = [...prevCourts];
+        const updates: {cid: number, pos: string, mid: number}[] = [];
+        
+        if (s1.courtId) updates.push({ cid: s1.courtId, pos: s1.position!, mid: s2.memberId });
+        if (s2.courtId) updates.push({ cid: s2.courtId, pos: s2.position!, mid: s1.memberId });
+
+        updates.forEach(u => {
+          const cIdx = nextCourts.findIndex(c => c.id === u.cid);
+          if (cIdx !== -1 && nextCourts[cIdx].match) {
+            nextCourts[cIdx] = {
+              ...nextCourts[cIdx],
+              match: { ...nextCourts[cIdx].match!, [u.pos]: u.mid }
+            };
+          }
+        });
+
+        // 3. 更新されたコートの状態に基づき、新しい履歴を適用する
+        // (非同期更新を避けるため、更新後のnextCourtsを参照してメンバー状態を計算)
+        let finalMembers = [...nextMembers];
+        nextCourts.forEach(c => {
+          if (c.match && (c.id === s1.courtId || c.id === s2.courtId)) {
+            finalMembers = calculateNextMemberState(finalMembers, c.match.p1, c.match.p2, c.match.p3, c.match.p4);
+            
+            // 履歴画面の表示も更新
+            setMatchHistory(prevH => prevH.map(h => {
+              if (h.courtId === c.id && h.id.startsWith(Date.now().toString().slice(0, 5))) { // 簡易的な同一試合判定
+                 // 実際には履歴の最新を書き換えるのは難しいため、簡易的に無視するか、最新の特定が必要
+                 // 今回は「最新の該当コート履歴」を書き換える
+              }
+              return h;
+            }));
+            
+            // 最新の履歴レコードを特定して更新
+            const targetHistIdx = matchHistory.findIndex(h => h.courtId === c.id);
+            if (targetHistIdx !== -1) {
+              setMatchHistory(prevH => {
+                const newH = [...prevH];
+                const updatedMatch = c.match!;
+                const ids = [updatedMatch.p1, updatedMatch.p2, updatedMatch.p3, updatedMatch.p4];
+                newH[targetHistIdx] = {
+                  ...newH[targetHistIdx],
+                  playerIds: ids,
+                  players: ids.map(id => finalMembers.find(m => m.id === id)?.name || '?'),
+                  levelPattern: getCommonLevel(ids, finalMembers)
+                };
+                return newH;
+              });
+            }
+          }
+        });
+        
+        setTimeout(() => setMembers(finalMembers), 0);
+        return nextCourts;
+      });
+
+      return nextMembers;
+    });
+
+    setSelectedSwap(null);
   };
 
   // --- 待機中メンバーの取得 ---
@@ -823,11 +955,23 @@ export default function DoublesMatchupApp() {
               <div className="flex-1 grid grid-cols-2 gap-2 h-full">
                 {[1, 2].map(pIdx => (
                   <div key={pIdx} className={`rounded-lg flex flex-col justify-center items-stretch border px-3 overflow-hidden ${pIdx === 1 ? 'bg-blue-50/30 border-blue-100' : 'bg-red-50/30 border-red-100'}`}>
-                    {[pIdx === 1 ? 'p1' : 'p3', pIdx === 1 ? 'p2' : 'p4'].map((pKey, i) => (
-                      <div key={pKey} className="h-1/2 flex items-center">
-                        <div className={`w-full leading-tight font-black whitespace-nowrap overflow-hidden text-ellipsis ${isPlanned ? 'text-gray-600' : 'text-black'} ${i === 1 ? 'text-right' : 'text-left'}`} style={{ fontSize: getDynamicFontSize(members.find(m => m.id === (court.match as any)?.[pKey])?.name, config.nameFontSizeModifier * 0.9) }}>{members.find(m => m.id === (court.match as any)?.[pKey])?.name}</div>
-                      </div>
-                    ))}
+                    {[pIdx === 1 ? 'p1' : 'p3', pIdx === 1 ? 'p2' : 'p4'].map((pKey, i) => {
+                      const mId = (court.match as any)?.[pKey];
+                      const mName = members.find(m => m.id === mId)?.name;
+                      const isSelected = selectedSwap?.memberId === mId;
+                      return (
+                        <div key={pKey} className="h-1/2 flex items-center">
+                          <button 
+                            disabled={config.bulkOnlyMode || isPlanned}
+                            onClick={() => handleSwap({ memberId: mId, courtId: court.id, position: pKey as any })}
+                            className={`w-full leading-tight font-black whitespace-nowrap overflow-hidden text-ellipsis transition-all rounded px-1 ${isPlanned ? 'text-gray-600' : 'text-black'} ${i === 1 ? 'text-right' : 'text-left'} ${isSelected ? 'bg-yellow-200 ring-2 ring-yellow-400' : 'hover:bg-black/5'}`} 
+                            style={{ fontSize: getDynamicFontSize(mName, config.nameFontSizeModifier * 0.9) }}
+                          >
+                            {mName}
+                          </button>
+                        </div>
+                      );
+                    })}
                   </div>
                 ))}
               </div>
@@ -864,14 +1008,24 @@ export default function DoublesMatchupApp() {
 
             {!config.bulkOnlyMode && (
               <section className="bg-white/50 rounded-xl p-3 border border-white/80 shadow-sm mt-4">
-                <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 flex items-center gap-1"><Users size={12}/> 待機中 ({waitingMembers.length})</h3>
+                <div className="flex justify-between items-center mb-2">
+                  <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1"><Users size={12}/> 待機中 ({waitingMembers.length})</h3>
+                  {selectedSwap && <span className="text-[10px] font-black text-orange-600 animate-pulse flex items-center gap-1"><RotateCcw size={10}/> 入れ替え対象を選択中...</span>}
+                </div>
                 <div className="flex flex-wrap gap-1.5">
                   {waitingMembers.length > 0 ? (
-                    waitingMembers.map(m => (
-                      <div key={m.id} className="bg-white px-3 py-1.5 rounded-full text-sm font-bold shadow-sm border border-gray-100 text-slate-700 animate-in fade-in zoom-in duration-200">
-                        {m.name}
-                      </div>
-                    ))
+                    waitingMembers.map(m => {
+                      const isSelected = selectedSwap?.memberId === m.id;
+                      return (
+                        <button 
+                          key={m.id} 
+                          onClick={() => handleSwap({ memberId: m.id })}
+                          className={`px-3 py-1.5 rounded-full text-sm font-bold shadow-sm border transition-all animate-in fade-in zoom-in duration-200 ${isSelected ? 'bg-yellow-200 border-yellow-400 ring-2 ring-yellow-400 text-yellow-900' : 'bg-white border-gray-100 text-slate-700 hover:bg-gray-50'}`}
+                        >
+                          {m.name}
+                        </button>
+                      );
+                    })
                   ) : (
                     <span className="text-xs text-gray-300 italic py-1">待機中のメンバーはいません</span>
                   )}
