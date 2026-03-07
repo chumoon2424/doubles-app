@@ -769,7 +769,12 @@ export default function DoublesMatchupApp() {
     setCourts(prev => prev.map(c => c.id === courtId ? { ...c, match } : c));
   };
 
-  const finishMatch = (courtId: number) => setCourts(prev => prev.map(c => c.id === courtId ? { ...c, match: null } : c));
+  const finishMatch = (courtId: number) => setCourts(prev => prev.map(c => {
+    if (c.id === courtId) {
+      return { ...c, match: null };
+    }
+    return c;
+  }));
   const changeZoom = (d: number) => setConfig(p => ({ ...p, zoomLevel: Math.max(0.5, Math.min(2.0, p.zoomLevel + d)) }));
   const changeNameFontSize = (d: number) => setConfig(p => ({ ...p, nameFontSizeModifier: Math.max(0.5, Math.min(2.0, p.nameFontSizeModifier + d)) }));
 
@@ -852,15 +857,19 @@ export default function DoublesMatchupApp() {
           <div className="space-y-6">
             {showScheduleNotice && <div className="bg-orange-100 border border-orange-200 text-orange-800 px-4 py-2 rounded-lg flex items-center gap-2 animate-bounce"><AlertCircle size={18} /> <span className="text-sm font-bold">状況に合わせて予定を更新しました</span></div>}
             
+            <section className="grid grid-cols-1 landscape:grid-cols-2 gap-4">
+              {config.bulkOnlyMode && <h2 className="col-span-full font-black text-xl text-slate-900 border-l-8 border-slate-900 pl-3">現在の対戦</h2>}
+              {courts.map(court => <CourtCard key={court.id} court={court} />)}
+            </section>
+
             {!config.bulkOnlyMode && (
-              <section className="bg-white/50 rounded-xl p-3 border border-white/80 shadow-sm">
+              <section className="bg-white/50 rounded-xl p-3 border border-white/80 shadow-sm mt-4">
                 <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 flex items-center gap-1"><Users size={12}/> 待機中 ({waitingMembers.length})</h3>
                 <div className="flex flex-wrap gap-1.5">
                   {waitingMembers.length > 0 ? (
                     waitingMembers.map(m => (
-                      <div key={m.id} className="bg-white px-2.5 py-1 rounded-full text-sm font-bold shadow-sm border border-gray-100 flex items-center gap-1.5 animate-in fade-in zoom-in duration-200">
-                        <span className="text-slate-700">{m.name}</span>
-                        <span className="text-[10px] text-gray-300 font-mono">#{m.playCount}</span>
+                      <div key={m.id} className="bg-white px-3 py-1.5 rounded-full text-sm font-bold shadow-sm border border-gray-100 text-slate-700 animate-in fade-in zoom-in duration-200">
+                        {m.name}
                       </div>
                     ))
                   ) : (
@@ -870,10 +879,6 @@ export default function DoublesMatchupApp() {
               </section>
             )}
 
-            <section className="grid grid-cols-1 landscape:grid-cols-2 gap-4">
-              {config.bulkOnlyMode && <h2 className="col-span-full font-black text-xl text-slate-900 border-l-8 border-slate-900 pl-3">現在の対戦</h2>}
-              {courts.map(court => <CourtCard key={court.id} court={court} />)}
-            </section>
             {config.bulkOnlyMode && (
               <section className="grid grid-cols-1 landscape:grid-cols-2 gap-4 mt-8 pb-8">
                 <h2 className="col-span-full font-black text-xl text-gray-600 border-l-8 border-gray-500 pl-3">次回の予定</h2>
