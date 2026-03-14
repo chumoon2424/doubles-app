@@ -76,6 +76,7 @@ interface AppConfig {
   nameFontSizeModifier: number;
   bulkOnlyMode: boolean;
   orderFirstMatchByList: boolean;
+  memoDefault: 'none' | 'yyyymm';
 }
 
 // 入れ替え用型定義
@@ -114,6 +115,7 @@ export default function DoublesMatchupApp() {
     nameFontSizeModifier: 1.0,
     bulkOnlyMode: false,
     orderFirstMatchByList: false,
+    memoDefault: 'yyyymm',
   });
   const [nextMemberId, setNextMemberId] = useState(1);
   const [isInitialized, setIsInitialized] = useState(false);
@@ -134,7 +136,7 @@ export default function DoublesMatchupApp() {
   // --- データの読み込みと保存 ---
   useEffect(() => {
     // データ引き継ぎ対応
-    const versions = ['v21', 'v20', 'v19', 'v18', 'v17', 'v16', 'v15', 'v14', 'v13', 'v12', 'v11', 'v10', 'v9', 'v8'];
+    const versions = ['v22', 'v21', 'v20', 'v19', 'v18', 'v17', 'v16', 'v15', 'v14', 'v13', 'v12', 'v11', 'v10', 'v9', 'v8'];
     let loadedData: any = null;
     let loadedVersion = '';
     for (const v of versions) {
@@ -189,7 +191,8 @@ export default function DoublesMatchupApp() {
         ...prev, 
         ...(loadedData.config || {}),
         levelPriority: initialPriority,
-        orderFirstMatchByList: loadedData.config?.orderFirstMatchByList ?? false 
+        orderFirstMatchByList: loadedData.config?.orderFirstMatchByList ?? false,
+        memoDefault: loadedData.config?.memoDefault ?? 'yyyymm'
       }));
       setNextMemberId(loadedData.nextMemberId || (safeMembers.length > 0 ? Math.max(...safeMembers.map((m: any) => m.id)) + 1 : 1));
       setMatchHistory(loadedData.matchHistory || []);
@@ -207,7 +210,7 @@ export default function DoublesMatchupApp() {
     if (!isInitialized) return;
     try {
       const data = { members, courts, nextMatches, matchHistory, config, nextMemberId };
-      localStorage.setItem('doubles-app-data-v21', JSON.stringify(data));
+      localStorage.setItem('doubles-app-data-v22', JSON.stringify(data));
     } catch (e) {
       console.error("Failed to save data");
     }
@@ -432,10 +435,14 @@ export default function DoublesMatchupApp() {
   const addMember = () => {
     const activeMembers = members.filter(m => m.isActive);
     const avgPlay = activeMembers.length > 0 ? Math.floor(activeMembers.reduce((s, m) => s + m.playCount, 0) / activeMembers.length) : 0;
-    const now = new Date();
-    const year2 = String(now.getFullYear()).slice(-2);
-    const month2 = String(now.getMonth() + 1).padStart(2, '0');
-    const defaultMemo = `${year2}${month2}`;
+    
+    let defaultMemo = '';
+    if (config.memoDefault === 'yyyymm') {
+      const now = new Date();
+      const year2 = String(now.getFullYear()).slice(-2);
+      const month2 = String(now.getMonth() + 1).padStart(2, '0');
+      defaultMemo = `${year2}${month2}`;
+    }
 
     const newMember: Member = { 
       id: nextMemberId, name: `${nextMemberId}`, level: 'A/B/C', isActive: true, 
@@ -1135,6 +1142,7 @@ export default function DoublesMatchupApp() {
             <div className="flex items-center justify-between py-6 border-y border-gray-50"><div className="flex-1 pr-4 flex flex-col"><span className="font-bold text-lg text-gray-700">1巡目の試合は名簿順</span><span className="text-xs text-gray-400 leading-tight">未出場の人が4人以上いる場合、名簿の上位から（制約無視で）割り当てます</span></div><button onClick={() => { const next = { ...config, orderFirstMatchByList: !config.orderFirstMatchByList }; if (checkChangeConfirmation(undefined, next)) setConfig(next); }} className={`shrink-0 w-14 h-7 rounded-full relative transition-colors ${config.orderFirstMatchByList ? 'bg-blue-600' : 'bg-gray-200'}`}><div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-md ${config.orderFirstMatchByList ? 'left-8' : 'left-1'}`} /></button></div>
             <div className="flex items-center justify-between py-6 border-b border-gray-50"><div className="flex-1 pr-4 flex flex-col"><span className="font-bold text-lg text-gray-700">レベル優先モード</span><span className="text-xs text-gray-400 leading-tight">レベルを考慮して組み合わせます（強制：一致必須、強：一致優先、弱：分散優先）</span></div><div className="relative"><select value={config.levelPriority} onChange={(e) => { const next = { ...config, levelPriority: e.target.value as LevelPriority }; if (checkChangeConfirmation(undefined, next)) setConfig(next); }} className="bg-gray-100 border-none rounded-lg px-3 py-2 text-sm font-bold text-gray-700 appearance-none pr-8 focus:ring-2 focus:ring-blue-500"><option value="none">なし</option><option value="weak">弱</option><option value="strong">強</option><option value="forced">強制</option></select><ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400" /></div></div>
             <div className="flex items-center justify-between py-6 border-b border-gray-50"><div className="flex-1 pr-4 flex flex-col"><span className="font-bold text-lg text-gray-700">一括進行モード</span><span className="text-xs text-gray-400 leading-tight">一括更新のみ可能となり、次回の予定が表示されます</span></div><button onClick={() => setConfig(prev => ({ ...prev, bulkOnlyMode: !prev.bulkOnlyMode }))} className={`shrink-0 w-14 h-7 rounded-full relative transition-colors ${config.bulkOnlyMode ? 'bg-blue-600' : 'bg-gray-200'}`}><div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-md ${config.bulkOnlyMode ? 'left-8' : 'left-1'}`} /></button></div>
+            <div className="flex items-center justify-between py-6 border-b border-gray-50"><div className="flex-1 pr-4 flex flex-col"><span className="font-bold text-lg text-gray-700">メモ欄のデフォルト</span><span className="text-xs text-gray-400 leading-tight">新しく選手を追加した際のメモ欄の初期値を設定します</span></div><div className="relative"><select value={config.memoDefault} onChange={(e) => setConfig(prev => ({ ...prev, memoDefault: e.target.value as 'none' | 'yyyymm' }))} className="bg-gray-100 border-none rounded-lg px-3 py-2 text-sm font-bold text-gray-700 appearance-none pr-8 focus:ring-2 focus:ring-blue-500"><option value="none">なし</option><option value="yyyymm">年月</option></select><ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400" /></div></div>
             <div className="space-y-4"><button onClick={resetPlayCountsOnly} className="w-full py-4 bg-gray-50 text-gray-700 rounded-2xl font-bold flex items-center justify-center gap-3 border active:bg-gray-100 transition-colors"><RotateCcw size={20} /> 試合数と履歴をリセット</button><button onClick={() => {if(confirm('全てリセットしますか？')) {localStorage.clear(); location.reload();}}} className="w-full py-4 bg-red-50 text-red-500 rounded-2xl font-bold border border-red-100 active:bg-red-100 transition-colors">データを完全消去</button></div>
           </div>
         )}
