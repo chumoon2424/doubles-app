@@ -24,7 +24,8 @@ import {
   Save,
   StickyNote,
   ChevronDown,
-  UserCheck
+  UserCheck,
+  BarChart3
 } from 'lucide-react';
 
 // --- 型定義 ---
@@ -75,6 +76,7 @@ interface AppConfig {
   nameFontSizeModifier: number;
   bulkOnlyMode: boolean;
   orderFirstMatchByList: boolean;
+  memoDefault: 'none' | 'yyyymm';
 }
 
 // 入れ替え用型定義
@@ -113,6 +115,7 @@ export default function DoublesMatchupApp() {
     nameFontSizeModifier: 1.0,
     bulkOnlyMode: false,
     orderFirstMatchByList: false,
+    memoDefault: 'yyyymm',
   });
   const [nextMemberId, setNextMemberId] = useState(1);
   const [isInitialized, setIsInitialized] = useState(false);
@@ -132,7 +135,8 @@ export default function DoublesMatchupApp() {
 
   // --- データの読み込みと保存 ---
   useEffect(() => {
-    const versions = ['v20', 'v19', 'v18', 'v17', 'v16', 'v15', 'v14', 'v13', 'v12', 'v11', 'v10', 'v9', 'v8'];
+    // データ引き継ぎ対応
+    const versions = ['v22', 'v21', 'v20', 'v19', 'v18', 'v17', 'v16', 'v15', 'v14', 'v13', 'v12', 'v11', 'v10', 'v9', 'v8'];
     let loadedData: any = null;
     let loadedVersion = '';
     for (const v of versions) {
@@ -187,7 +191,8 @@ export default function DoublesMatchupApp() {
         ...prev, 
         ...(loadedData.config || {}),
         levelPriority: initialPriority,
-        orderFirstMatchByList: loadedData.config?.orderFirstMatchByList ?? false 
+        orderFirstMatchByList: loadedData.config?.orderFirstMatchByList ?? false,
+        memoDefault: loadedData.config?.memoDefault ?? 'yyyymm'
       }));
       setNextMemberId(loadedData.nextMemberId || (safeMembers.length > 0 ? Math.max(...safeMembers.map((m: any) => m.id)) + 1 : 1));
       setMatchHistory(loadedData.matchHistory || []);
@@ -205,7 +210,7 @@ export default function DoublesMatchupApp() {
     if (!isInitialized) return;
     try {
       const data = { members, courts, nextMatches, matchHistory, config, nextMemberId };
-      localStorage.setItem('doubles-app-data-v20', JSON.stringify(data));
+      localStorage.setItem('doubles-app-data-v22', JSON.stringify(data));
     } catch (e) {
       console.error("Failed to save data");
     }
@@ -226,6 +231,16 @@ export default function DoublesMatchupApp() {
 
   const sortByMemo = () => {
     const sorted = [...displayMembers].sort((a, b) => a.memo.localeCompare(b.memo));
+    setDisplayMembers(sorted);
+  };
+
+  const sortByLevel = () => {
+    const levelOrder: Record<string, number> = { 'A/B/C': 1, 'A': 2, 'A/B': 3, 'B': 4, 'B/C': 5, 'C': 6 };
+    const sorted = [...displayMembers].sort((a, b) => {
+      const valA = levelOrder[a.level] || 99;
+      const valB = levelOrder[b.level] || 99;
+      return valA - valB;
+    });
     setDisplayMembers(sorted);
   };
 
@@ -420,10 +435,14 @@ export default function DoublesMatchupApp() {
   const addMember = () => {
     const activeMembers = members.filter(m => m.isActive);
     const avgPlay = activeMembers.length > 0 ? Math.floor(activeMembers.reduce((s, m) => s + m.playCount, 0) / activeMembers.length) : 0;
-    const now = new Date();
-    const year2 = String(now.getFullYear()).slice(-2);
-    const month2 = String(now.getMonth() + 1).padStart(2, '0');
-    const defaultMemo = `${year2}${month2}`;
+    
+    let defaultMemo = '';
+    if (config.memoDefault === 'yyyymm') {
+      const now = new Date();
+      const year2 = String(now.getFullYear()).slice(-2);
+      const month2 = String(now.getMonth() + 1).padStart(2, '0');
+      defaultMemo = `${year2}${month2}`;
+    }
 
     const newMember: Member = { 
       id: nextMemberId, name: `${nextMemberId}`, level: 'A/B/C', isActive: true, 
@@ -515,7 +534,6 @@ export default function DoublesMatchupApp() {
           criteria.push(m.fixedPairMemberId && candidates.some(c => c.id === m.fixedPairMemberId) ? 1 : 0);
           criteria.push((m.playCount === minPlayCount || m.lastPlayedTime === minLastTime) ? 0 : 1);
           criteria.push((y.pairHistory?.[m.id] || 0), (y.matchHistory?.[m.id] || 0));
-          // 指摘箇所の修正: w.pairHistory + w.matchHistory
           criteria.push((w.pairHistory?.[m.id] || 0) + (w.matchHistory?.[m.id] || 0), (x.pairHistory?.[m.id] || 0) + (x.matchHistory?.[m.id] || 0));
         }
         return criteria;
@@ -736,13 +754,53 @@ export default function DoublesMatchupApp() {
   const regeneratePlannedMatches = (targetMembers?: Member[]) => {
     let tempMembers = JSON.parse(JSON.stringify(targetMembers || members)) as Member[];
     let planned: Court[] = [];
-    for (let i = 0; i < config.courtCount; i++) {
-      const match = getMatchForCourt(planned, tempMembers);
-      if (match) {
-        planned.push({ id: i + 1, match });
-        const ids = [match.p1, match.p2, match.p3, match.p4];
-        tempMembers = tempMembers.map(m => ids.includes(m.id) ? { ...m, playCount: m.playCount + 1, lastPlayedTime: Date.now() } : m);
-      } else { planned.push({ id: i + 1, match: null }); }
+    const courtCount = config.courtCount;
+
+    // 修正の指示に基づき、一括更新モードかつレベル優先(弱・強)の場合は全体最適化
+    if (config.bulkOnlyMode && (config.levelPriority === 'weak' || config.levelPriority === 'strong')) {
+      let activeCandidates = tempMembers.filter(m => m.isActive);
+      if (activeCandidates.length < 4) {
+        setNextMatches(Array.from({ length: courtCount }, (_, i) => ({ id: i + 1, match: null })));
+        return;
+      }
+
+      // 1. 全コート分(4 * コート数)のメンバーを抽出（試合数が少ない順を優先）
+      // 試合数の最大最小差を1以内に保つため、まず昇順ソートして上位から人数分確保
+      const neededPlayerCount = Math.min(activeCandidates.length - (activeCandidates.length % 4), courtCount * 4);
+      const pool = activeCandidates
+        .sort((a, b) => {
+          if (a.playCount !== b.playCount) return a.playCount - b.playCount;
+          return a.lastPlayedTime - b.lastPlayedTime;
+        })
+        .slice(0, neededPlayerCount);
+
+      // 2. 確保したpool内でコートごとにマッチング
+      let currentPool = [...pool];
+      for (let i = 0; i < courtCount; i++) {
+        if (currentPool.length < 4) {
+          planned.push({ id: i + 1, match: null });
+          continue;
+        }
+        // pool内メンバーだけでマッチングを行う
+        const match = getMatchWithPriority(currentPool, config.levelPriority);
+        if (match) {
+          planned.push({ id: i + 1, match });
+          const ids = [match.p1, match.p2, match.p3, match.p4];
+          currentPool = currentPool.filter(m => !ids.includes(m.id));
+        } else {
+          planned.push({ id: i + 1, match: null });
+        }
+      }
+    } else {
+      // それ以外（なし、強制、または非一括）は従来通り1コートずつ逐次決定
+      for (let i = 0; i < courtCount; i++) {
+        const match = getMatchForCourt(planned, tempMembers);
+        if (match) {
+          planned.push({ id: i + 1, match });
+          const ids = [match.p1, match.p2, match.p3, match.p4];
+          tempMembers = tempMembers.map(m => ids.includes(m.id) ? { ...m, playCount: m.playCount + 1, lastPlayedTime: Date.now() } : m);
+        } else { planned.push({ id: i + 1, match: null }); }
+      }
     }
     setNextMatches(planned);
   };
@@ -880,15 +938,6 @@ export default function DoublesMatchupApp() {
         nextCourts.forEach(c => {
           if (c.match && (c.id === s1.courtId || c.id === s2.courtId)) {
             finalMembers = calculateNextMemberState(finalMembers, c.match.p1, c.match.p2, c.match.p3, c.match.p4);
-            
-            // 履歴画面の表示も更新
-            setMatchHistory(prevH => prevH.map(h => {
-              if (h.courtId === c.id && h.id.startsWith(Date.now().toString().slice(0, 5))) { // 簡易的な同一試合判定
-                 // 実際には履歴の最新を書き換えるのは難しいため、簡易的に無視するか、最新の特定が必要
-                 // 今回は「最新の該当コート履歴」を書き換える
-              }
-              return h;
-            }));
             
             // 最新の履歴レコードを特定して更新
             const targetHistIdx = matchHistory.findIndex(h => h.courtId === c.id);
@@ -1046,7 +1095,7 @@ export default function DoublesMatchupApp() {
         {activeTab === 'members' && (
           <div className="space-y-3 max-w-2xl mx-auto">
             <div className="flex justify-between items-center p-2"><h2 className="font-bold text-xl text-gray-700">名簿 ({members.filter(m => m.isActive).length}/{members.length})</h2><button onClick={addMember} className="bg-green-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-1 shadow-lg"><Plus size={20} />選手追加</button></div>
-            <div className="flex justify-between items-center px-2 pb-2"><div className="flex gap-2 overflow-x-auto no-scrollbar"><button onClick={resetToSavedOrder} className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-full text-xs font-bold text-gray-600 shadow-sm active:bg-gray-50"><RotateCcw size={14}/> 保存した順</button><button onClick={sortByName} className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-full text-xs font-bold text-gray-600 shadow-sm active:bg-gray-50"><SortAsc size={14}/> 名前順</button><button onClick={sortByMemo} className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-full text-xs font-bold text-gray-600 shadow-sm active:bg-gray-50"><StickyNote size={14}/> メモ順</button><button onClick={sortByActive} className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-full text-xs font-bold text-gray-600 shadow-sm active:bg-gray-50"><UserCheck size={14}/> 参加中</button></div><button onClick={saveCurrentOrder} className="shrink-0 flex items-center gap-1.5 px-4 py-1.5 bg-blue-600 border border-blue-500 rounded-full text-xs font-bold text-white shadow-md active:bg-blue-700 transition-colors ml-4"><Save size={14}/> 順序を保存</button></div>
+            <div className="flex justify-between items-center px-2 pb-2"><div className="flex gap-2 overflow-x-auto no-scrollbar"><button onClick={resetToSavedOrder} className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-full text-xs font-bold text-gray-600 shadow-sm active:bg-gray-50"><RotateCcw size={14}/> 保存した順</button><button onClick={sortByName} className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-full text-xs font-bold text-gray-600 shadow-sm active:bg-gray-50"><SortAsc size={14}/> 名前順</button><button onClick={sortByMemo} className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-full text-xs font-bold text-gray-600 shadow-sm active:bg-gray-50"><StickyNote size={14}/> メモ順</button><button onClick={sortByLevel} className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-full text-xs font-bold text-gray-600 shadow-sm active:bg-gray-50"><BarChart3 size={14}/> レベル順</button><button onClick={sortByActive} className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-full text-xs font-bold text-gray-600 shadow-sm active:bg-gray-50"><UserCheck size={14}/> 参加中</button></div><button onClick={saveCurrentOrder} className="shrink-0 flex items-center gap-1.5 px-4 py-1.5 bg-blue-600 border border-blue-500 rounded-full text-xs font-bold text-white shadow-md active:bg-blue-700 transition-colors ml-4"><Save size={14}/> 順序を保存</button></div>
             <div className="bg-white rounded-2xl shadow-sm divide-y overflow-hidden relative">
               {displayMembers.map((m, idx) => (
                 <div key={m.id} draggable={true} onDragStart={() => onDragStart(idx)} onDragOver={(e) => onDragOver(e, idx)} onDragEnd={onDragEnd} className={`p-4 flex items-center gap-2 ${!m.isActive ? 'bg-gray-50 opacity-40' : ''} ${draggedIndex === idx ? 'opacity-20 bg-blue-100' : ''}`}>
@@ -1093,6 +1142,7 @@ export default function DoublesMatchupApp() {
             <div className="flex items-center justify-between py-6 border-y border-gray-50"><div className="flex-1 pr-4 flex flex-col"><span className="font-bold text-lg text-gray-700">1巡目の試合は名簿順</span><span className="text-xs text-gray-400 leading-tight">未出場の人が4人以上いる場合、名簿の上位から（制約無視で）割り当てます</span></div><button onClick={() => { const next = { ...config, orderFirstMatchByList: !config.orderFirstMatchByList }; if (checkChangeConfirmation(undefined, next)) setConfig(next); }} className={`shrink-0 w-14 h-7 rounded-full relative transition-colors ${config.orderFirstMatchByList ? 'bg-blue-600' : 'bg-gray-200'}`}><div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-md ${config.orderFirstMatchByList ? 'left-8' : 'left-1'}`} /></button></div>
             <div className="flex items-center justify-between py-6 border-b border-gray-50"><div className="flex-1 pr-4 flex flex-col"><span className="font-bold text-lg text-gray-700">レベル優先モード</span><span className="text-xs text-gray-400 leading-tight">レベルを考慮して組み合わせます（強制：一致必須、強：一致優先、弱：分散優先）</span></div><div className="relative"><select value={config.levelPriority} onChange={(e) => { const next = { ...config, levelPriority: e.target.value as LevelPriority }; if (checkChangeConfirmation(undefined, next)) setConfig(next); }} className="bg-gray-100 border-none rounded-lg px-3 py-2 text-sm font-bold text-gray-700 appearance-none pr-8 focus:ring-2 focus:ring-blue-500"><option value="none">なし</option><option value="weak">弱</option><option value="strong">強</option><option value="forced">強制</option></select><ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400" /></div></div>
             <div className="flex items-center justify-between py-6 border-b border-gray-50"><div className="flex-1 pr-4 flex flex-col"><span className="font-bold text-lg text-gray-700">一括進行モード</span><span className="text-xs text-gray-400 leading-tight">一括更新のみ可能となり、次回の予定が表示されます</span></div><button onClick={() => setConfig(prev => ({ ...prev, bulkOnlyMode: !prev.bulkOnlyMode }))} className={`shrink-0 w-14 h-7 rounded-full relative transition-colors ${config.bulkOnlyMode ? 'bg-blue-600' : 'bg-gray-200'}`}><div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-md ${config.bulkOnlyMode ? 'left-8' : 'left-1'}`} /></button></div>
+            <div className="flex items-center justify-between py-6 border-b border-gray-50"><div className="flex-1 pr-4 flex flex-col"><span className="font-bold text-lg text-gray-700">メモ欄のデフォルト</span><span className="text-xs text-gray-400 leading-tight">新しく選手を追加した際のメモ欄の初期値を設定します</span></div><div className="relative"><select value={config.memoDefault} onChange={(e) => setConfig(prev => ({ ...prev, memoDefault: e.target.value as 'none' | 'yyyymm' }))} className="bg-gray-100 border-none rounded-lg px-3 py-2 text-sm font-bold text-gray-700 appearance-none pr-8 focus:ring-2 focus:ring-blue-500"><option value="none">なし</option><option value="yyyymm">年月</option></select><ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400" /></div></div>
             <div className="space-y-4"><button onClick={resetPlayCountsOnly} className="w-full py-4 bg-gray-50 text-gray-700 rounded-2xl font-bold flex items-center justify-center gap-3 border active:bg-gray-100 transition-colors"><RotateCcw size={20} /> 試合数と履歴をリセット</button><button onClick={() => {if(confirm('全てリセットしますか？')) {localStorage.clear(); location.reload();}}} className="w-full py-4 bg-red-50 text-red-500 rounded-2xl font-bold border border-red-100 active:bg-red-100 transition-colors">データを完全消去</button></div>
           </div>
         )}
