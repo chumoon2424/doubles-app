@@ -29,7 +29,7 @@ import {
 
 // --- 型定義 ---
 type LevelPattern = 'A/B/C' | 'A' | 'A/B' | 'B' | 'B/C' | 'C';
-type LevelPriority = 'none' | 'weak' | 'strong';
+type LevelPriority = 'none' | 'weak' | 'strong' | 'forced';
 
 interface Member {
   id: number;
@@ -132,7 +132,7 @@ export default function DoublesMatchupApp() {
 
   // --- データの読み込みと保存 ---
   useEffect(() => {
-    const versions = ['v19', 'v18', 'v17', 'v16', 'v15', 'v14', 'v13', 'v12', 'v11', 'v10', 'v9', 'v8'];
+    const versions = ['v20', 'v19', 'v18', 'v17', 'v16', 'v15', 'v14', 'v13', 'v12', 'v11', 'v10', 'v9', 'v8'];
     let loadedData: any = null;
     let loadedVersion = '';
     for (const v of versions) {
@@ -205,7 +205,7 @@ export default function DoublesMatchupApp() {
     if (!isInitialized) return;
     try {
       const data = { members, courts, nextMatches, matchHistory, config, nextMemberId };
-      localStorage.setItem('doubles-app-data-v19', JSON.stringify(data));
+      localStorage.setItem('doubles-app-data-v20', JSON.stringify(data));
     } catch (e) {
       console.error("Failed to save data");
     }
@@ -556,8 +556,8 @@ export default function DoublesMatchupApp() {
     return { p1: best[0].id, p2: best[1].id, p3: best[2].id, p4: best[3].id, levelPattern: getCommonLevel([best[0].id, best[1].id, best[2].id, best[3].id], candidates) };
   };
 
-  // --- マッチングロジック (レベル優先 弱/強: 高度な探索版) ---
-  const getMatchWithPriority = (candidates: Member[], priority: 'weak' | 'strong'): Match | null => {
+  // --- マッチングロジック (レベル優先 弱/強/強制: 高度な探索版) ---
+  const getMatchWithPriority = (candidates: Member[], priority: 'weak' | 'strong' | 'forced'): Match | null => {
     // レベル間の最小距離を計算するヘルパー
     const getLevelDistance = (l1: LevelPattern, l2: LevelPattern) => {
       const levelMap: Record<string, number> = { 'A': 1, 'B': 2, 'C': 3 };
@@ -574,21 +574,25 @@ export default function DoublesMatchupApp() {
     };
 
     const minPC = Math.min(...candidates.map(m => m.playCount));
-    // 2試合以上の差を出さないため、最小試合数と最小+1のメンバーのみに絞り込む
-    const filteredCandidates = candidates.filter(m => m.playCount <= minPC + 1);
     
-    // 探索前にシャッフルして初期順の影響を排除
+    // 強制モード以外は、2試合以上の差を出さないためにプールを絞る
+    // 強制モードの場合は、全アクティブメンバーから探索（レベル一致を最優先するため）
+    const filteredCandidates = priority === 'forced' 
+      ? candidates 
+      : candidates.filter(m => m.playCount <= minPC + 1);
+    
+    // 探索前にシャッフル
     const shuffled = [...filteredCandidates].sort(() => Math.random() - 0.5);
     
-    // 探索用のプールを作成（緊急度順。ただしfilteredにより最大1差以内は保証済み）
+    // 探索用の優先順位
     const sortedByUrgency = shuffled.sort((a, b) => {
       if (a.playCount !== b.playCount) return a.playCount - b.playCount;
       if (a.imputedPlayCount !== b.imputedPlayCount) return b.imputedPlayCount - a.imputedPlayCount;
       return a.lastPlayedTime - b.lastPlayedTime;
     });
 
-    // 計算コストのため上位から抽出
-    const topCandidates = sortedByUrgency.slice(0, 16);
+    // 探索範囲（強制モード時は広めに取る）
+    const topCandidates = sortedByUrgency.slice(0, priority === 'forced' ? 32 : 16);
     
     let bestMatch: Match | null = null;
     let bestScore = Infinity;
@@ -599,6 +603,10 @@ export default function DoublesMatchupApp() {
           for (let l = k + 1; l < topCandidates.length; l++) {
             const p = [topCandidates[i], topCandidates[j], topCandidates[k], topCandidates[l]];
             
+            // 強制モード：共通レベルがない場合は候補から完全に除外
+            const common = getCommonLevel([p[0].id, p[1].id, p[2].id, p[3].id], candidates);
+            if (priority === 'forced' && !common) continue;
+
             const pairings = [[0,1,2,3], [0,2,1,3], [0,3,1,2]];
             pairings.forEach(idx => {
               const m1=p[idx[0]], m2=p[idx[1]], m3=p[idx[2]], m4=p[idx[3]];
@@ -612,46 +620,42 @@ export default function DoublesMatchupApp() {
               if (m3.fixedPairMemberId && !hasFixed2) score += 100000;
               if (m4.fixedPairMemberId && !hasFixed2) score += 100000;
 
-              // --- 2. 試合数の偏り抑制 (プール内でも最小試合数の人を優先) ---
+              // --- 2. 試合数の偏り抑制 ---
               const sumPC = m1.playCount + m2.playCount + m3.playCount + m4.playCount;
               score += (sumPC - minPC * 4) * 5000;
 
-              // --- 3. 指示に基づく優先順位の切り替え ---
-              // 分散度（過去の履歴）
+              // --- 3. 優先順位に応じたスコア計算 ---
               const scatter = (m1.pairHistory[m2.id] || 0) * 20 + (m3.pairHistory[m4.id] || 0) * 20
                             + (m1.matchHistory[m3.id] || 0) + (m1.matchHistory[m4.id] || 0)
                             + (m2.matchHistory[m3.id] || 0) + (m2.matchHistory[m4.id] || 0);
 
-              // レベル一致度 (「距離」に基づく判定)
-              // コート内の全組み合わせ（6ペア）の距離を合計して評価を厳格化
               const levelPenalty = 
-                getLevelDistance(m1.level, m2.level) + // 自ペア1
-                getLevelDistance(m3.level, m4.level) + // 自ペア2
-                getLevelDistance(m1.level, m3.level) + // 相手1
-                getLevelDistance(m1.level, m4.level) + // 相手2
-                getLevelDistance(m2.level, m3.level) + // 相手3
-                getLevelDistance(m2.level, m4.level);  // 相手4
+                getLevelDistance(m1.level, m2.level) + 
+                getLevelDistance(m3.level, m4.level) + 
+                getLevelDistance(m1.level, m3.level) + 
+                getLevelDistance(m1.level, m4.level) + 
+                getLevelDistance(m2.level, m3.level) + 
+                getLevelDistance(m2.level, m4.level);
 
               if (priority === 'strong') {
-                // 強: レベル一致度 ＞ 分散度
                 score += levelPenalty * 1000 + scatter;
+              } else if (priority === 'forced') {
+                // 強制モード：レベルペナルティはフィルタリングでクリア済みなので分散度のみ評価
+                score += scatter;
               } else {
-                // 弱: 分散度 ＞ レベル一致度
                 score += scatter * 100 + levelPenalty;
               }
 
-              // 同スコア時のための微小な乱数
               const finalScore = score + (Math.random() * 0.1);
 
               if (finalScore < bestScore) {
                 bestScore = finalScore;
-                bestMatch = { p1: m1.id, p2: m2.id, p3: m3.id, p4: m4.id, levelPattern: getCommonLevel([m1.id, m2.id, m3.id, m4.id], candidates) };
+                bestMatch = { p1: m1.id, p2: m2.id, p3: m3.id, p4: m4.id, levelPattern: common };
               }
             });
           }
         }
       }
-      // 十分に良いスコアが見つかれば早期終了
       if (bestMatch && bestScore < 100) break;
     }
     return bestMatch;
@@ -843,7 +847,6 @@ export default function DoublesMatchupApp() {
     setMembers(prev => {
       let nextMembers = [...prev];
 
-      // 履歴の整合性を保つための更新
       // 1. 試合中のメンバーがいれば、そのコートの既存履歴を一旦差し戻す
       [s1, s2].forEach(s => {
         if (s.courtId) {
@@ -873,7 +876,6 @@ export default function DoublesMatchupApp() {
         });
 
         // 3. 更新されたコートの状態に基づき、新しい履歴を適用する
-        // (非同期更新を避けるため、更新後のnextCourtsを参照してメンバー状態を計算)
         let finalMembers = [...nextMembers];
         nextCourts.forEach(c => {
           if (c.match && (c.id === s1.courtId || c.id === s2.courtId)) {
@@ -1089,7 +1091,7 @@ export default function DoublesMatchupApp() {
             <div><label className="block text-sm font-bold text-gray-400 mb-6 uppercase tracking-[0.2em]">コート数: <span className="text-blue-600 text-2xl ml-2">{config.courtCount}</span></label><input type="range" min="1" max="8" value={config.courtCount} onChange={e => handleCourtCountChange(parseInt(e.target.value))} className="w-full h-3 bg-gray-100 rounded-lg appearance-none cursor-pointer accent-blue-600" style={{ WebkitAppearance: 'none' }} /></div>
             <div className="space-y-4 pt-4 border-t border-gray-100"><span className="block text-sm font-bold text-gray-400 uppercase tracking-widest">名簿データの管理</span><div className="grid grid-cols-2 gap-3"><button onClick={exportMembers} className="py-3 bg-indigo-600 text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow-sm active:bg-indigo-700 transition-colors"><Download size={18} /> 退避(保存)</button><button onClick={() => fileInputRef.current?.click()} className="py-3 bg-white text-indigo-600 border-2 border-indigo-600 rounded-xl font-bold flex items-center justify-center gap-2 active:bg-indigo-50 transition-colors"><Upload size={18} /> 復元(読込)</button><input type="file" ref={fileInputRef} onChange={importMembers} accept=".json" className="hidden" /></div></div>
             <div className="flex items-center justify-between py-6 border-y border-gray-50"><div className="flex-1 pr-4 flex flex-col"><span className="font-bold text-lg text-gray-700">1巡目の試合は名簿順</span><span className="text-xs text-gray-400 leading-tight">未出場の人が4人以上いる場合、名簿の上位から（制約無視で）割り当てます</span></div><button onClick={() => { const next = { ...config, orderFirstMatchByList: !config.orderFirstMatchByList }; if (checkChangeConfirmation(undefined, next)) setConfig(next); }} className={`shrink-0 w-14 h-7 rounded-full relative transition-colors ${config.orderFirstMatchByList ? 'bg-blue-600' : 'bg-gray-200'}`}><div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-md ${config.orderFirstMatchByList ? 'left-8' : 'left-1'}`} /></button></div>
-            <div className="flex items-center justify-between py-6 border-b border-gray-50"><div className="flex-1 pr-4 flex flex-col"><span className="font-bold text-lg text-gray-700">レベル優先モード</span><span className="text-xs text-gray-400 leading-tight">レベルを考慮して組み合わせます（強：レベル一致優先、弱：分散優先）</span></div><div className="relative"><select value={config.levelPriority} onChange={(e) => { const next = { ...config, levelPriority: e.target.value as LevelPriority }; if (checkChangeConfirmation(undefined, next)) setConfig(next); }} className="bg-gray-100 border-none rounded-lg px-3 py-2 text-sm font-bold text-gray-700 appearance-none pr-8 focus:ring-2 focus:ring-blue-500"><option value="none">なし</option><option value="weak">弱</option><option value="strong">強</option></select><ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400" /></div></div>
+            <div className="flex items-center justify-between py-6 border-b border-gray-50"><div className="flex-1 pr-4 flex flex-col"><span className="font-bold text-lg text-gray-700">レベル優先モード</span><span className="text-xs text-gray-400 leading-tight">レベルを考慮して組み合わせます（強制：一致必須、強：一致優先、弱：分散優先）</span></div><div className="relative"><select value={config.levelPriority} onChange={(e) => { const next = { ...config, levelPriority: e.target.value as LevelPriority }; if (checkChangeConfirmation(undefined, next)) setConfig(next); }} className="bg-gray-100 border-none rounded-lg px-3 py-2 text-sm font-bold text-gray-700 appearance-none pr-8 focus:ring-2 focus:ring-blue-500"><option value="none">なし</option><option value="weak">弱</option><option value="strong">強</option><option value="forced">強制</option></select><ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400" /></div></div>
             <div className="flex items-center justify-between py-6 border-b border-gray-50"><div className="flex-1 pr-4 flex flex-col"><span className="font-bold text-lg text-gray-700">一括進行モード</span><span className="text-xs text-gray-400 leading-tight">一括更新のみ可能となり、次回の予定が表示されます</span></div><button onClick={() => setConfig(prev => ({ ...prev, bulkOnlyMode: !prev.bulkOnlyMode }))} className={`shrink-0 w-14 h-7 rounded-full relative transition-colors ${config.bulkOnlyMode ? 'bg-blue-600' : 'bg-gray-200'}`}><div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-md ${config.bulkOnlyMode ? 'left-8' : 'left-1'}`} /></button></div>
             <div className="space-y-4"><button onClick={resetPlayCountsOnly} className="w-full py-4 bg-gray-50 text-gray-700 rounded-2xl font-bold flex items-center justify-center gap-3 border active:bg-gray-100 transition-colors"><RotateCcw size={20} /> 試合数と履歴をリセット</button><button onClick={() => {if(confirm('全てリセットしますか？')) {localStorage.clear(); location.reload();}}} className="w-full py-4 bg-red-50 text-red-500 rounded-2xl font-bold border border-red-100 active:bg-red-100 transition-colors">データを完全消去</button></div>
           </div>
