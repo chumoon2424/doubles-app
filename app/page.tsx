@@ -132,7 +132,8 @@ export default function DoublesMatchupApp() {
 
   // --- データの読み込みと保存 ---
   useEffect(() => {
-    const versions = ['v20', 'v19', 'v18', 'v17', 'v16', 'v15', 'v14', 'v13', 'v12', 'v11', 'v10', 'v9', 'v8'];
+    // データ引き継ぎ対応
+    const versions = ['v21', 'v20', 'v19', 'v18', 'v17', 'v16', 'v15', 'v14', 'v13', 'v12', 'v11', 'v10', 'v9', 'v8'];
     let loadedData: any = null;
     let loadedVersion = '';
     for (const v of versions) {
@@ -205,7 +206,7 @@ export default function DoublesMatchupApp() {
     if (!isInitialized) return;
     try {
       const data = { members, courts, nextMatches, matchHistory, config, nextMemberId };
-      localStorage.setItem('doubles-app-data-v20', JSON.stringify(data));
+      localStorage.setItem('doubles-app-data-v21', JSON.stringify(data));
     } catch (e) {
       console.error("Failed to save data");
     }
@@ -515,7 +516,6 @@ export default function DoublesMatchupApp() {
           criteria.push(m.fixedPairMemberId && candidates.some(c => c.id === m.fixedPairMemberId) ? 1 : 0);
           criteria.push((m.playCount === minPlayCount || m.lastPlayedTime === minLastTime) ? 0 : 1);
           criteria.push((y.pairHistory?.[m.id] || 0), (y.matchHistory?.[m.id] || 0));
-          // 指摘箇所の修正: w.pairHistory + w.matchHistory
           criteria.push((w.pairHistory?.[m.id] || 0) + (w.matchHistory?.[m.id] || 0), (x.pairHistory?.[m.id] || 0) + (x.matchHistory?.[m.id] || 0));
         }
         return criteria;
@@ -736,13 +736,53 @@ export default function DoublesMatchupApp() {
   const regeneratePlannedMatches = (targetMembers?: Member[]) => {
     let tempMembers = JSON.parse(JSON.stringify(targetMembers || members)) as Member[];
     let planned: Court[] = [];
-    for (let i = 0; i < config.courtCount; i++) {
-      const match = getMatchForCourt(planned, tempMembers);
-      if (match) {
-        planned.push({ id: i + 1, match });
-        const ids = [match.p1, match.p2, match.p3, match.p4];
-        tempMembers = tempMembers.map(m => ids.includes(m.id) ? { ...m, playCount: m.playCount + 1, lastPlayedTime: Date.now() } : m);
-      } else { planned.push({ id: i + 1, match: null }); }
+    const courtCount = config.courtCount;
+
+    // 修正の指示に基づき、一括更新モードかつレベル優先(弱・強)の場合は全体最適化
+    if (config.bulkOnlyMode && (config.levelPriority === 'weak' || config.levelPriority === 'strong')) {
+      let activeCandidates = tempMembers.filter(m => m.isActive);
+      if (activeCandidates.length < 4) {
+        setNextMatches(Array.from({ length: courtCount }, (_, i) => ({ id: i + 1, match: null })));
+        return;
+      }
+
+      // 1. 全コート分(4 * コート数)のメンバーを抽出（試合数が少ない順を優先）
+      // 試合数の最大最小差を1以内に保つため、まず昇順ソートして上位から人数分確保
+      const neededPlayerCount = Math.min(activeCandidates.length - (activeCandidates.length % 4), courtCount * 4);
+      const pool = activeCandidates
+        .sort((a, b) => {
+          if (a.playCount !== b.playCount) return a.playCount - b.playCount;
+          return a.lastPlayedTime - b.lastPlayedTime;
+        })
+        .slice(0, neededPlayerCount);
+
+      // 2. 確保したpool内でコートごとにマッチング
+      let currentPool = [...pool];
+      for (let i = 0; i < courtCount; i++) {
+        if (currentPool.length < 4) {
+          planned.push({ id: i + 1, match: null });
+          continue;
+        }
+        // pool内メンバーだけでマッチングを行う
+        const match = getMatchWithPriority(currentPool, config.levelPriority);
+        if (match) {
+          planned.push({ id: i + 1, match });
+          const ids = [match.p1, match.p2, match.p3, match.p4];
+          currentPool = currentPool.filter(m => !ids.includes(m.id));
+        } else {
+          planned.push({ id: i + 1, match: null });
+        }
+      }
+    } else {
+      // それ以外（なし、強制、または非一括）は従来通り1コートずつ逐次決定
+      for (let i = 0; i < courtCount; i++) {
+        const match = getMatchForCourt(planned, tempMembers);
+        if (match) {
+          planned.push({ id: i + 1, match });
+          const ids = [match.p1, match.p2, match.p3, match.p4];
+          tempMembers = tempMembers.map(m => ids.includes(m.id) ? { ...m, playCount: m.playCount + 1, lastPlayedTime: Date.now() } : m);
+        } else { planned.push({ id: i + 1, match: null }); }
+      }
     }
     setNextMatches(planned);
   };
@@ -880,15 +920,6 @@ export default function DoublesMatchupApp() {
         nextCourts.forEach(c => {
           if (c.match && (c.id === s1.courtId || c.id === s2.courtId)) {
             finalMembers = calculateNextMemberState(finalMembers, c.match.p1, c.match.p2, c.match.p3, c.match.p4);
-            
-            // 履歴画面の表示も更新
-            setMatchHistory(prevH => prevH.map(h => {
-              if (h.courtId === c.id && h.id.startsWith(Date.now().toString().slice(0, 5))) { // 簡易的な同一試合判定
-                 // 実際には履歴の最新を書き換えるのは難しいため、簡易的に無視するか、最新の特定が必要
-                 // 今回は「最新の該当コート履歴」を書き換える
-              }
-              return h;
-            }));
             
             // 最新の履歴レコードを特定して更新
             const targetHistIdx = matchHistory.findIndex(h => h.courtId === c.id);
