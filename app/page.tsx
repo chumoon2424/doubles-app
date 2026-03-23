@@ -900,12 +900,6 @@ export default function DoublesMatchupApp() {
       return;
     }
 
-    // 個別操作が行われるので履歴をクリア
-    if (!config.bulkOnlyMode) {
-      setPastSnapshots([]);
-      setViewingSnapshotIdx(-1);
-    }
-
     setMembers(prev => {
       let nextMembers = [...prev];
 
