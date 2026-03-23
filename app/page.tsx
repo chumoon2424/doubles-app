@@ -81,20 +81,17 @@ interface AppConfig {
   memoDefault: 'none' | 'yyyymm';
 }
 
-// スナップショット用
 interface Snapshot {
   courts: Court[];
   timestamp: string;
 }
 
-// 入れ替え用型定義
 interface SwapTarget {
   memberId: number;
-  courtId?: number; // 指定があれば試合中、なければ待機中
+  courtId?: number; 
   position?: 'p1' | 'p2' | 'p3' | 'p4';
 }
 
-// --- レベルバッジ用コンポーネント ---
 const LevelBadge = ({ level, className = "" }: { level: LevelPattern, className?: string }) => {
   const segments = level.split('/');
   return (
@@ -117,7 +114,7 @@ export default function DoublesMatchupApp() {
   const [nextMatches, setNextMatches] = useState<Court[]>([]);
   const [matchHistory, setMatchHistory] = useState<MatchRecord[]>([]);
   const [pastSnapshots, setPastSnapshots] = useState<Snapshot[]>([]);
-  const [viewingSnapshotIdx, setViewingSnapshotIdx] = useState<number>(-1); // -1: 最新, 0以上: 過去分
+  const [viewingSnapshotIdx, setViewingSnapshotIdx] = useState<number>(-1);
 
   const [config, setConfig] = useState<AppConfig>({
     courtCount: 4,
@@ -134,7 +131,6 @@ export default function DoublesMatchupApp() {
   const [showScheduleNotice, setShowScheduleNotice] = useState(false);
   const [hasUserConfirmedRegen, setHasUserConfirmedRegen] = useState(false);
   
-  // 入れ替え状態管理
   const [selectedSwap, setSelectedSwap] = useState<SwapTarget | null>(null);
 
   const prevMembersRef = useRef<Member[]>([]);
@@ -144,9 +140,7 @@ export default function DoublesMatchupApp() {
 
   const LEVEL_PATTERNS: LevelPattern[] = ['A/B/C', 'A', 'A/B', 'B', 'B/C', 'C'];
 
-  // --- データの読み込みと保存 ---
   useEffect(() => {
-    // データ引き継ぎ対応
     const versions = ['v23', 'v22', 'v21', 'v20', 'v19', 'v18', 'v17', 'v16', 'v15', 'v14', 'v13', 'v12', 'v11', 'v10', 'v9', 'v8'];
     let loadedData: any = null;
     let loadedVersion = '';
@@ -169,7 +163,6 @@ export default function DoublesMatchupApp() {
       const safeMembers = (loadedData.members || []).map((m: any, idx: number) => {
         let level = m.level || 'A/B/C';
         if (level === 'A' || level === 'B' || level === 'C') {
-          // 既存データを尊重
         } else if (!LEVEL_PATTERNS.includes(level as LevelPattern)) {
           level = 'A/B/C';
         }
@@ -235,7 +228,6 @@ export default function DoublesMatchupApp() {
     }
   }, [members, activeTab]);
 
-  // --- 並べ替えロジック ---
   const sortByName = () => {
     const sorted = [...displayMembers].sort((a, b) => a.name.localeCompare(b.name, 'ja'));
     setDisplayMembers(sorted);
@@ -494,7 +486,6 @@ export default function DoublesMatchupApp() {
       if (m.id === id) {
         return { ...m, level: newLevel };
       }
-      // ペアを設定している人のレベルを変更した場合、そのペアのレベルも同じように変更する
       if (targetMember?.fixedPairMemberId && m.id === targetMember.fixedPairMemberId) {
         return { ...m, level: newLevel };
       }
@@ -504,25 +495,20 @@ export default function DoublesMatchupApp() {
     syncMemberUpdate(nextDisplay);
   };
 
-  // 4人の共通レベルを取得する関数
   const getCommonLevel = (pIds: number[], currentMembers: Member[]): LevelPattern | undefined => {
     const players = pIds.map(id => currentMembers.find(m => m.id === id)).filter((m): m is Member => !!m);
     if (players.length < 4) return undefined;
     
-    // 全員のレベルセットを取得
     const levelSets = players.map(p => new Set(p.level.split('/')));
     
-    // 共通部分を抽出
     const common = ['A', 'B', 'C'].filter(lvl => levelSets.every(set => set.has(lvl)));
     
-    // AとCのみ、または空の場合は非表示
     if (common.length === 0) return undefined;
     if (common.length === 2 && common.includes('A') && common.includes('C') && !common.includes('B')) return undefined;
     
     return common.join('/') as LevelPattern;
   };
 
-  // --- マッチングロジック (レベル優先なし) ---
   const getMatchNonePriority = (candidates: Member[]): Match | null => {
     const minPlayCount = Math.min(...candidates.map(m => m.playCount));
     const minLastTime = Math.min(...candidates.map(m => m.lastPlayedTime));
@@ -586,13 +572,10 @@ export default function DoublesMatchupApp() {
       };
       return cost(curr) < cost(prev) ? curr : prev;
     });
-    // 4人の共通レベルを算出して設定
     return { p1: best[0].id, p2: best[1].id, p3: best[2].id, p4: best[3].id, levelPattern: getCommonLevel([best[0].id, best[1].id, best[2].id, best[3].id], candidates) };
   };
 
-  // --- マッチングロジック (レベル優先 弱/強/強制: 高度な探索版) ---
   const getMatchWithPriority = (candidates: Member[], priority: 'weak' | 'strong' | 'forced'): Match | null => {
-    // レベル間の最小距離を計算するヘルパー
     const getLevelDistance = (l1: LevelPattern, l2: LevelPattern) => {
       const levelMap: Record<string, number> = { 'A': 1, 'B': 2, 'C': 3 };
       const s1 = l1.split('/');
@@ -609,23 +592,18 @@ export default function DoublesMatchupApp() {
 
     const minPC = Math.min(...candidates.map(m => m.playCount));
     
-    // 強制モード以外は、2試合以上の差を出さないためにプールを絞る
-    // 強制モードの場合は、全アクティブメンバーから探索（レベル一致を最優先するため）
     const filteredCandidates = priority === 'forced' 
       ? candidates 
       : candidates.filter(m => m.playCount <= minPC + 1);
     
-    // 探索前にシャッフル
     const shuffled = [...filteredCandidates].sort(() => Math.random() - 0.5);
     
-    // 探索用の優先順位
     const sortedByUrgency = shuffled.sort((a, b) => {
       if (a.playCount !== b.playCount) return a.playCount - b.playCount;
       if (a.imputedPlayCount !== b.imputedPlayCount) return b.imputedPlayCount - a.imputedPlayCount;
       return a.lastPlayedTime - b.lastPlayedTime;
     });
 
-    // 探索範囲（強制モード時は広めに取る）
     const topCandidates = sortedByUrgency.slice(0, priority === 'forced' ? 32 : 16);
     
     let bestMatch: Match | null = null;
@@ -637,7 +615,6 @@ export default function DoublesMatchupApp() {
           for (let l = k + 1; l < topCandidates.length; l++) {
             const p = [topCandidates[i], topCandidates[j], topCandidates[k], topCandidates[l]];
             
-            // 強制モード：共通レベルがない場合は候補から完全に除外
             const common = getCommonLevel([p[0].id, p[1].id, p[2].id, p[3].id], candidates);
             if (priority === 'forced' && !common) continue;
 
@@ -646,7 +623,6 @@ export default function DoublesMatchupApp() {
               const m1=p[idx[0]], m2=p[idx[1]], m3=p[idx[2]], m4=p[idx[3]];
               let score = 0;
 
-              // --- 1. 固定ペア制約 (絶対最優先) ---
               const hasFixed1 = m1.fixedPairMemberId === m2.id;
               const hasFixed2 = m3.fixedPairMemberId === m4.id;
               if (m1.fixedPairMemberId && !hasFixed1) score += 100000;
@@ -654,11 +630,9 @@ export default function DoublesMatchupApp() {
               if (m3.fixedPairMemberId && !hasFixed2) score += 100000;
               if (m4.fixedPairMemberId && !hasFixed2) score += 100000;
 
-              // --- 2. 試合数の偏り抑制 ---
               const sumPC = m1.playCount + m2.playCount + m3.playCount + m4.playCount;
               score += (sumPC - minPC * 4) * 5000;
 
-              // --- 3. 優先順位に応じたスコア計算 ---
               const scatter = (m1.pairHistory[m2.id] || 0) * 20 + (m3.pairHistory[m4.id] || 0) * 20
                             + (m1.matchHistory[m3.id] || 0) + (m1.matchHistory[m4.id] || 0)
                             + (m2.matchHistory[m3.id] || 0) + (m2.matchHistory[m4.id] || 0);
@@ -674,7 +648,6 @@ export default function DoublesMatchupApp() {
               if (priority === 'strong') {
                 score += levelPenalty * 1000 + scatter;
               } else if (priority === 'forced') {
-                // 強制モード：レベルペナルティはフィルタリングでクリア済みなので分散度のみ評価
                 score += scatter;
               } else {
                 score += scatter * 100 + levelPenalty;
@@ -744,7 +717,6 @@ export default function DoublesMatchupApp() {
     });
   };
 
-  // --- メンバー履歴の差し戻しロジック ---
   const revertMemberState = (currentMembers: Member[], p1: number, p2: number, p3: number, p4: number) => {
     const playerIds = [p1, p2, p3, p4];
     return currentMembers.map(m => {
@@ -772,7 +744,6 @@ export default function DoublesMatchupApp() {
     let planned: Court[] = [];
     const courtCount = config.courtCount;
 
-    // 修正の指示に基づき、一括更新モードかつレベル優先(弱・強)の場合は全体最適化
     if (config.bulkOnlyMode && (config.levelPriority === 'weak' || config.levelPriority === 'strong')) {
       let activeCandidates = tempMembers.filter(m => m.isActive);
       if (activeCandidates.length < 4) {
@@ -780,8 +751,6 @@ export default function DoublesMatchupApp() {
         return;
       }
 
-      // 1. 全コート分(4 * コート数)のメンバーを抽出（試合数が少ない順を優先）
-      // 試合数の最大最小差を1以内に保つため、まず昇順ソートして上位から人数分確保
       const neededPlayerCount = Math.min(activeCandidates.length - (activeCandidates.length % 4), courtCount * 4);
       const pool = activeCandidates
         .sort((a, b) => {
@@ -790,14 +759,12 @@ export default function DoublesMatchupApp() {
         })
         .slice(0, neededPlayerCount);
 
-      // 2. 確保したpool内でコートごとにマッチング
       let currentPool = [...pool];
       for (let i = 0; i < courtCount; i++) {
         if (currentPool.length < 4) {
           planned.push({ id: i + 1, match: null });
           continue;
         }
-        // pool内メンバーだけでマッチングを行う
         const match = getMatchWithPriority(currentPool, config.levelPriority);
         if (match) {
           planned.push({ id: i + 1, match });
@@ -808,7 +775,6 @@ export default function DoublesMatchupApp() {
         }
       }
     } else {
-      // それ以外（なし、強制、または非一括）は従来通り1コートずつ逐次決定
       for (let i = 0; i < courtCount; i++) {
         const match = getMatchForCourt(planned, tempMembers);
         if (match) {
@@ -822,7 +788,6 @@ export default function DoublesMatchupApp() {
   };
 
   const handleBulkAction = () => {
-    // 現在の対戦状態をスナップショットとして保存
     const currentSnapshot: Snapshot = {
       courts: JSON.parse(JSON.stringify(courts)),
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -878,6 +843,11 @@ export default function DoublesMatchupApp() {
     if (config.bulkOnlyMode) return;
     const match = getMatchForCourt(courts, members);
     if (!match) return alert('待機メンバーが足りません');
+
+    // 個別更新が行われたので、遡り用の履歴をクリア
+    setPastSnapshots([]);
+    setViewingSnapshotIdx(-1);
+
     const ids = [match.p1, match.p2, match.p3, match.p4], names = ids.map(id => members.find(m => m.id === id)?.name || '?');
     setMatchHistory(prev => [{ id: Date.now().toString() + courtId, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), courtId, players: names, playerIds: ids, levelPattern: match.levelPattern }, ...prev]);
     applyMatchToMembers(match.p1, match.p2, match.p3, match.p4);
@@ -886,6 +856,13 @@ export default function DoublesMatchupApp() {
 
   const finishMatch = (courtId: number) => {
     setSelectedSwap(null);
+    
+    // 個別終了が行われたので、遡り用の履歴をクリア
+    if (!config.bulkOnlyMode) {
+      setPastSnapshots([]);
+      setViewingSnapshotIdx(-1);
+    }
+
     setCourts(prev => prev.map(c => {
       if (c.id === courtId) {
         return { ...c, match: null };
@@ -904,7 +881,6 @@ export default function DoublesMatchupApp() {
     return `calc(${base} * ${mod})`;
   };
 
-  // --- メンバー入れ替え実行ロジック ---
   const handleSwap = (target: SwapTarget) => {
     if (!selectedSwap) {
       setSelectedSwap(target);
@@ -914,22 +890,25 @@ export default function DoublesMatchupApp() {
     const s1 = selectedSwap;
     const s2 = target;
 
-    // 同一人物ならキャンセル
     if (s1.memberId === s2.memberId) {
       setSelectedSwap(null);
       return;
     }
 
-    // 待機中同士の入れ替えは不要
     if (!s1.courtId && !s2.courtId) {
       setSelectedSwap(null);
       return;
     }
 
+    // 個別操作が行われるので履歴をクリア
+    if (!config.bulkOnlyMode) {
+      setPastSnapshots([]);
+      setViewingSnapshotIdx(-1);
+    }
+
     setMembers(prev => {
       let nextMembers = [...prev];
 
-      // 1. 試合中のメンバーがいれば、そのコートの既存履歴を一旦差し戻す
       [s1, s2].forEach(s => {
         if (s.courtId) {
           const court = courts.find(c => c.id === s.courtId);
@@ -939,7 +918,6 @@ export default function DoublesMatchupApp() {
         }
       });
 
-      // 2. コートの状態（プレイヤーID）を更新する
       setCourts(prevCourts => {
         const nextCourts = [...prevCourts];
         const updates: {cid: number, pos: string, mid: number}[] = [];
@@ -957,13 +935,11 @@ export default function DoublesMatchupApp() {
           }
         });
 
-        // 3. 更新されたコートの状態に基づき、新しい履歴を適用する
         let finalMembers = [...nextMembers];
         nextCourts.forEach(c => {
           if (c.match && (c.id === s1.courtId || c.id === s2.courtId)) {
             finalMembers = calculateNextMemberState(finalMembers, c.match.p1, c.match.p2, c.match.p3, c.match.p4);
             
-            // 最新の履歴レコードを特定して更新
             const targetHistIdx = matchHistory.findIndex(h => h.courtId === c.id);
             if (targetHistIdx !== -1) {
               setMatchHistory(prevH => {
@@ -992,7 +968,6 @@ export default function DoublesMatchupApp() {
     setSelectedSwap(null);
   };
 
-  // --- 待機中メンバーの取得 ---
   const waitingMembers = useMemo(() => {
     const playingIds = new Set<number>();
     courts.forEach(c => {
@@ -1008,17 +983,17 @@ export default function DoublesMatchupApp() {
 
   const CourtCard = ({ court, isPlanned = false, isPast = false }: { court: Court, isPlanned?: boolean, isPast?: boolean }) => {
     const h = (config.bulkOnlyMode ? 140 : 140) * config.zoomLevel;
-    const border = isPlanned ? 'border-gray-500' : isPast ? 'border-gray-400' : 'border-slate-900';
-    const bg = isPlanned ? 'bg-gray-100' : isPast ? 'bg-gray-50' : 'bg-white';
+    const border = isPlanned ? 'border-gray-500' : 'border-slate-900';
+    const bg = isPlanned ? 'bg-gray-100' : 'bg-white';
     
     return (
       <div 
         className={`relative rounded-xl shadow-md border overflow-hidden flex border-l-8 ${border} ${bg} ${isPlanned && !config.bulkOnlyMode ? 'opacity-80 border-orange-200 bg-orange-50/50' : ''}`}
         style={{ height: `${h}px`, minHeight: `${h}px` }}
       >
-        <div className={`w-12 shrink-0 relative border-r border-gray-100 ${isPlanned || isPast ? 'bg-gray-200/50' : 'bg-slate-50'}`}>
+        <div className={`w-12 shrink-0 relative border-r border-gray-100 ${isPlanned ? 'bg-gray-200/50' : 'bg-slate-50'}`}>
           <div className="absolute inset-0 flex items-center justify-center">
-            <span className={`font-black text-2xl ${isPlanned || isPast ? 'text-gray-500' : 'text-slate-900'}`}>{court.id}</span>
+            <span className={`font-black text-2xl ${isPlanned ? 'text-gray-500' : 'text-slate-900'}`}>{court.id}</span>
           </div>
           {!config.bulkOnlyMode && !isPlanned && !isPast && court.match ? (
             <button onClick={() => finishMatch(court.id)} className="absolute top-1.5 left-1/2 -translate-x-1/2 w-8 h-8 flex items-center justify-center bg-red-100 text-red-600 hover:bg-red-600 hover:text-white rounded-full transition-all z-10 shadow-sm border border-red-200" title="試合終了"><X size={18} strokeWidth={3} /></button>
@@ -1039,7 +1014,7 @@ export default function DoublesMatchupApp() {
                           <button 
                             disabled={config.bulkOnlyMode || isPlanned || isPast}
                             onClick={() => handleSwap({ memberId: mId, courtId: court.id, position: pKey as any })}
-                            className={`w-full leading-tight font-black whitespace-nowrap overflow-hidden text-ellipsis transition-all rounded px-1 ${isPlanned || isPast ? 'text-gray-600' : 'text-black'} ${i === 1 ? 'text-right' : 'text-left'} ${isSelected ? 'bg-yellow-200 ring-2 ring-yellow-400' : 'hover:bg-black/5'}`} 
+                            className={`w-full leading-tight font-black whitespace-nowrap overflow-hidden text-ellipsis transition-all rounded px-1 ${isPlanned ? 'text-gray-600' : 'text-black'} ${i === 1 ? 'text-right' : 'text-left'} ${isSelected ? 'bg-yellow-200 ring-2 ring-yellow-400' : 'hover:bg-black/5'}`} 
                             style={{ fontSize: getDynamicFontSize(mName, config.nameFontSizeModifier * 0.9) }}
                           >
                             {mName}
@@ -1076,7 +1051,6 @@ export default function DoublesMatchupApp() {
           <div className="space-y-6">
             {showScheduleNotice && <div className="bg-orange-100 border border-orange-200 text-orange-800 px-4 py-2 rounded-lg flex items-center gap-2 animate-bounce"><AlertCircle size={18} /> <span className="text-sm font-bold">状況に合わせて予定を更新しました</span></div>}
             
-            {/* スナップショット切り替えUI */}
             <div className="flex items-center justify-between bg-white/40 p-1.5 rounded-xl border border-white/60 shadow-inner">
               <button 
                 onClick={() => setViewingSnapshotIdx(prev => Math.min(pastSnapshots.length - 1, prev + 1))}
@@ -1086,7 +1060,6 @@ export default function DoublesMatchupApp() {
                 <ChevronLeft size={20} />
               </button>
               <div className="text-center">
-                <span className="text-xs font-black text-slate-500 uppercase tracking-tighter">表示中の進行状態</span>
                 <div className="font-black text-sm text-slate-900">
                   {viewingSnapshotIdx === -1 ? '最新の対戦' : `${viewingSnapshotIdx + 1}回前 (${pastSnapshots[viewingSnapshotIdx].timestamp})`}
                 </div>
@@ -1101,13 +1074,11 @@ export default function DoublesMatchupApp() {
             </div>
 
             <section className="grid grid-cols-1 landscape:grid-cols-2 gap-4">
-              {config.bulkOnlyMode && <h2 className="col-span-full font-black text-xl text-slate-900 border-l-8 border-slate-900 pl-3">{viewingSnapshotIdx === -1 ? '現在の対戦' : '過去の対戦履歴'}</h2>}
               {(viewingSnapshotIdx === -1 ? courts : pastSnapshots[viewingSnapshotIdx].courts).map(court => (
                 <CourtCard key={court.id} court={court} isPast={viewingSnapshotIdx !== -1} />
               ))}
             </section>
 
-            {/* 最新表示の時のみ待機中と次回の予定を表示 */}
             {viewingSnapshotIdx === -1 && (
               <>
                 {!config.bulkOnlyMode && (
