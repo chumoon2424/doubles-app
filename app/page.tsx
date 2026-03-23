@@ -26,7 +26,8 @@ import {
   ChevronDown,
   UserCheck,
   BarChart3,
-  Clock
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 
 // --- 型定義 ---
@@ -70,12 +71,6 @@ interface MatchRecord {
   levelPattern?: LevelPattern;
 }
 
-interface PastBatch {
-  id: string;
-  timestamp: string;
-  courts: Court[];
-}
-
 interface AppConfig {
   courtCount: number;
   levelPriority: LevelPriority;
@@ -84,6 +79,12 @@ interface AppConfig {
   bulkOnlyMode: boolean;
   orderFirstMatchByList: boolean;
   memoDefault: 'none' | 'yyyymm';
+}
+
+// スナップショット用
+interface Snapshot {
+  courts: Court[];
+  timestamp: string;
 }
 
 // 入れ替え用型定義
@@ -115,7 +116,9 @@ export default function DoublesMatchupApp() {
   const [courts, setCourts] = useState<Court[]>([]);
   const [nextMatches, setNextMatches] = useState<Court[]>([]);
   const [matchHistory, setMatchHistory] = useState<MatchRecord[]>([]);
-  const [pastBatches, setPastBatches] = useState<PastBatch[]>([]);
+  const [pastSnapshots, setPastSnapshots] = useState<Snapshot[]>([]);
+  const [viewingSnapshotIdx, setViewingSnapshotIdx] = useState<number>(-1); // -1: 最新, 0以上: 過去分
+
   const [config, setConfig] = useState<AppConfig>({
     courtCount: 4,
     levelPriority: 'none',
@@ -138,7 +141,6 @@ export default function DoublesMatchupApp() {
   const [lastFingerprint, setLastFingerprint] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const LEVEL_PATTERNS: LevelPattern[] = ['A/B/C', 'A', 'A/B', 'B', 'B/C', 'C'];
 
@@ -188,8 +190,8 @@ export default function DoublesMatchupApp() {
       setDisplayMembers(sorted);
       setCourts(loadedData.courts || Array.from({ length: loadedData.config?.courtCount || 4 }, (_, i) => ({ id: i + 1, match: null })));
       setNextMatches(loadedData.nextMatches || Array.from({ length: loadedData.config?.courtCount || 4 }, (_, i) => ({ id: i + 1, match: null })));
-      setPastBatches(loadedData.pastBatches || []);
-      
+      setPastSnapshots(loadedData.pastSnapshots || []);
+
       let initialPriority: LevelPriority = 'none';
       if (loadedData.config?.levelPriority) {
         initialPriority = loadedData.config.levelPriority;
@@ -219,12 +221,12 @@ export default function DoublesMatchupApp() {
   useEffect(() => {
     if (!isInitialized) return;
     try {
-      const data = { members, courts, nextMatches, matchHistory, pastBatches, config, nextMemberId };
+      const data = { members, courts, nextMatches, matchHistory, config, nextMemberId, pastSnapshots };
       localStorage.setItem('doubles-app-data-v23', JSON.stringify(data));
     } catch (e) {
       console.error("Failed to save data");
     }
-  }, [members, courts, nextMatches, matchHistory, pastBatches, config, nextMemberId, isInitialized]);
+  }, [members, courts, nextMatches, matchHistory, config, nextMemberId, pastSnapshots, isInitialized]);
 
   useEffect(() => {
     if (activeTab !== 'members') {
@@ -232,13 +234,6 @@ export default function DoublesMatchupApp() {
       setDisplayMembers(sorted);
     }
   }, [members, activeTab]);
-
-  // 新しい一括更新が追加されたら右端（最新）にスクロール
-  useEffect(() => {
-    if (activeTab === 'dashboard' && scrollContainerRef.current) {
-      scrollContainerRef.current.scrollLeft = scrollContainerRef.current.scrollWidth;
-    }
-  }, [activeTab]);
 
   // --- 並べ替えロジック ---
   const sortByName = () => {
@@ -402,7 +397,8 @@ export default function DoublesMatchupApp() {
       }));
       setMembers(clearedMembers);
       setMatchHistory([]);
-      setPastBatches([]);
+      setPastSnapshots([]);
+      setViewingSnapshotIdx(-1);
       const clearedCourts = courts.map(c => ({ ...c, match: null }));
       setCourts(clearedCourts);
       setHasUserConfirmedRegen(false); 
@@ -439,7 +435,8 @@ export default function DoublesMatchupApp() {
         }));
         setMembers(newMembers);
         setMatchHistory([]);
-        setPastBatches([]);
+        setPastSnapshots([]);
+        setViewingSnapshotIdx(-1);
         setCourts(prev => prev.map(c => ({ ...c, match: null })));
         setNextMatches(prev => prev.map(c => ({ ...c, match: null })));
         setNextMemberId(newMembers.length > 0 ? Math.max(...newMembers.map(m => m.id)) + 1 : 1);
@@ -825,18 +822,16 @@ export default function DoublesMatchupApp() {
   };
 
   const handleBulkAction = () => {
-    const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    
-    // 一括更新前の現在のコート状態を過去ログに保存 (最大20件)
-    if (courts.some(c => c.match !== null)) {
-      setPastBatches(prev => {
-        const newBatch: PastBatch = { id: Date.now().toString(), timestamp, courts: JSON.parse(JSON.stringify(courts)) };
-        const updated = [...prev, newBatch];
-        return updated.slice(-20);
-      });
-    }
+    // 現在の対戦状態をスナップショットとして保存
+    const currentSnapshot: Snapshot = {
+      courts: JSON.parse(JSON.stringify(courts)),
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+    setPastSnapshots(prev => [currentSnapshot, ...prev].slice(0, 20));
+    setViewingSnapshotIdx(-1);
 
     if (config.bulkOnlyMode) {
+      const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       const matchesToApply = [...nextMatches];
       setCourts(prev => prev.map(c => ({ ...c, match: null })));
       setNextMatches(prev => prev.map(c => ({ ...c, match: null })));
@@ -867,7 +862,7 @@ export default function DoublesMatchupApp() {
             const m = getMatchForCourt(current, temp);
             if (m) {
               const ids = [m.p1, m.p2, m.p3, m.p4], names = ids.map(id => temp.find((x: any) => x.id === id)?.name || '?');
-              setMatchHistory(prevH => [{ id: Date.now().toString() + current[i].id, timestamp, courtId: current[i].id, players: names, playerIds: ids, levelPattern: m.levelPattern }, ...prevH]);
+              setMatchHistory(prevH => [{ id: Date.now().toString() + current[i].id, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), courtId: current[i].id, players: names, playerIds: ids, levelPattern: m.levelPattern }, ...prevH]);
               current[i] = { ...current[i], match: m };
               temp = temp.map((x: any) => ids.includes(x.id) ? { ...x, playCount: x.playCount + 1, lastPlayedTime: Date.now() } : x);
               applyMatchToMembers(m.p1, m.p2, m.p3, m.p4);
@@ -1013,9 +1008,8 @@ export default function DoublesMatchupApp() {
 
   const CourtCard = ({ court, isPlanned = false, isPast = false }: { court: Court, isPlanned?: boolean, isPast?: boolean }) => {
     const h = (config.bulkOnlyMode ? 140 : 140) * config.zoomLevel;
-    // 履歴表示の場合でも色合いを薄くせず、現在の試合と同じにする
-    const border = isPlanned ? 'border-gray-500' : 'border-slate-900';
-    const bg = isPlanned ? 'bg-gray-100' : 'bg-white';
+    const border = isPlanned ? 'border-gray-500' : isPast ? 'border-gray-400' : 'border-slate-900';
+    const bg = isPlanned ? 'bg-gray-100' : isPast ? 'bg-gray-50' : 'bg-white';
     
     return (
       <div 
@@ -1024,7 +1018,7 @@ export default function DoublesMatchupApp() {
       >
         <div className={`w-12 shrink-0 relative border-r border-gray-100 ${isPlanned || isPast ? 'bg-gray-200/50' : 'bg-slate-50'}`}>
           <div className="absolute inset-0 flex items-center justify-center">
-            <span className={`font-black text-2xl ${isPlanned || (isPast && false) ? 'text-gray-500' : 'text-slate-900'}`}>{court.id}</span>
+            <span className={`font-black text-2xl ${isPlanned || isPast ? 'text-gray-500' : 'text-slate-900'}`}>{court.id}</span>
           </div>
           {!config.bulkOnlyMode && !isPlanned && !isPast && court.match ? (
             <button onClick={() => finishMatch(court.id)} className="absolute top-1.5 left-1/2 -translate-x-1/2 w-8 h-8 flex items-center justify-center bg-red-100 text-red-600 hover:bg-red-600 hover:text-white rounded-full transition-all z-10 shadow-sm border border-red-200" title="試合終了"><X size={18} strokeWidth={3} /></button>
@@ -1045,7 +1039,7 @@ export default function DoublesMatchupApp() {
                           <button 
                             disabled={config.bulkOnlyMode || isPlanned || isPast}
                             onClick={() => handleSwap({ memberId: mId, courtId: court.id, position: pKey as any })}
-                            className={`w-full leading-tight font-black whitespace-nowrap overflow-hidden text-ellipsis transition-all rounded px-1 ${isPlanned ? 'text-gray-600' : 'text-black'} ${i === 1 ? 'text-right' : 'text-left'} ${isSelected ? 'bg-yellow-200 ring-2 ring-yellow-400' : 'hover:bg-black/5'}`} 
+                            className={`w-full leading-tight font-black whitespace-nowrap overflow-hidden text-ellipsis transition-all rounded px-1 ${isPlanned || isPast ? 'text-gray-600' : 'text-black'} ${i === 1 ? 'text-right' : 'text-left'} ${isSelected ? 'bg-yellow-200 ring-2 ring-yellow-400' : 'hover:bg-black/5'}`} 
                             style={{ fontSize: getDynamicFontSize(mName, config.nameFontSizeModifier * 0.9) }}
                           >
                             {mName}
@@ -1077,31 +1071,47 @@ export default function DoublesMatchupApp() {
           )}
         </div>
       </header>
-      <main className="p-0 w-full max-w-[1400px] mx-auto">
+      <main className="p-2 w-full max-w-[1400px] mx-auto">
         {activeTab === 'dashboard' && (
-          <div className="space-y-0">
-            {showScheduleNotice && <div className="mx-2 my-2 bg-orange-100 border border-orange-200 text-orange-800 px-4 py-2 rounded-lg flex items-center gap-2 animate-bounce"><AlertCircle size={18} /> <span className="text-sm font-bold">状況に合わせて予定を更新しました</span></div>}
+          <div className="space-y-6">
+            {showScheduleNotice && <div className="bg-orange-100 border border-orange-200 text-orange-800 px-4 py-2 rounded-lg flex items-center gap-2 animate-bounce"><AlertCircle size={18} /> <span className="text-sm font-bold">状況に合わせて予定を更新しました</span></div>}
             
-            <div ref={scrollContainerRef} className="flex overflow-x-auto snap-x snap-mandatory no-scrollbar w-full pb-4 scroll-smooth">
-              {/* 過去ログ */}
-              {pastBatches.map((batch, bIdx) => (
-                <div key={batch.id} className="min-w-full px-2 snap-center shrink-0 space-y-4">
-                  <h2 className="font-black text-xl text-gray-400 flex items-center gap-2 mt-4"><Clock size={18}/> {pastBatches.length - bIdx}回前の一括更新 <span className="text-sm font-normal opacity-70">({batch.timestamp})</span></h2>
-                  <section className="grid grid-cols-1 landscape:grid-cols-2 gap-4">
-                    {batch.courts.map(court => <CourtCard key={court.id} court={court} isPast={true} />)}
-                  </section>
+            {/* スナップショット切り替えUI */}
+            <div className="flex items-center justify-between bg-white/40 p-1.5 rounded-xl border border-white/60 shadow-inner">
+              <button 
+                onClick={() => setViewingSnapshotIdx(prev => Math.min(pastSnapshots.length - 1, prev + 1))}
+                disabled={viewingSnapshotIdx >= pastSnapshots.length - 1}
+                className={`p-2 rounded-lg transition-colors ${viewingSnapshotIdx >= pastSnapshots.length - 1 ? 'text-gray-300' : 'text-blue-700 bg-white shadow-sm hover:bg-blue-50'}`}
+              >
+                <ChevronLeft size={20} />
+              </button>
+              <div className="text-center">
+                <span className="text-xs font-black text-slate-500 uppercase tracking-tighter">表示中の進行状態</span>
+                <div className="font-black text-sm text-slate-900">
+                  {viewingSnapshotIdx === -1 ? '最新の対戦' : `${viewingSnapshotIdx + 1}回前 (${pastSnapshots[viewingSnapshotIdx].timestamp})`}
                 </div>
+              </div>
+              <button 
+                onClick={() => setViewingSnapshotIdx(prev => prev - 1)}
+                disabled={viewingSnapshotIdx === -1}
+                className={`p-2 rounded-lg transition-colors ${viewingSnapshotIdx === -1 ? 'text-gray-300' : 'text-blue-700 bg-white shadow-sm hover:bg-blue-50'}`}
+              >
+                <ChevronRight size={20} />
+              </button>
+            </div>
+
+            <section className="grid grid-cols-1 landscape:grid-cols-2 gap-4">
+              {config.bulkOnlyMode && <h2 className="col-span-full font-black text-xl text-slate-900 border-l-8 border-slate-900 pl-3">{viewingSnapshotIdx === -1 ? '現在の対戦' : '過去の対戦履歴'}</h2>}
+              {(viewingSnapshotIdx === -1 ? courts : pastSnapshots[viewingSnapshotIdx].courts).map(court => (
+                <CourtCard key={court.id} court={court} isPast={viewingSnapshotIdx !== -1} />
               ))}
+            </section>
 
-              {/* 現在のコート */}
-              <div className="min-w-full px-2 snap-center shrink-0 space-y-6">
-                <h2 className="font-black text-xl text-slate-900 border-l-8 border-slate-900 pl-3 mt-4">現在の対戦</h2>
-                <section className="grid grid-cols-1 landscape:grid-cols-2 gap-4">
-                  {courts.map(court => <CourtCard key={court.id} court={court} />)}
-                </section>
-
+            {/* 最新表示の時のみ待機中と次回の予定を表示 */}
+            {viewingSnapshotIdx === -1 && (
+              <>
                 {!config.bulkOnlyMode && (
-                  <section className="bg-white/50 rounded-xl p-3 border border-white/80 shadow-sm">
+                  <section className="bg-white/50 rounded-xl p-3 border border-white/80 shadow-sm mt-4">
                     <div className="flex justify-between items-center mb-2">
                       <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1"><Users size={12}/> 待機中 ({waitingMembers.length})</h3>
                       {selectedSwap && <span className="text-[10px] font-black text-orange-600 animate-pulse flex items-center gap-1"><RotateCcw size={10}/> 入れ替え対象を選択中...</span>}
@@ -1132,17 +1142,17 @@ export default function DoublesMatchupApp() {
                 )}
 
                 {config.bulkOnlyMode && (
-                  <section className="grid grid-cols-1 landscape:grid-cols-2 gap-4 pb-8">
+                  <section className="grid grid-cols-1 landscape:grid-cols-2 gap-4 mt-8 pb-8">
                     <h2 className="col-span-full font-black text-xl text-gray-600 border-l-8 border-gray-500 pl-3">次回の予定</h2>
                     {nextMatches.map(court => <CourtCard key={court.id} court={court} isPlanned={true} />)}
                   </section>
                 )}
-              </div>
-            </div>
+              </>
+            )}
           </div>
         )}
         {activeTab === 'members' && (
-          <div className="space-y-3 max-w-2xl mx-auto p-2">
+          <div className="space-y-3 max-w-2xl mx-auto">
             <div className="flex justify-between items-center p-2"><h2 className="font-bold text-xl text-gray-700">名簿 ({members.filter(m => m.isActive).length}/{members.length})</h2><button onClick={addMember} className="bg-green-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-1 shadow-lg"><Plus size={20} />選手追加</button></div>
             <div className="flex justify-between items-center px-2 pb-2"><div className="flex gap-2 overflow-x-auto no-scrollbar"><button onClick={resetToSavedOrder} className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-full text-xs font-bold text-gray-600 shadow-sm active:bg-gray-50"><RotateCcw size={14}/> 保存した順</button><button onClick={sortByName} className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-full text-xs font-bold text-gray-600 shadow-sm active:bg-gray-50"><SortAsc size={14}/> 名前順</button><button onClick={sortByMemo} className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-full text-xs font-bold text-gray-600 shadow-sm active:bg-gray-50"><StickyNote size={14}/> メモ順</button><button onClick={sortByLevel} className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-full text-xs font-bold text-gray-600 shadow-sm active:bg-gray-50"><BarChart3 size={14}/> レベル順</button><button onClick={sortByActive} className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-full text-xs font-bold text-gray-600 shadow-sm active:bg-gray-50"><UserCheck size={14}/> 参加中</button></div><button onClick={saveCurrentOrder} className="shrink-0 flex items-center gap-1.5 px-4 py-1.5 bg-blue-600 border border-blue-500 rounded-full text-xs font-bold text-white shadow-md active:bg-blue-700 transition-colors ml-4"><Save size={14}/> 順序を保存</button></div>
             <div className="bg-white rounded-2xl shadow-sm divide-y overflow-hidden relative">
@@ -1173,7 +1183,7 @@ export default function DoublesMatchupApp() {
           </div>
         )}
         {activeTab === 'history' && (
-          <div className="bg-white rounded-2xl shadow-sm overflow-hidden max-w-2xl mx-auto p-0">
+          <div className="bg-white rounded-2xl shadow-sm overflow-hidden max-w-2xl mx-auto">
             <table className="w-full text-left">
               <thead className="bg-gray-50 text-gray-400"><tr><th className="p-4 text-xs font-bold uppercase">時刻</th><th className="p-4 text-xs font-bold uppercase">対戦</th></tr></thead>
               <tbody className="divide-y divide-gray-100">
@@ -1185,7 +1195,7 @@ export default function DoublesMatchupApp() {
           </div>
         )}
         {activeTab === 'settings' && (
-          <div className="bg-white rounded-2xl shadow-sm p-8 space-y-8 max-w-2xl mx-auto m-2">
+          <div className="bg-white rounded-2xl shadow-sm p-8 space-y-8 max-w-2xl mx-auto">
             <div><label className="block text-sm font-bold text-gray-400 mb-6 uppercase tracking-[0.2em]">コート数: <span className="text-blue-600 text-2xl ml-2">{config.courtCount}</span></label><input type="range" min="1" max="8" value={config.courtCount} onChange={e => handleCourtCountChange(parseInt(e.target.value))} className="w-full h-3 bg-gray-100 rounded-lg appearance-none cursor-pointer accent-blue-600" style={{ WebkitAppearance: 'none' }} /></div>
             <div className="space-y-4 pt-4 border-t border-gray-100"><span className="block text-sm font-bold text-gray-400 uppercase tracking-widest">名簿データの管理</span><div className="grid grid-cols-2 gap-3"><button onClick={exportMembers} className="py-3 bg-indigo-600 text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow-sm active:bg-indigo-700 transition-colors"><Download size={18} /> 退避(保存)</button><button onClick={() => fileInputRef.current?.click()} className="py-3 bg-white text-indigo-600 border-2 border-indigo-600 rounded-xl font-bold flex items-center justify-center gap-2 active:bg-indigo-50 transition-colors"><Upload size={18} /> 復元(読込)</button><input type="file" ref={fileInputRef} onChange={importMembers} accept=".json" className="hidden" /></div></div>
             <div className="flex items-center justify-between py-6 border-y border-gray-50"><div className="flex-1 pr-4 flex flex-col"><span className="font-bold text-lg text-gray-700">1巡目の試合は名簿順</span><span className="text-xs text-gray-400 leading-tight">未出場の人が4人以上いる場合、名簿の上位から（制約無視で）割り当てます</span></div><button onClick={() => { const next = { ...config, orderFirstMatchByList: !config.orderFirstMatchByList }; if (checkChangeConfirmation(undefined, next)) setConfig(next); }} className={`shrink-0 w-14 h-7 rounded-full relative transition-colors ${config.orderFirstMatchByList ? 'bg-blue-600' : 'bg-gray-200'}`}><div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-md ${config.orderFirstMatchByList ? 'left-8' : 'left-1'}`} /></button></div>
