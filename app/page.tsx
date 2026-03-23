@@ -1013,17 +1013,18 @@ export default function DoublesMatchupApp() {
 
   const CourtCard = ({ court, isPlanned = false, isPast = false }: { court: Court, isPlanned?: boolean, isPast?: boolean }) => {
     const h = (config.bulkOnlyMode ? 140 : 140) * config.zoomLevel;
-    const border = isPast ? 'border-gray-300' : isPlanned ? 'border-gray-500' : 'border-slate-900';
-    const bg = isPast ? 'bg-gray-50' : isPlanned ? 'bg-gray-100' : 'bg-white';
+    // 履歴表示の場合でも色合いを薄くせず、現在の試合と同じにする
+    const border = isPlanned ? 'border-gray-500' : 'border-slate-900';
+    const bg = isPlanned ? 'bg-gray-100' : 'bg-white';
     
     return (
       <div 
-        className={`relative rounded-xl shadow-md border overflow-hidden flex border-l-8 ${border} ${bg} ${isPlanned && !config.bulkOnlyMode ? 'opacity-80 border-orange-200 bg-orange-50/50' : ''} ${isPast ? 'opacity-60' : ''}`}
+        className={`relative rounded-xl shadow-md border overflow-hidden flex border-l-8 ${border} ${bg} ${isPlanned && !config.bulkOnlyMode ? 'opacity-80 border-orange-200 bg-orange-50/50' : ''}`}
         style={{ height: `${h}px`, minHeight: `${h}px` }}
       >
         <div className={`w-12 shrink-0 relative border-r border-gray-100 ${isPlanned || isPast ? 'bg-gray-200/50' : 'bg-slate-50'}`}>
           <div className="absolute inset-0 flex items-center justify-center">
-            <span className={`font-black text-2xl ${isPlanned || isPast ? 'text-gray-500' : 'text-slate-900'}`}>{court.id}</span>
+            <span className={`font-black text-2xl ${isPlanned || (isPast && false) ? 'text-gray-500' : 'text-slate-900'}`}>{court.id}</span>
           </div>
           {!config.bulkOnlyMode && !isPlanned && !isPast && court.match ? (
             <button onClick={() => finishMatch(court.id)} className="absolute top-1.5 left-1/2 -translate-x-1/2 w-8 h-8 flex items-center justify-center bg-red-100 text-red-600 hover:bg-red-600 hover:text-white rounded-full transition-all z-10 shadow-sm border border-red-200" title="試合終了"><X size={18} strokeWidth={3} /></button>
@@ -1044,7 +1045,7 @@ export default function DoublesMatchupApp() {
                           <button 
                             disabled={config.bulkOnlyMode || isPlanned || isPast}
                             onClick={() => handleSwap({ memberId: mId, courtId: court.id, position: pKey as any })}
-                            className={`w-full leading-tight font-black whitespace-nowrap overflow-hidden text-ellipsis transition-all rounded px-1 ${isPlanned || isPast ? 'text-gray-600' : 'text-black'} ${i === 1 ? 'text-right' : 'text-left'} ${isSelected ? 'bg-yellow-200 ring-2 ring-yellow-400' : 'hover:bg-black/5'}`} 
+                            className={`w-full leading-tight font-black whitespace-nowrap overflow-hidden text-ellipsis transition-all rounded px-1 ${isPlanned ? 'text-gray-600' : 'text-black'} ${i === 1 ? 'text-right' : 'text-left'} ${isSelected ? 'bg-yellow-200 ring-2 ring-yellow-400' : 'hover:bg-black/5'}`} 
                             style={{ fontSize: getDynamicFontSize(mName, config.nameFontSizeModifier * 0.9) }}
                           >
                             {mName}
