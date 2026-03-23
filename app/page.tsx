@@ -1067,7 +1067,7 @@ export default function DoublesMatchupApp() {
                   {waitingMembers.length > 0 ? (
                     waitingMembers.map(m => {
                       const isSelected = selectedSwap?.memberId === m.id;
-                      const fontSize = `calc(1.1rem * ${config.nameFontSizeModifier})`;
+                      const fontSize = `calc(1.6rem * ${config.nameFontSizeModifier})`;
                       return (
                         <button 
                           key={m.id} 
