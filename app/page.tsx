@@ -1063,17 +1063,21 @@ export default function DoublesMatchupApp() {
                   <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1"><Users size={12}/> 待機中 ({waitingMembers.length})</h3>
                   {selectedSwap && <span className="text-[10px] font-black text-orange-600 animate-pulse flex items-center gap-1"><RotateCcw size={10}/> 入れ替え対象を選択中...</span>}
                 </div>
-                <div className="flex flex-wrap gap-1.5">
+                <div className="flex flex-wrap gap-2">
                   {waitingMembers.length > 0 ? (
                     waitingMembers.map(m => {
                       const isSelected = selectedSwap?.memberId === m.id;
+                      const fontSize = `calc(1.1rem * ${config.nameFontSizeModifier})`;
                       return (
                         <button 
                           key={m.id} 
                           onClick={() => handleSwap({ memberId: m.id })}
-                          className={`px-3 py-1.5 rounded-full text-sm font-bold shadow-sm border transition-all animate-in fade-in zoom-in duration-200 ${isSelected ? 'bg-yellow-200 border-yellow-400 ring-2 ring-yellow-400 text-yellow-900' : 'bg-white border-gray-100 text-slate-700 hover:bg-gray-50'}`}
+                          className={`px-4 py-2 rounded-full font-bold shadow-sm border transition-all animate-in fade-in zoom-in duration-200 flex items-center gap-2 ${isSelected ? 'bg-yellow-200 border-yellow-400 ring-2 ring-yellow-400 text-yellow-900' : 'bg-white border-gray-100 text-slate-700 hover:bg-gray-50'}`}
                         >
-                          {m.name}
+                          <span style={{ fontSize }}>{m.name}</span>
+                          <span className="text-[10px] text-gray-400 font-bold bg-gray-50 px-1.5 py-0.5 rounded border border-gray-100">
+                            {m.playCount}{m.imputedPlayCount > 0 && <span>({m.imputedPlayCount})</span>}
+                          </span>
                         </button>
                       );
                     })
