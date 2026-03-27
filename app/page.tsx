@@ -690,7 +690,7 @@ export default function DoublesMatchupApp() {
   };
 
   const calculateNextMemberState = (currentMembers: Member[], p1: number, p2: number, p3: number, p4: number) => {
-    const now = Date.now();
+    const now = Math.floor(Date.now() / 1000); // 秒単位に丸める
     const playerIds = [p1, p2, p3, p4];
     const updated = currentMembers.map(m => {
       if (!playerIds.includes(m.id)) return m;
@@ -743,6 +743,7 @@ export default function DoublesMatchupApp() {
     let tempMembers = JSON.parse(JSON.stringify(targetMembers || members)) as Member[];
     let planned: Court[] = [];
     const courtCount = config.courtCount;
+    const now = Math.floor(Date.now() / 1000); // 秒単位に丸める
 
     if (config.bulkOnlyMode && (config.levelPriority === 'weak' || config.levelPriority === 'strong')) {
       let activeCandidates = tempMembers.filter(m => m.isActive);
@@ -780,7 +781,7 @@ export default function DoublesMatchupApp() {
         if (match) {
           planned.push({ id: i + 1, match });
           const ids = [match.p1, match.p2, match.p3, match.p4];
-          tempMembers = tempMembers.map(m => ids.includes(m.id) ? { ...m, playCount: m.playCount + 1, lastPlayedTime: Date.now() } : m);
+          tempMembers = tempMembers.map(m => ids.includes(m.id) ? { ...m, playCount: m.playCount + 1, lastPlayedTime: now } : m);
         } else { planned.push({ id: i + 1, match: null }); }
       }
     }
@@ -829,7 +830,7 @@ export default function DoublesMatchupApp() {
               const ids = [m.p1, m.p2, m.p3, m.p4], names = ids.map(id => temp.find((x: any) => x.id === id)?.name || '?');
               setMatchHistory(prevH => [{ id: Date.now().toString() + current[i].id, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), courtId: current[i].id, players: names, playerIds: ids, levelPattern: m.levelPattern }, ...prevH]);
               current[i] = { ...current[i], match: m };
-              temp = temp.map((x: any) => ids.includes(x.id) ? { ...x, playCount: x.playCount + 1, lastPlayedTime: Date.now() } : x);
+              temp = temp.map((x: any) => ids.includes(x.id) ? { ...x, playCount: x.playCount + 1, lastPlayedTime: Math.floor(Date.now() / 1000) } : x);
               applyMatchToMembers(m.p1, m.p2, m.p3, m.p4);
             }
           }
@@ -844,7 +845,6 @@ export default function DoublesMatchupApp() {
     const match = getMatchForCourt(courts, members);
     if (!match) return alert('待機メンバーが足りません');
 
-    // 個別更新が行われたので、遡り用の履歴をクリア
     setPastSnapshots([]);
     setViewingSnapshotIdx(-1);
 
@@ -857,7 +857,6 @@ export default function DoublesMatchupApp() {
   const finishMatch = (courtId: number) => {
     setSelectedSwap(null);
     
-    // 個別終了が行われたので、遡り用の履歴をクリア
     if (!config.bulkOnlyMode) {
       setPastSnapshots([]);
       setViewingSnapshotIdx(-1);
