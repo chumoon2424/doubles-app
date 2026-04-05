@@ -960,10 +960,6 @@ export default function DoublesMatchupApp() {
           }
         });
         
-        if (config.bulkOnlyMode && (s1.courtId || s2.courtId)) {
-          regeneratePlannedMatches(finalMembers);
-        }
-
         setTimeout(() => setMembers(finalMembers), 0);
         return nextCourts;
       });
