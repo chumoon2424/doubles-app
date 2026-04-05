@@ -908,6 +908,9 @@ export default function DoublesMatchupApp() {
       return;
     }
 
+    // 最新対戦メンバーと待機メンバーの入れ替えかどうか
+    const isSwapWithWaiting = !s1.courtId || !s2.courtId;
+
     setMembers(prev => {
       let nextMembers = [...prev];
 
@@ -960,7 +963,13 @@ export default function DoublesMatchupApp() {
           }
         });
         
-        setTimeout(() => setMembers(finalMembers), 0);
+        setTimeout(() => {
+          setMembers(finalMembers);
+          // 待機メンバーとの入れ替えがあった場合のみ、次回の予定を再計算
+          if (isSwapWithWaiting && config.bulkOnlyMode) {
+            regeneratePlannedMatches(finalMembers);
+          }
+        }, 0);
         return nextCourts;
       });
 
