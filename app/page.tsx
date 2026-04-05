@@ -77,6 +77,7 @@ interface AppConfig {
   zoomLevel: number;
   nameFontSizeModifier: number;
   bulkOnlyMode: boolean;
+  showWaitingInBulkMode: boolean;
   orderFirstMatchByList: boolean;
   memoDefault: 'none' | 'yyyymm';
 }
@@ -90,6 +91,7 @@ interface SwapTarget {
   memberId: number;
   courtId?: number; 
   position?: 'p1' | 'p2' | 'p3' | 'p4';
+  isPlanned?: boolean;
 }
 
 const LevelBadge = ({ level, className = "" }: { level: LevelPattern, className?: string }) => {
@@ -122,6 +124,7 @@ export default function DoublesMatchupApp() {
     zoomLevel: 1.0,
     nameFontSizeModifier: 1.0,
     bulkOnlyMode: false,
+    showWaitingInBulkMode: true,
     orderFirstMatchByList: false,
     memoDefault: 'yyyymm',
   });
@@ -141,7 +144,7 @@ export default function DoublesMatchupApp() {
   const LEVEL_PATTERNS: LevelPattern[] = ['A/B/C', 'A', 'A/B', 'B', 'B/C', 'C'];
 
   useEffect(() => {
-    const versions = ['v23', 'v22', 'v21', 'v20', 'v19', 'v18', 'v17', 'v16', 'v15', 'v14', 'v13', 'v12', 'v11', 'v10', 'v9', 'v8'];
+    const versions = ['v24', 'v23', 'v22', 'v21', 'v20', 'v19', 'v18', 'v17', 'v16', 'v15', 'v14', 'v13', 'v12', 'v11', 'v10', 'v9', 'v8'];
     let loadedData: any = null;
     let loadedVersion = '';
     for (const v of versions) {
@@ -197,7 +200,8 @@ export default function DoublesMatchupApp() {
         ...(loadedData.config || {}),
         levelPriority: initialPriority,
         orderFirstMatchByList: loadedData.config?.orderFirstMatchByList ?? false,
-        memoDefault: loadedData.config?.memoDefault ?? 'yyyymm'
+        memoDefault: loadedData.config?.memoDefault ?? 'yyyymm',
+        showWaitingInBulkMode: loadedData.config?.showWaitingInBulkMode ?? true
       }));
       setNextMemberId(loadedData.nextMemberId || (safeMembers.length > 0 ? Math.max(...safeMembers.map((m: any) => m.id)) + 1 : 1));
       setMatchHistory(loadedData.matchHistory || []);
@@ -215,7 +219,7 @@ export default function DoublesMatchupApp() {
     if (!isInitialized) return;
     try {
       const data = { members, courts, nextMatches, matchHistory, config, nextMemberId, pastSnapshots };
-      localStorage.setItem('doubles-app-data-v23', JSON.stringify(data));
+      localStorage.setItem('doubles-app-data-v24', JSON.stringify(data));
     } catch (e) {
       console.error("Failed to save data");
     }
@@ -894,9 +898,21 @@ export default function DoublesMatchupApp() {
       return;
     }
 
+    // 次回の予定(planned)が絡む入れ替えは不可
+    if (s1.isPlanned || s2.isPlanned) {
+      setSelectedSwap(null);
+      return;
+    }
+
+    // どちらかが待機メンバー、どちらかが実コート（または両方が実コート）である必要がある
     if (!s1.courtId && !s2.courtId) {
       setSelectedSwap(null);
       return;
+    }
+
+    // 実コートが絡む入れ替えの場合、次回の予定を「未確認（再計算が必要）」な状態にする
+    if (config.bulkOnlyMode && (s1.courtId || s2.courtId)) {
+      setHasUserConfirmedRegen(false);
     }
 
     setMembers(prev => {
@@ -1005,8 +1021,8 @@ export default function DoublesMatchupApp() {
                       return (
                         <div key={pKey} className="h-1/2 flex items-center">
                           <button 
-                            disabled={config.bulkOnlyMode || isPlanned || isPast}
-                            onClick={() => handleSwap({ memberId: mId, courtId: court.id, position: pKey as any })}
+                            disabled={(config.bulkOnlyMode && !config.showWaitingInBulkMode && !isPlanned) || isPlanned || isPast}
+                            onClick={() => handleSwap({ memberId: mId, courtId: court.id, position: pKey as any, isPlanned })}
                             className={`w-full leading-tight font-black whitespace-nowrap overflow-hidden text-ellipsis transition-all rounded px-1 ${isPlanned ? 'text-gray-600' : 'text-black'} ${i === 1 ? 'text-right' : 'text-left'} ${isSelected ? 'bg-yellow-200 ring-2 ring-yellow-400' : 'hover:bg-black/5'}`} 
                             style={{ fontSize: getDynamicFontSize(mName, config.nameFontSizeModifier * 0.9) }}
                           >
@@ -1074,7 +1090,7 @@ export default function DoublesMatchupApp() {
 
             {viewingSnapshotIdx === -1 && (
               <>
-                {!config.bulkOnlyMode && (
+                {(!config.bulkOnlyMode || (config.bulkOnlyMode && config.showWaitingInBulkMode)) && (
                   <section className="bg-white/50 rounded-xl p-3 border border-white/80 shadow-sm mt-4">
                     <div className="flex justify-between items-center mb-2">
                       <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1"><Users size={12}/> 待機中 ({waitingMembers.length})</h3>
@@ -1164,7 +1180,35 @@ export default function DoublesMatchupApp() {
             <div className="space-y-4 pt-4 border-t border-gray-100"><span className="block text-sm font-bold text-gray-400 uppercase tracking-widest">名簿データの管理</span><div className="grid grid-cols-2 gap-3"><button onClick={exportMembers} className="py-3 bg-indigo-600 text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow-sm active:bg-indigo-700 transition-colors"><Download size={18} /> 退避(保存)</button><button onClick={() => fileInputRef.current?.click()} className="py-3 bg-white text-indigo-600 border-2 border-indigo-600 rounded-xl font-bold flex items-center justify-center gap-2 active:bg-indigo-50 transition-colors"><Upload size={18} /> 復元(読込)</button><input type="file" ref={fileInputRef} onChange={importMembers} accept=".json" className="hidden" /></div></div>
             <div className="flex items-center justify-between py-6 border-y border-gray-50"><div className="flex-1 pr-4 flex flex-col"><span className="font-bold text-lg text-gray-700">1巡目の試合は名簿順</span><span className="text-xs text-gray-400 leading-tight">未出場の人が4人以上いる場合、名簿の上位から（制約無視で）割り当てます</span></div><button onClick={() => { const next = { ...config, orderFirstMatchByList: !config.orderFirstMatchByList }; if (checkChangeConfirmation(undefined, next)) setConfig(next); }} className={`shrink-0 w-14 h-7 rounded-full relative transition-colors ${config.orderFirstMatchByList ? 'bg-blue-600' : 'bg-gray-200'}`}><div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-md ${config.orderFirstMatchByList ? 'left-8' : 'left-1'}`} /></button></div>
             <div className="flex items-center justify-between py-6 border-b border-gray-50"><div className="flex-1 pr-4 flex flex-col"><span className="font-bold text-lg text-gray-700">レベル優先モード</span><span className="text-xs text-gray-400 leading-tight">レベルを考慮して組み合わせます（強制：一致必須、強：一致優先、弱：分散優先）</span></div><div className="relative"><select value={config.levelPriority} onChange={(e) => { const next = { ...config, levelPriority: e.target.value as LevelPriority }; if (checkChangeConfirmation(undefined, next)) setConfig(next); }} className="bg-gray-100 border-none rounded-lg px-3 py-2 text-sm font-bold text-gray-700 appearance-none pr-8 focus:ring-2 focus:ring-blue-500"><option value="none">なし</option><option value="weak">弱</option><option value="strong">強</option><option value="forced">強制</option></select><ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400" /></div></div>
-            <div className="flex items-center justify-between py-6 border-b border-gray-50"><div className="flex-1 pr-4 flex flex-col"><span className="font-bold text-lg text-gray-700">一括進行モード</span><span className="text-xs text-gray-400 leading-tight">一括更新のみ可能となり、次回の予定が表示されます</span></div><button onClick={() => setConfig(prev => ({ ...prev, bulkOnlyMode: !prev.bulkOnlyMode }))} className={`shrink-0 w-14 h-7 rounded-full relative transition-colors ${config.bulkOnlyMode ? 'bg-blue-600' : 'bg-gray-200'}`}><div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-md ${config.bulkOnlyMode ? 'left-8' : 'left-1'}`} /></button></div>
+            
+            <div className="space-y-0">
+              <div className="flex items-center justify-between py-6 border-b border-gray-50">
+                <div className="flex-1 pr-4 flex flex-col">
+                  <span className="font-bold text-lg text-gray-700">一括進行モード</span>
+                  <span className="text-xs text-gray-400 leading-tight">一括更新のみ可能となり、次回の予定が表示されます</span>
+                </div>
+                <button 
+                  onClick={() => setConfig(prev => ({ ...prev, bulkOnlyMode: !prev.bulkOnlyMode }))} 
+                  className={`shrink-0 w-14 h-7 rounded-full relative transition-colors ${config.bulkOnlyMode ? 'bg-blue-600' : 'bg-gray-200'}`}
+                >
+                  <div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-md ${config.bulkOnlyMode ? 'left-8' : 'left-1'}`} />
+                </button>
+              </div>
+              <div className={`flex items-center justify-between py-6 border-b border-gray-50 transition-opacity ${!config.bulkOnlyMode ? 'opacity-30' : ''}`}>
+                <div className="flex-1 pr-4 flex flex-col">
+                  <span className="font-bold text-lg text-gray-700">待機中のメンバーを表示する</span>
+                  <span className="text-xs text-gray-400 leading-tight">一括更新モード時も待機リストを表示し、メンバーの入れ替えを可能にします</span>
+                </div>
+                <button 
+                  disabled={!config.bulkOnlyMode}
+                  onClick={() => setConfig(prev => ({ ...prev, showWaitingInBulkMode: !prev.showWaitingInBulkMode }))} 
+                  className={`shrink-0 w-14 h-7 rounded-full relative transition-colors ${config.showWaitingInBulkMode && config.bulkOnlyMode ? 'bg-blue-600' : 'bg-gray-200'}`}
+                >
+                  <div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-md ${config.showWaitingInBulkMode && config.bulkOnlyMode ? 'left-8' : 'left-1'}`} />
+                </button>
+              </div>
+            </div>
+
             <div className="flex items-center justify-between py-6 border-b border-gray-50"><div className="flex-1 pr-4 flex flex-col"><span className="font-bold text-lg text-gray-700">メモ欄のデフォルト</span><span className="text-xs text-gray-400 leading-tight">新しく選手を追加した際のメモ欄の初期値を設定します</span></div><div className="relative"><select value={config.memoDefault} onChange={(e) => setConfig(prev => ({ ...prev, memoDefault: e.target.value as 'none' | 'yyyymm' }))} className="bg-gray-100 border-none rounded-lg px-3 py-2 text-sm font-bold text-gray-700 appearance-none pr-8 focus:ring-2 focus:ring-blue-500"><option value="none">なし</option><option value="yyyymm">年月</option></select><ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400" /></div></div>
             <div className="space-y-4"><button onClick={resetPlayCountsOnly} className="w-full py-4 bg-gray-50 text-gray-700 rounded-2xl font-bold flex items-center justify-center gap-3 border active:bg-gray-100 transition-colors"><RotateCcw size={20} /> 試合数と履歴をリセット</button><button onClick={() => {if(confirm('全てリセットしますか？')) {localStorage.clear(); location.reload();}}} className="w-full py-4 bg-red-50 text-red-500 rounded-2xl font-bold border border-red-100 active:bg-red-100 transition-colors">データを完全消去</button></div>
           </div>
