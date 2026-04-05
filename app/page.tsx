@@ -126,7 +126,7 @@ export default function DoublesMatchupApp() {
     bulkOnlyMode: false,
     showWaitingInBulkMode: true,
     orderFirstMatchByList: false,
-    memoDefault: 'none' | 'yyyymm',
+    memoDefault: 'yyyymm',
   });
   const [nextMemberId, setNextMemberId] = useState(1);
   const [isInitialized, setIsInitialized] = useState(false);
