@@ -80,6 +80,7 @@ interface AppConfig {
   showWaitingInBulkMode: boolean;
   orderFirstMatchByList: boolean;
   memoDefault: 'none' | 'yyyymm';
+  resetHistoryOnDayChange: boolean;
 }
 
 interface Snapshot {
@@ -127,6 +128,7 @@ export default function DoublesMatchupApp() {
     showWaitingInBulkMode: true,
     orderFirstMatchByList: false,
     memoDefault: 'yyyymm',
+    resetHistoryOnDayChange: true,
   });
   const [nextMemberId, setNextMemberId] = useState(1);
   const [isInitialized, setIsInitialized] = useState(false);
@@ -144,7 +146,7 @@ export default function DoublesMatchupApp() {
   const LEVEL_PATTERNS: LevelPattern[] = ['A/B/C', 'A', 'A/B', 'B', 'B/C', 'C'];
 
   useEffect(() => {
-    const versions = ['v24', 'v23', 'v22', 'v21', 'v20', 'v19', 'v18', 'v17', 'v16', 'v15', 'v14', 'v13', 'v12', 'v11', 'v10', 'v9', 'v8'];
+    const versions = ['v25', 'v24', 'v23', 'v22', 'v21', 'v20', 'v19', 'v18', 'v17', 'v16', 'v15', 'v14', 'v13', 'v12', 'v11', 'v10', 'v9', 'v8'];
     let loadedData: any = null;
     let loadedVersion = '';
     for (const v of versions) {
@@ -195,22 +197,46 @@ export default function DoublesMatchupApp() {
         initialPriority = 'strong';
       }
 
-      setConfig(prev => ({ 
-        ...prev, 
+      const initialConfig = { 
+        ...config, 
         ...(loadedData.config || {}),
         levelPriority: initialPriority,
         orderFirstMatchByList: loadedData.config?.orderFirstMatchByList ?? false,
         memoDefault: loadedData.config?.memoDefault ?? 'yyyymm',
-        showWaitingInBulkMode: loadedData.config?.showWaitingInBulkMode ?? true
-      }));
+        showWaitingInBulkMode: loadedData.config?.showWaitingInBulkMode ?? true,
+        resetHistoryOnDayChange: loadedData.config?.resetHistoryOnDayChange ?? true
+      };
+
+      // 日付変更チェックとリセット
+      const lastDate = localStorage.getItem('doubles-app-last-used-date');
+      const today = new Date().toLocaleDateString();
+      if (initialConfig.resetHistoryOnDayChange && lastDate && lastDate !== today) {
+        const clearedMembers = sorted.map(m => ({ 
+          ...m, playCount: 0, imputedPlayCount: 0, lastPlayedTime: 0, 
+          matchHistory: {}, pairHistory: {} 
+        }));
+        setMembers(clearedMembers);
+        setDisplayMembers(clearedMembers);
+        setMatchHistory([]);
+        setPastSnapshots([]);
+        setViewingSnapshotIdx(-1);
+        const clearedCourts = (loadedData.courts || Array.from({ length: initialConfig.courtCount }, (_, i) => ({ id: i + 1, match: null }))).map((c: any) => ({ ...c, match: null }));
+        setCourts(clearedCourts);
+        setNextMatches(clearedCourts);
+      } else {
+        setMatchHistory(loadedData.matchHistory || []);
+      }
+
+      setConfig(initialConfig);
+      localStorage.setItem('doubles-app-last-used-date', today);
       setNextMemberId(loadedData.nextMemberId || (safeMembers.length > 0 ? Math.max(...safeMembers.map((m: any) => m.id)) + 1 : 1));
-      setMatchHistory(loadedData.matchHistory || []);
       prevMembersRef.current = JSON.parse(JSON.stringify(sorted));
     } else {
       const initialCount = 4;
       const initialCourts = Array.from({ length: initialCount }, (_, i) => ({ id: i + 1, match: null }));
       setCourts(initialCourts);
       setNextMatches(initialCourts);
+      localStorage.setItem('doubles-app-last-used-date', new Date().toLocaleDateString());
     }
     setIsInitialized(true);
   }, []);
@@ -219,7 +245,7 @@ export default function DoublesMatchupApp() {
     if (!isInitialized) return;
     try {
       const data = { members, courts, nextMatches, matchHistory, config, nextMemberId, pastSnapshots };
-      localStorage.setItem('doubles-app-data-v24', JSON.stringify(data));
+      localStorage.setItem('doubles-app-data-v25', JSON.stringify(data));
     } catch (e) {
       console.error("Failed to save data");
     }
@@ -1212,6 +1238,20 @@ export default function DoublesMatchupApp() {
             </div>
 
             <div className="flex items-center justify-between py-6 border-b border-gray-50"><div className="flex-1 pr-4 flex flex-col"><span className="font-bold text-lg text-gray-700">メモ欄のデフォルト</span><span className="text-xs text-gray-400 leading-tight">新しく選手を追加した際のメモ欄の初期値を設定します</span></div><div className="relative"><select value={config.memoDefault} onChange={(e) => setConfig(prev => ({ ...prev, memoDefault: e.target.value as 'none' | 'yyyymm' }))} className="bg-gray-100 border-none rounded-lg px-3 py-2 text-sm font-bold text-gray-700 appearance-none pr-8 focus:ring-2 focus:ring-blue-500"><option value="none">なし</option><option value="yyyymm">年月</option></select><ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400" /></div></div>
+            
+            <div className="flex items-center justify-between py-6 border-b border-gray-50">
+              <div className="flex-1 pr-4 flex flex-col">
+                <span className="font-bold text-lg text-gray-700">日付が変わったら履歴をリセット</span>
+                <span className="text-xs text-gray-400 leading-tight">日付が変わったタイミングで自動で試合数と履歴をリセットします</span>
+              </div>
+              <button 
+                onClick={() => setConfig(prev => ({ ...prev, resetHistoryOnDayChange: !prev.resetHistoryOnDayChange }))} 
+                className={`shrink-0 w-14 h-7 rounded-full relative transition-colors ${config.resetHistoryOnDayChange ? 'bg-blue-600' : 'bg-gray-200'}`}
+              >
+                <div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-md ${config.resetHistoryOnDayChange ? 'left-8' : 'left-1'}`} />
+              </button>
+            </div>
+
             <div className="space-y-4"><button onClick={resetPlayCountsOnly} className="w-full py-4 bg-gray-50 text-gray-700 rounded-2xl font-bold flex items-center justify-center gap-3 border active:bg-gray-100 transition-colors"><RotateCcw size={20} /> 試合数と履歴をリセット</button><button onClick={() => {if(confirm('全てリセットしますか？')) {localStorage.clear(); location.reload();}}} className="w-full py-4 bg-red-50 text-red-500 rounded-2xl font-bold border border-red-100 active:bg-red-100 transition-colors">データを完全消去</button></div>
           </div>
         )}
