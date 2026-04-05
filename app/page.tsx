@@ -126,7 +126,7 @@ export default function DoublesMatchupApp() {
     bulkOnlyMode: false,
     showWaitingInBulkMode: true,
     orderFirstMatchByList: false,
-    memoDefault: 'yyyymm',
+    memoDefault: 'none' | 'yyyymm',
   });
   const [nextMemberId, setNextMemberId] = useState(1);
   const [isInitialized, setIsInitialized] = useState(false);
@@ -694,7 +694,7 @@ export default function DoublesMatchupApp() {
   };
 
   const calculateNextMemberState = (currentMembers: Member[], p1: number, p2: number, p3: number, p4: number) => {
-    const now = Math.floor(Date.now() / 1000); // 秒単位に丸める
+    const now = Math.floor(Date.now() / 1000); 
     const playerIds = [p1, p2, p3, p4];
     const updated = currentMembers.map(m => {
       if (!playerIds.includes(m.id)) return m;
@@ -747,7 +747,7 @@ export default function DoublesMatchupApp() {
     let tempMembers = JSON.parse(JSON.stringify(targetMembers || members)) as Member[];
     let planned: Court[] = [];
     const courtCount = config.courtCount;
-    const now = Math.floor(Date.now() / 1000); // 秒単位に丸める
+    const now = Math.floor(Date.now() / 1000); 
 
     if (config.bulkOnlyMode && (config.levelPriority === 'weak' || config.levelPriority === 'strong')) {
       let activeCandidates = tempMembers.filter(m => m.isActive);
@@ -898,21 +898,14 @@ export default function DoublesMatchupApp() {
       return;
     }
 
-    // 次回の予定(planned)が絡む入れ替えは不可
     if (s1.isPlanned || s2.isPlanned) {
       setSelectedSwap(null);
       return;
     }
 
-    // どちらかが待機メンバー、どちらかが実コート（または両方が実コート）である必要がある
     if (!s1.courtId && !s2.courtId) {
       setSelectedSwap(null);
       return;
-    }
-
-    // 実コートが絡む入れ替えの場合、次回の予定を「未確認（再計算が必要）」な状態にする
-    if (config.bulkOnlyMode && (s1.courtId || s2.courtId)) {
-      setHasUserConfirmedRegen(false);
     }
 
     setMembers(prev => {
@@ -967,6 +960,10 @@ export default function DoublesMatchupApp() {
           }
         });
         
+        if (config.bulkOnlyMode && (s1.courtId || s2.courtId)) {
+          regeneratePlannedMatches(finalMembers);
+        }
+
         setTimeout(() => setMembers(finalMembers), 0);
         return nextCourts;
       });
@@ -991,7 +988,7 @@ export default function DoublesMatchupApp() {
   }, [members, courts]);
 
   const CourtCard = ({ court, isPlanned = false, isPast = false }: { court: Court, isPlanned?: boolean, isPast?: boolean }) => {
-    const h = (config.bulkOnlyMode ? 140 : 140) * config.zoomLevel;
+    const h = 140 * config.zoomLevel;
     const border = isPlanned ? 'border-gray-500' : 'border-slate-900';
     const bg = isPlanned ? 'bg-gray-100' : 'bg-white';
     
