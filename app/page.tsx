@@ -146,7 +146,7 @@ export default function DoublesMatchupApp() {
   const LEVEL_PATTERNS: LevelPattern[] = ['A/B/C', 'A', 'A/B', 'B', 'B/C', 'C'];
 
   useEffect(() => {
-    const versions = ['v25', 'v24', 'v23', 'v22', 'v21', 'v20', 'v19', 'v18', 'v17', 'v16', 'v15', 'v14', 'v13', 'v12', 'v11', 'v10', 'v9', 'v8'];
+    const versions = ['v26', 'v25', 'v24', 'v23', 'v22', 'v21', 'v20', 'v19', 'v18', 'v17', 'v16', 'v15', 'v14', 'v13', 'v12', 'v11', 'v10', 'v9', 'v8'];
     let loadedData: any = null;
     let loadedVersion = '';
     for (const v of versions) {
@@ -245,7 +245,7 @@ export default function DoublesMatchupApp() {
     if (!isInitialized) return;
     try {
       const data = { members, courts, nextMatches, matchHistory, config, nextMemberId, pastSnapshots };
-      localStorage.setItem('doubles-app-data-v25', JSON.stringify(data));
+      localStorage.setItem('doubles-app-data-v26', JSON.stringify(data));
     } catch (e) {
       console.error("Failed to save data");
     }
@@ -934,20 +934,24 @@ export default function DoublesMatchupApp() {
       return;
     }
 
-    // 最新対戦メンバーと待機メンバーの入れ替えかどうか
+    // 試合中のメンバー同士の入れ替えかどうかを判定
+    const isBothInMatch = s1.courtId && s2.courtId;
     const isSwapWithWaiting = !s1.courtId || !s2.courtId;
 
     setMembers(prev => {
       let nextMembers = [...prev];
 
-      [s1, s2].forEach(s => {
-        if (s.courtId) {
-          const court = courts.find(c => c.id === s.courtId);
-          if (court?.match) {
-            nextMembers = revertMemberState(nextMembers, court.match.p1, court.match.p2, court.match.p3, court.match.p4);
+      // 試合中のメンバーと待機メンバーの入れ替えの場合のみ、試合数などの変動処理を行う
+      if (!isBothInMatch) {
+        [s1, s2].forEach(s => {
+          if (s.courtId) {
+            const court = courts.find(c => c.id === s.courtId);
+            if (court?.match) {
+              nextMembers = revertMemberState(nextMembers, court.match.p1, court.match.p2, court.match.p3, court.match.p4);
+            }
           }
-        }
-      });
+        });
+      }
 
       setCourts(prevCourts => {
         const nextCourts = [...prevCourts];
@@ -967,10 +971,19 @@ export default function DoublesMatchupApp() {
         });
 
         let finalMembers = [...nextMembers];
+        
+        // 試合数変動が必要な場合のみ再計算
+        if (!isBothInMatch) {
+          nextCourts.forEach(c => {
+            if (c.match && (c.id === s1.courtId || c.id === s2.courtId)) {
+              finalMembers = calculateNextMemberState(finalMembers, c.match.p1, c.match.p2, c.match.p3, c.match.p4);
+            }
+          });
+        }
+
+        // 履歴情報の更新（コート内に入れ替わった人がいる場合、履歴の表示名とIDを最新に同期する）
         nextCourts.forEach(c => {
           if (c.match && (c.id === s1.courtId || c.id === s2.courtId)) {
-            finalMembers = calculateNextMemberState(finalMembers, c.match.p1, c.match.p2, c.match.p3, c.match.p4);
-            
             const targetHistIdx = matchHistory.findIndex(h => h.courtId === c.id);
             if (targetHistIdx !== -1) {
               setMatchHistory(prevH => {
