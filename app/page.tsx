@@ -82,7 +82,7 @@ interface HistoryEntry {
 }
 
 // --- レベルバッジ用コンポーネント ---
-const LevelBadge = ({ level, className = \"\" }: { level: LevelPattern, className?: string }) => {
+const LevelBadge = ({ level, className = "" }: { level: LevelPattern, className?: string }) => {
   const segments = level.split('/');
   return (
     <div className={`flex h-6 rounded overflow-hidden border border-black/10 font-bold text-[10px] w-12 shrink-0 ${className}`}>
@@ -943,57 +943,57 @@ export default function DoublesApp() {
   const isHistoryMode = historyIndex !== -1;
 
   return (
-    <div className=\"min-h-screen bg-gray-100 pb-24 text-gray-900 font-sans select-none overflow-x-hidden\">
+    <div className="min-h-screen bg-gray-100 pb-24 text-gray-900 font-sans select-none overflow-x-hidden">
       {/* ヘッダー */}
-      <header className=\"bg-gradient-to-r from-blue-700 to-indigo-800 text-white shadow-md sticky top-0 z-40 px-4 py-3 flex items-center justify-between pb-safe-top\">
-        <div className=\"flex items-center gap-2\">
-          <Trophy className=\"text-yellow-400 animate-pulse\" size={24} />
-          <h1 className=\"text-xl font-black tracking-wider\">D Maker</h1>
+      <header className="bg-gradient-to-r from-blue-700 to-indigo-800 text-white shadow-md sticky top-0 z-40 px-4 py-3 flex items-center justify-between pb-safe-top">
+        <div className="flex items-center gap-2">
+          <Trophy className="text-yellow-400 animate-pulse" size={24} />
+          <h1 className="text-xl font-black tracking-wider">D Maker</h1>
           {isHistoryMode && (
-            <span className=\"bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-full font-bold ml-1 animate-bounce\">
+            <span className="bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-full font-bold ml-1 animate-bounce">
               履歴閲覧中 ({historyIndex + 1}/{history.length})
             </span>
           )}
         </div>
-        <div className=\"text-xs bg-white/20 px-3 py-1 rounded-full font-medium backdrop-blur-sm\">
+        <div className="text-xs bg-white/20 px-3 py-1 rounded-full font-medium backdrop-blur-sm">
           参加:{members.filter(m => m.isActive).length}人 / 割当:{activeCourts.length * 4}人
         </div>
       </header>
 
       {/* 入れ替え操作のオーバーレイ案内 */}
       {isSwapping && (
-        <div className=\"bg-yellow-500 text-yellow-950 px-4 py-2 text-center text-sm font-bold flex items-center justify-center gap-2 shadow-inner animate-fade-in sticky top-[52px] z-50\">
+        <div className="bg-yellow-500 text-yellow-950 px-4 py-2 text-center text-sm font-bold flex items-center justify-center gap-2 shadow-inner animate-fade-in sticky top-[52px] z-50">
           <AlertCircle size={16} />
           <span>入れ替える選手をタップするか、下の名簿から選んでください</span>
-          <button onClick={() => { setIsSwapping(false); setSwapSource(null); }} className=\"ml-2 bg-yellow-700 text-white rounded px-2 py-0.5 text-xs active:bg-yellow-800\">キャンセル</button>
+          <button onClick={() => { setIsSwapping(false); setSwapSource(null); }} className="ml-2 bg-yellow-700 text-white rounded px-2 py-0.5 text-xs active:bg-yellow-800">キャンセル</button>
         </div>
       )}
 
-      <main className=\"max-w-md mx-auto p-4 space-y-4\">
+      <main className="max-w-md mx-auto p-4 space-y-4">
         {/* 1. 試合画面 */}
         {activeTab === 'dashboard' && (
-          <div className=\"space-y-4 animate-fade-in\">
+          <div className="space-y-4 animate-fade-in">
             {/* 履歴ブラウザの操作パネル（履歴がある場合のみ表示） */}
             {history.length > 0 && (
-              <div className=\"bg-white rounded-2xl p-3 shadow-sm border border-gray-200 flex items-center justify-between gap-2\">
+              <div className="bg-white rounded-2xl p-3 shadow-sm border border-gray-200 flex items-center justify-between gap-2">
                 <button 
                   disabled={historyIndex >= history.length - 1} 
                   onClick={() => loadHistoryEntry(historyIndex + 1)} 
-                  className=\"flex-1 py-2 bg-gray-100 rounded-xl flex items-center justify-center gap-1 font-bold text-sm text-gray-700 disabled:opacity-40 active:bg-gray-200 transition-colors\"
+                  className="flex-1 py-2 bg-gray-100 rounded-xl flex items-center justify-center gap-1 font-bold text-sm text-gray-700 disabled:opacity-40 active:bg-gray-200 transition-colors"
                 >
                   <ChevronLeft size={16} /> 前の試合
                 </button>
                 <button 
                   disabled={historyIndex === -1} 
                   onClick={() => loadHistoryEntry(historyIndex - 1)} 
-                  className=\"flex-1 py-2 bg-gray-100 rounded-xl flex items-center justify-center gap-1 font-bold text-sm text-gray-700 disabled:opacity-40 active:bg-gray-200 transition-colors\"
+                  className="flex-1 py-2 bg-gray-100 rounded-xl flex items-center justify-center gap-1 font-bold text-sm text-gray-700 disabled:opacity-40 active:bg-gray-200 transition-colors"
                 >
                   次へ <ChevronRight size={16} />
                 </button>
                 {isHistoryMode && (
                   <button 
                     onClick={() => loadHistoryEntry(-1)} 
-                    className=\"px-3 py-2 bg-blue-50 text-blue-700 rounded-xl font-bold text-sm border border-blue-100 active:bg-blue-100 transition-colors\"
+                    className="px-3 py-2 bg-blue-50 text-blue-700 rounded-xl font-bold text-sm border border-blue-100 active:bg-blue-100 transition-colors"
                   >
                     最新に戻る
                   </button>
@@ -1013,9 +1013,9 @@ export default function DoublesApp() {
                 <div key={court.id} className={`bg-white rounded-3xl shadow-sm border overflow-hidden transition-all duration-300 ${isNextReady ? 'border-amber-300 ring-4 ring-amber-100' : 'border-gray-200'}`}>
                   {/* コートヘッダー */}
                   <div className={`px-4 py-2.5 flex items-center justify-between ${isNextReady ? 'bg-amber-500 text-white' : 'bg-gray-50 border-b text-gray-700'}`}>
-                    <div className=\"flex items-center gap-2\">
-                      <span className=\"font-black tracking-tight text-sm\">{court.name}</span>
-                      {isNextReady && <span className=\"bg-white text-amber-600 font-extrabold text-[10px] px-2 py-0.5 rounded-full shadow-sm\">次回の予定</span>}
+                    <div className="flex items-center gap-2">
+                      <span className="font-black tracking-tight text-sm">{court.name}</span>
+                      {isNextReady && <span className="bg-white text-amber-600 font-extrabold text-[10px] px-2 py-0.5 rounded-full shadow-sm">次回の予定</span>}
                     </div>
                     {!isHistoryMode && (
                       <button 
@@ -1028,21 +1028,21 @@ export default function DoublesApp() {
                   </div>
 
                   {/* コート内対戦表レイアウト */}
-                  <div className=\"p-4 flex items-center justify-center gap-2 bg-gradient-to-b from-white to-gray-50/50\">
+                  <div className="p-4 flex items-center justify-center gap-2 bg-gradient-to-b from-white to-gray-50/50">
                     {match && p1 && p2 && p3 && p4 ? (
-                      <div className=\"w-full flex items-center justify-between gap-1\">
+                      <div className="w-full flex items-center justify-between gap-1">
                         {/* ペア1 (左側) */}
-                        <div className=\"flex-1 space-y-2\">
+                        <div className="flex-1 space-y-2">
                           <button onClick={() => startSwap(court.id, 'p1')} className={`w-full p-2.5 rounded-xl border bg-white shadow-sm flex flex-col items-stretch justify-center text-left transition-all active:bg-gray-50 ${swapSource?.courtId === court.id && swapSource?.position === 'p1' ? 'border-yellow-500 ring-2 ring-yellow-200' : 'border-gray-100'}`}>
                             <span className={`font-bold tracking-tight text-gray-800 leading-tight ${nameFontClass('text-lg')}`}>{p1.name}</span>
-                            <div className=\"flex items-center justify-between mt-1 text-gray-400 text-[10px] font-medium\">
+                            <div className="flex items-center justify-between mt-1 text-gray-400 text-[10px] font-medium">
                               <span>{p1.memo || '-'}</span>
                               <span>{p1.playCount}回</span>
                             </div>
                           </button>
                           <button onClick={() => startSwap(court.id, 'p2')} className={`w-full p-2.5 rounded-xl border bg-white shadow-sm flex flex-col items-stretch justify-center text-right transition-all active:bg-gray-50 ${swapSource?.courtId === court.id && swapSource?.position === 'p2' ? 'border-yellow-500 ring-2 ring-yellow-200' : 'border-gray-100'}`}>
                             <span className={`font-bold tracking-tight text-gray-800 leading-tight ${nameFontClass('text-lg')}`}>{p2.name}</span>
-                            <div className=\"flex items-center justify-between mt-1 text-gray-400 text-[10px] font-medium\">
+                            <div className="flex items-center justify-between mt-1 text-gray-400 text-[10px] font-medium">
                               <span>{p2.playCount}回</span>
                               <span>{p2.memo || '-'}</span>
                             </div>
@@ -1050,22 +1050,22 @@ export default function DoublesApp() {
                         </div>
 
                         {/* VSディバイダー */}
-                        <div className=\"flex flex-col items-center justify-center px-1\">
-                          <span className=\"text-xs font-black italic tracking-widest text-gray-300 bg-gray-100 px-2 py-1 rounded-md border border-gray-200/60 shadow-inner\">VS</span>
+                        <div className="flex flex-col items-center justify-center px-1">
+                          <span className="text-xs font-black italic tracking-widest text-gray-300 bg-gray-100 px-2 py-1 rounded-md border border-gray-200/60 shadow-inner">VS</span>
                         </div>
 
                         {/* ペア2 (右側) */}
-                        <div className=\"flex-1 space-y-2\">
+                        <div className="flex-1 space-y-2">
                           <button onClick={() => startSwap(court.id, 'p3')} className={`w-full p-2.5 rounded-xl border bg-white shadow-sm flex flex-col items-stretch justify-center text-left transition-all active:bg-gray-50 ${swapSource?.courtId === court.id && swapSource?.position === 'p3' ? 'border-yellow-500 ring-2 ring-yellow-200' : 'border-gray-100'}`}>
                             <span className={`font-bold tracking-tight text-gray-800 leading-tight ${nameFontClass('text-lg')}`}>{p3.name}</span>
-                            <div className=\"flex items-center justify-between mt-1 text-gray-400 text-[10px] font-medium\">
+                            <div className="flex items-center justify-between mt-1 text-gray-400 text-[10px] font-medium">
                               <span>{p3.memo || '-'}</span>
                               <span>{p3.playCount}回</span>
                             </div>
                           </button>
                           <button onClick={() => startSwap(court.id, 'p4')} className={`w-full p-2.5 rounded-xl border bg-white shadow-sm flex flex-col items-stretch justify-center text-right transition-all active:bg-gray-50 ${swapSource?.courtId === court.id && swapSource?.position === 'p4' ? 'border-yellow-500 ring-2 ring-yellow-200' : 'border-gray-100'}`}>
                             <span className={`font-bold tracking-tight text-gray-800 leading-tight ${nameFontClass('text-lg')}`}>{p4.name}</span>
-                            <div className=\"flex items-center justify-between mt-1 text-gray-400 text-[10px] font-medium\">
+                            <div className="flex items-center justify-between mt-1 text-gray-400 text-[10px] font-medium">
                               <span>{p4.playCount}回</span>
                               <span>{p4.memo || '-'}</span>
                             </div>
@@ -1073,7 +1073,7 @@ export default function DoublesApp() {
                         </div>
                       </div>
                     ) : (
-                      <div className=\"text-center py-6 text-gray-400 font-bold text-sm tracking-tight\">メンバー未割当</div>
+                      <div className="text-center py-6 text-gray-400 font-bold text-sm tracking-tight">メンバー未割当</div>
                     )}
                   </div>
                 </div>
@@ -1082,7 +1082,7 @@ export default function DoublesApp() {
 
             {/* 下部一括操作ボタン (履歴モード時は非表示) */}
             {!isHistoryMode && (
-              <div className=\"pt-2\">
+              <div className="pt-2">
                 <button 
                   onClick={handleBulkUpdate} 
                   className={`w-full py-4 rounded-2xl font-black text-lg shadow-md tracking-wider flex items-center justify-center gap-2 border transition-all active:scale-[0.99] active:opacity-90 ${
@@ -1097,9 +1097,9 @@ export default function DoublesApp() {
             )}
 
             {/* 待機メンバー一覧パネル */}
-            <div className=\"bg-white rounded-3xl p-4 shadow-sm border border-gray-200\">
-              <h3 className=\"text-xs font-black text-gray-400 tracking-wider uppercase mb-3\">現在の待機メンバー</h3>
-              <div className=\"flex flex-wrap gap-1.5\">
+            <div className="bg-white rounded-3xl p-4 shadow-sm border border-gray-200">
+              <h3 className="text-xs font-black text-gray-400 tracking-wider uppercase mb-3">現在の待機メンバー</h3>
+              <div className="flex flex-wrap gap-1.5">
                 {members.filter(m => m.isActive).map(m => {
                   let isPlayingNow = false;
                   const matchMap = isNextReady ? nextMatches : currentMatches;
@@ -1115,7 +1115,7 @@ export default function DoublesApp() {
                       className={`px-3 py-1.5 rounded-xl text-sm font-bold border shadow-sm transition-all flex items-center gap-1.5 active:scale-95 ${isSwapping ? 'bg-yellow-50 border-yellow-300 text-yellow-800' : 'bg-gray-50 border-gray-200 text-gray-700 active:bg-gray-100'}`}
                     >
                       <span className={nameFontClass('text-sm')}>{m.name}</span>
-                      <span className=\"text-[10px] bg-gray-200 text-gray-500 rounded px-1 font-mono\">{m.playCount}</span>
+                      <span className="text-[10px] bg-gray-200 text-gray-500 rounded px-1 font-mono">{m.playCount}</span>
                     </button>
                   );
                 })}
@@ -1123,7 +1123,7 @@ export default function DoublesApp() {
                   const matchMap = isNextReady ? nextMatches : currentMatches;
                   return Object.values(matchMap).some(match => [match.p1, match.p2, match.p3, match.p4].includes(m.id));
                 }) && (
-                  <div className=\"text-xs font-bold text-gray-400 py-1\">待機中の選手はいません</div>
+                  <div className="text-xs font-bold text-gray-400 py-1">待機中の選手はいません</div>
                 )}
               </div>
             </div>
@@ -1132,65 +1132,65 @@ export default function DoublesApp() {
 
         {/* 2. 名簿管理画面 */}
         {activeTab === 'members' && (
-          <div className=\"space-y-4 animate-fade-in\">
+          <div className="space-y-4 animate-fade-in">
             {/* クイック追加フォーム */}
-            <div className=\"bg-white rounded-2xl p-3 shadow-sm border border-gray-200 flex items-center gap-2\">
+            <div className="bg-white rounded-2xl p-3 shadow-sm border border-gray-200 flex items-center gap-2">
               <input 
-                type=\"text\" 
-                placeholder=\"選手名を入力...\" 
+                type="text" 
+                placeholder="選手名を入力..." 
                 value={newMemberName} 
                 onChange={(e) => setNewMemberName(e.target.value)} 
                 onKeyDown={(e) => e.key === 'Enter' && addMember()} 
-                className=\"flex-1 px-3 py-2 border rounded-xl bg-gray-50 font-bold text-sm focus:outline-none focus:ring-2 focus:ring-blue-500\" 
+                className="flex-1 px-3 py-2 border rounded-xl bg-gray-50 font-bold text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" 
               />
-              <div className=\"relative h-9 shrink-0 flex items-center border rounded-xl bg-gray-50 px-2\">
+              <div className="relative h-9 shrink-0 flex items-center border rounded-xl bg-gray-50 px-2">
                 <select 
                   value={newMemberLevel} 
                   onChange={(e) => setNewMemberLevel(e.target.value as LevelPattern)} 
-                  className=\"opacity-0 absolute inset-0 w-full h-full cursor-pointer z-10\" 
+                  className="opacity-0 absolute inset-0 w-full h-full cursor-pointer z-10" 
                 >
-                  <option value=\"A/B/C\">A/B/C</option>
-                  <option value=\"A\">A</option>
-                  <option value=\"A/B\">A/B</option>
-                  <option value=\"B\">B</option>
-                  <option value=\"B/C\">B/C</option>
-                  <option value=\"C\">C</option>
+                  <option value="A/B/C">A/B/C</option>
+                  <option value="A">A</option>
+                  <option value="A/B">A/B</option>
+                  <option value="B">B</option>
+                  <option value="B/C">B/C</option>
+                  <option value="C">C</option>
                 </select>
                 <LevelBadge level={newMemberLevel} />
-                <ChevronDown size={12} className=\"text-gray-400 ml-1\" />
+                <ChevronDown size={12} className="text-gray-400 ml-1" />
               </div>
-              <button onClick={addMember} className=\"p-2 bg-blue-600 text-white rounded-xl shadow-sm active:bg-blue-700 transition-colors shrink-0\">
+              <button onClick={addMember} className="p-2 bg-blue-600 text-white rounded-xl shadow-sm active:bg-blue-700 transition-colors shrink-0">
                 <Plus size={20} />
               </button>
             </div>
 
             {/* 検索・ソートツールバー */}
-            <div className=\"bg-white rounded-2xl p-3 shadow-sm border border-gray-200 space-y-2\">
+            <div className="bg-white rounded-2xl p-3 shadow-sm border border-gray-200 space-y-2">
               <input 
-                type=\"text\" 
-                placeholder=\"選手名・メモで検索...\" 
+                type="text" 
+                placeholder="選手名・メモで検索..." 
                 value={searchWord} 
                 onChange={(e) => setSearchWord(e.target.value)} 
-                className=\"w-full px-3 py-1.5 border rounded-xl bg-gray-50 font-medium text-xs focus:outline-none focus:ring-2 focus:ring-blue-500\" 
+                className="w-full px-3 py-1.5 border rounded-xl bg-gray-50 font-medium text-xs focus:outline-none focus:ring-2 focus:ring-blue-500" 
               />
-              <div className=\"flex flex-wrap gap-1 pt-1\">
-                <button onClick={sortMembersByPlayCount} className=\"px-2 py-1 bg-gray-50 text-gray-600 border border-gray-200 text-[11px] font-bold rounded-lg flex items-center gap-1 active:bg-gray-100\">
+              <div className="flex flex-wrap gap-1 pt-1">
+                <button onClick={sortMembersByPlayCount} className="px-2 py-1 bg-gray-50 text-gray-600 border border-gray-200 text-[11px] font-bold rounded-lg flex items-center gap-1 active:bg-gray-100">
                   <BarChart3 size={12} /> 試合数順
                 </button>
-                <button onClick={sortMembersByName} className=\"px-2 py-1 bg-gray-50 text-gray-600 border border-gray-200 text-[11px] font-bold rounded-lg flex items-center gap-1 active:bg-gray-100\">
+                <button onClick={sortMembersByName} className="px-2 py-1 bg-gray-50 text-gray-600 border border-gray-200 text-[11px] font-bold rounded-lg flex items-center gap-1 active:bg-gray-100">
                   <SortAsc size={12} /> 名前順
                 </button>
-                <button onClick={sortMembersByLevel} className=\"px-2 py-1 bg-gray-50 text-gray-600 border border-gray-200 text-[11px] font-bold rounded-lg flex items-center gap-1 active:bg-gray-100\">
+                <button onClick={sortMembersByLevel} className="px-2 py-1 bg-gray-50 text-gray-600 border border-gray-200 text-[11px] font-bold rounded-lg flex items-center gap-1 active:bg-gray-100">
                   <UserCheck size={12} /> レベル順
                 </button>
-                <button onClick={sortMembersByMemo} className=\"px-2 py-1 bg-gray-50 text-gray-600 border border-gray-200 text-[11px] font-bold rounded-lg flex items-center gap-1 active:bg-gray-100\">
+                <button onClick={sortMembersByMemo} className="px-2 py-1 bg-gray-50 text-gray-600 border border-gray-200 text-[11px] font-bold rounded-lg flex items-center gap-1 active:bg-gray-100">
                   <StickyNote size={12} /> メモ順
                 </button>
               </div>
             </div>
 
             {/* 選手リスト（ドラッグ＆ドロップ対応） */}
-            <div className=\"space-y-2\">
+            <div className="space-y-2">
               {displayMembers.map((m) => (
                 <div 
                   key={m.id} 
@@ -1203,8 +1203,8 @@ export default function DoublesApp() {
                   } ${draggedMemberId === m.id ? 'opacity-30 border-blue-400 border-dashed' : ''}`}
                 >
                   {/* ドラッグハンドル ＋ 参加インジケータ */}
-                  <div className=\"flex items-center gap-2 flex-1 min-w-0\">
-                    <div className=\"cursor-grab active:cursor-grabbing text-gray-300 p-0.5 hover:text-gray-400 transition-colors shrink-0\">
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                    <div className="cursor-grab active:cursor-grabbing text-gray-300 p-0.5 hover:text-gray-400 transition-colors shrink-0">
                       <GripVertical size={16} />
                     </div>
                     <button 
@@ -1215,79 +1215,79 @@ export default function DoublesApp() {
                           : 'border-gray-300 bg-white'
                       }`}
                     >
-                      {m.isActive && <span className=\"text-xs font-black\">✓</span>}
+                      {m.isActive && <span className="text-xs font-black">✓</span>}
                     </button>
                     
                     {/* 名前 ＋ 試合数表示 */}
-                    <div className=\"flex flex-col min-w-0 flex-1\">
+                    <div className="flex flex-col min-w-0 flex-1">
                       <span className={`font-bold text-gray-800 truncate ${nameFontClass('text-base')}`}>{m.name}</span>
-                      <span className=\"text-[10px] font-bold text-gray-400 mt-0.5\">試合数: {m.playCount}回</span>
+                      <span className="text-[10px] font-bold text-gray-400 mt-0.5">試合数: {m.playCount}回</span>
                     </div>
                   </div>
 
                   {/* アクションエリア (レベル、ペア、メモ、削除) */}
-                  <div className=\"flex items-center gap-1.5 shrink-0\">
+                  <div className="flex items-center gap-1.5 shrink-0">
                     {/* メモ欄（インライン編集対応） */}
                     {editingMemoId === m.id ? (
-                      <div className=\"flex items-center border rounded-xl overflow-hidden bg-gray-50\">
+                      <div className="flex items-center border rounded-xl overflow-hidden bg-gray-50">
                         <input 
-                          type=\"text\" 
+                          type="text" 
                           maxLength={8} 
                           value={editingMemoText} 
                           onChange={(e) => setEditingMemoText(e.target.value)} 
-                          className=\"w-16 px-1.5 py-1 text-xs bg-transparent font-bold focus:outline-none\" 
+                          className="w-16 px-1.5 py-1 text-xs bg-transparent font-bold focus:outline-none" 
                           autoFocus 
                         />
-                        <button onClick={() => saveMemo(m.id)} className=\"p-1 bg-green-600 text-white active:bg-green-700\">
+                        <button onClick={() => saveMemo(m.id)} className="p-1 bg-green-600 text-white active:bg-green-700">
                           <Save size={12} />
                         </button>
                       </div>
                     ) : (
                       <button 
                         onClick={() => startEditingMemo(m)} 
-                        className=\"px-2 py-1 bg-gray-50 border border-gray-200 rounded-xl text-[10px] font-bold text-gray-500 max-w-[70px] truncate active:bg-gray-100\"
+                        className="px-2 py-1 bg-gray-50 border border-gray-200 rounded-xl text-[10px] font-bold text-gray-500 max-w-[70px] truncate active:bg-gray-100"
                       >
                         {m.memo || 'メモ追加'}
                       </button>
                     )}
 
                     {/* レベル選択リスト */} 
-                    <div className=\"relative flex items-center border rounded-xl bg-gray-50 px-1.5 py-1 text-xs shadow-sm\">
+                    <div className="relative flex items-center border rounded-xl bg-gray-50 px-1.5 py-1 text-xs shadow-sm">
                       <select 
                         value={m.level} 
                         onChange={(e) => changeMemberLevel(m.id, e.target.value as LevelPattern)} 
-                        className=\"opacity-0 absolute inset-0 w-full h-full cursor-pointer z-10\" 
+                        className="opacity-0 absolute inset-0 w-full h-full cursor-pointer z-10" 
                       >
-                        <option value=\"A/B/C\">A/B/C</option>
-                        <option value=\"A\">A</option>
-                        <option value=\"A/B\">A/B</option>
-                        <option value=\"B\">B</option>
-                        <option value=\"B/C\">B/C</option>
-                        <option value=\"C\">C</option>
+                        <option value="A/B/C">A/B/C</option>
+                        <option value="A">A</option>
+                        <option value="A/B">A/B</option>
+                        <option value="B">B</option>
+                        <option value="B/C">B/C</option>
+                        <option value="C">C</option>
                       </select>
                       <LevelBadge level={m.level} />
-                      <ChevronDown size={10} className=\"text-gray-400 ml-0.5\" />
+                      <ChevronDown size={10} className="text-gray-400 ml-0.5" />
                     </div>
 
                     {/* 固定ペアピン */} 
-                    <div className=\"relative flex items-center border rounded-xl bg-gray-50 px-1.5 py-1 shadow-sm\">
+                    <div className="relative flex items-center border rounded-xl bg-gray-50 px-1.5 py-1 shadow-sm">
                       <select 
                         value={m.fixedPairMemberId || ''} 
                         onChange={(e) => {
                           const val = e.target.value ? Number(e.target.value) : null;
                           toggleFixedPair(m.id, val);
                         }} 
-                        className=\"opacity-0 absolute inset-0 w-full h-full cursor-pointer z-10\" 
+                        className="opacity-0 absolute inset-0 w-full h-full cursor-pointer z-10" 
                       >
-                        <option value=\"\">ペアなし</option>
+                        <option value="">ペアなし</option>
                         {members.filter(x => x.id !== m.id).map(x => (
                           <option key={x.id} value={x.id}>{x.name}</option>
                         ))}
                       </select>
                       {m.fixedPairMemberId ? (
-                        <LinkIcon size={14} className=\"text-blue-600 animate-pulse\" />
+                        <LinkIcon size={14} className="text-blue-600 animate-pulse" />
                       ) : (
-                        <Unlink size={14} className=\"text-gray-300\" />
+                        <Unlink size={14} className="text-gray-300" />
                       )}
                     </div>
 
@@ -1296,7 +1296,7 @@ export default function DoublesApp() {
                       onClick={() => isSwapping ? executeSwapWithMember(m.id) : deleteMember(m.id)} 
                       className={`p-2 rounded-xl border transition-colors ${isSwapping ? 'bg-yellow-500 border-yellow-400 text-white' : 'bg-red-50 text-red-500 border-red-100 hover:bg-red-100 active:bg-red-100'}`}
                     >
-                      {isSwapping ? <span className=\"text-xs font-black px-0.5\">選出</span> : <Trash2 size={14} />}
+                      {isSwapping ? <span className="text-xs font-black px-0.5">選出</span> : <Trash2 size={14} />}
                     </button>
                   </div>
                 </div>
@@ -1307,34 +1307,34 @@ export default function DoublesApp() {
 
         {/* 3. 履歴画面 */} 
         {activeTab === 'history' && (
-          <div className=\"space-y-4 animate-fade-in\">
+          <div className="space-y-4 animate-fade-in">
             {history.length === 0 ? (
-              <div className=\"text-center py-12 text-gray-400 font-bold bg-white rounded-3xl border border-gray-200 shadow-sm\">
+              <div className="text-center py-12 text-gray-400 font-bold bg-white rounded-3xl border border-gray-200 shadow-sm">
                 進行済みの試合履歴はありません
               </div>
             ) : (
-              <div className=\"space-y-3\">
-                <div className=\"text-xs font-black text-gray-400 tracking-wider px-1\">過去20回分の確定履歴</div>
+              <div className="space-y-3">
+                <div className="text-xs font-black text-gray-400 tracking-wider px-1">過去20回分の確定履歴</div>
                 {history.map((entry, idx) => (
-                  <div key={idx} className=\"bg-white rounded-2xl p-3 shadow-sm border border-gray-200 space-y-2\">
-                    <div className=\"flex items-center justify-between border-b pb-1.5\">
-                      <span className=\"text-xs font-bold text-gray-500\">{new Date(entry.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'})}</span>
+                  <div key={idx} className="bg-white rounded-2xl p-3 shadow-sm border border-gray-200 space-y-2">
+                    <div className="flex items-center justify-between border-b pb-1.5">
+                      <span className="text-xs font-bold text-gray-500">{new Date(entry.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'})}</span>
                       <button 
                         onClick={() => loadHistoryEntry(idx)} 
-                        className=\"text-xs bg-blue-50 text-blue-700 px-2.5 py-1 rounded-xl font-bold border border-blue-100 active:bg-blue-100 transition-colors\"
+                        className="text-xs bg-blue-50 text-blue-700 px-2.5 py-1 rounded-xl font-bold border border-blue-100 active:bg-blue-100 transition-colors"
                       >
                         この時点を詳しく確認
                       </button>
                     </div>
-                    <div className=\"space-y-1\">
+                    <div className="space-y-1">
                       {entry.courts.map(c => {
                         const m = entry.matches[c.id];
                         if (!m) return null;
                         const mn = (id: number) => entry.snapshotMembers.find(x => x.id === id)?.name || `不明(${id})`;
                         return (
-                          <div key={c.id} className=\"text-xs font-medium text-gray-700 flex items-center justify-between bg-gray-50 p-1.5 rounded-lg\">
-                            <span className=\"font-bold text-gray-400 shrink-0 w-14\">{c.name}</span>
-                            <span className=\"truncate flex-1 text-center\">{mn(m.p1)} & {mn(m.p2)} <span className=\"font-black italic text-[9px] text-gray-300 mx-1\">VS</span> {mn(m.p3)} & {mn(m.p4)}</span>
+                          <div key={c.id} className="text-xs font-medium text-gray-700 flex items-center justify-between bg-gray-50 p-1.5 rounded-lg">
+                            <span className="font-bold text-gray-400 shrink-0 w-14">{c.name}</span>
+                            <span className="truncate flex-1 text-center">{mn(m.p1)} & {mn(m.p2)} <span className="font-black italic text-[9px] text-gray-300 mx-1">VS</span> {mn(m.p3)} & {mn(m.p4)}</span>
                           </div>
                         );
                       })}
@@ -1348,13 +1348,13 @@ export default function DoublesApp() {
 
         {/* 4. 設定画面 */}
         {activeTab === 'settings' && (
-          <div className=\"space-y-4 animate-fade-in bg-white rounded-3xl p-5 shadow-sm border border-gray-200\">
-            <h2 className=\"text-sm font-black tracking-wider text-gray-400 uppercase border-b pb-2 mb-2\">各種動作設定</h2>
+          <div className="space-y-4 animate-fade-in bg-white rounded-3xl p-5 shadow-sm border border-gray-200">
+            <h2 className="text-sm font-black tracking-wider text-gray-400 uppercase border-b pb-2 mb-2">各種動作設定</h2>
             
             {/* レベルマッチング優先度設定 */} 
-            <div className=\"space-y-1.5\">
-              <label className=\"text-xs font-extrabold text-gray-600 block\">レベルマッチング優先度</label>
-              <div className=\"grid grid-cols-4 gap-1 p-1 bg-gray-50 border rounded-2xl\">
+            <div className="space-y-1.5">
+              <label className="text-xs font-extrabold text-gray-600 block">レベルマッチング優先度</label>
+              <div className="grid grid-cols-4 gap-1 p-1 bg-gray-50 border rounded-2xl">
                 {[ 
                   { id: 'none', label: 'なし' }, 
                   { id: 'weak', label: '弱優先' }, 
@@ -1377,11 +1377,11 @@ export default function DoublesApp() {
             </div>
 
             {/* 各種フラグトグルスイッチ */} 
-            <div className=\"space-y-3 pt-2\">
-              <div className=\"flex items-center justify-between border-b pb-2.5\">
+            <div className="space-y-3 pt-2">
+              <div className="flex items-center justify-between border-b pb-2.5">
                 <div>
-                  <div className=\"text-xs font-extrabold text-gray-700\">次回の予定を一括先行生成</div>
-                  <div className=\"text-[10px] font-bold text-gray-400 mt-0.5\">ONにすると試合確定まで次回の予定を固定します</div>
+                  <div className="text-xs font-extrabold text-gray-700">次回の予定を一括先行生成</div>
+                  <div className="text-[10px] font-bold text-gray-400 mt-0.5">ONにすると試合確定まで次回の予定を固定します</div>
                 </div>
                 <button 
                   onClick={() => setConfig({ ...config, bulkOnlyMode: !config.bulkOnlyMode })}
@@ -1393,10 +1393,10 @@ export default function DoublesApp() {
                 </button>
               </div>
 
-              <div className=\"flex items-center justify-between border-b pb-2.5\">
+              <div className="flex items-center justify-between border-b pb-2.5">
                 <div>
-                  <div className=\"text-xs font-extrabold text-gray-700\">1巡目の試合は名簿順</div>
-                  <div className=\"text-[10px] font-bold text-gray-400 mt-0.5\">全員の初戦のみ名簿の並び順通りに割り当てます</div>
+                  <div className="text-xs font-extrabold text-gray-700">1巡目の試合は名簿順</div>
+                  <div className="text-[10px] font-bold text-gray-400 mt-0.5">全員の初戦のみ名簿の並び順通りに割り当てます</div>
                 </div>
                 <button 
                   onClick={() => setConfig({ ...config, orderFirstMatchByList: !config.orderFirstMatchByList })}
@@ -1408,10 +1408,10 @@ export default function DoublesApp() {
                 </button>
               </div>
 
-              <div className=\"flex items-center justify-between border-b pb-2.5\">
+              <div className="flex items-center justify-between border-b pb-2.5">
                 <div>
-                  <div className=\"text-xs font-extrabold text-gray-700\">日付が変わったら履歴をリセット</div>
-                  <div className=\"text-[10px] font-bold text-gray-400 mt-0.5\">次回起動時に日付が変更されていれば自動初期化します</div>
+                  <div className="text-xs font-extrabold text-gray-700">日付が変わったら履歴をリセット</div>
+                  <div className="text-[10px] font-bold text-gray-400 mt-0.5">次回起動時に日付が変更されていれば自動初期化します</div>
                 </div>
                 <button 
                   onClick={() => setConfig({ ...config, resetHistoryOnDayChange: !config.resetHistoryOnDayChange })}
@@ -1425,17 +1425,17 @@ export default function DoublesApp() {
             </div>
 
             {/* 名簿表示フォントサイズ調整 */} 
-            <div className=\"space-y-1.5 pt-1\">
-              <label className=\"text-xs font-extrabold text-gray-600 block\">名簿のフォントサイズ調整</label>
-              <div className=\"flex items-center gap-2 bg-gray-50 border p-1.5 rounded-2xl justify-between\">
+            <div className="space-y-1.5 pt-1">
+              <label className="text-xs font-extrabold text-gray-600 block">名簿のフォントサイズ調整</label>
+              <div className="flex items-center gap-2 bg-gray-50 border p-1.5 rounded-2xl justify-between">
                 <button 
                   onClick={() => setConfig(prev => ({ ...prev, nameFontSizeModifier: Math.max(-1, (prev.nameFontSizeModifier || 0) - 1) }))}
-                  className=\"p-2 bg-white rounded-xl border shadow-sm active:bg-gray-100 disabled:opacity-40 flex items-center justify-center shrink-0\"
+                  className="p-2 bg-white rounded-xl border shadow-sm active:bg-gray-100 disabled:opacity-40 flex items-center justify-center shrink-0"
                   disabled={config.nameFontSizeModifier === -1}
                 >
                   <ZoomOut size={16} />
                 </button>
-                <div className=\"flex items-center gap-1 font-bold text-xs text-gray-600\">
+                <div className="flex items-center gap-1 font-bold text-xs text-gray-600">
                   <Type size={14} />
                   <span>{
                     config.nameFontSizeModifier === -1 ? '小さめ' :
@@ -1444,7 +1444,7 @@ export default function DoublesApp() {
                 </div>
                 <button 
                   onClick={() => setConfig(prev => ({ ...prev, nameFontSizeModifier: Math.min(1, (prev.nameFontSizeModifier || 0) + 1) }))}
-                  className=\"p-2 bg-white rounded-xl border shadow-sm active:bg-gray-100 disabled:opacity-40 flex items-center justify-center shrink-0\"
+                  className="p-2 bg-white rounded-xl border shadow-sm active:bg-gray-100 disabled:opacity-40 flex items-center justify-center shrink-0"
                   disabled={config.nameFontSizeModifier === 1}
                 >
                   <ZoomIn size={16} />
@@ -1453,44 +1453,44 @@ export default function DoublesApp() {
             </div>
 
             {/* メモ欄のデフォルト設定 */}
-            <div className=\"space-y-1.5 pt-1\">
-              <label className=\"text-xs font-extrabold text-gray-600 block\">新規追加時のデフォルトメモ(最大8文字)</label>
+            <div className="space-y-1.5 pt-1">
+              <label className="text-xs font-extrabold text-gray-600 block">新規追加時のデフォルトメモ(最大8文字)</label>
               <input 
-                type=\"text\" 
+                type="text" 
                 maxLength={8} 
                 value={config.memoDefaultText || ''} 
                 onChange={(e) => setConfig({ ...config, memoDefaultText: e.target.value.trim() })}
-                className=\"w-full px-3 py-2 border rounded-xl bg-gray-50 font-bold text-xs focus:outline-none focus:ring-2 focus:ring-blue-500\" 
-                placeholder=\"例: 2605\"
+                className="w-full px-3 py-2 border rounded-xl bg-gray-50 font-bold text-xs focus:outline-none focus:ring-2 focus:ring-blue-500" 
+                placeholder="例: 2605"
               />
             </div>
 
             {/* コート増減設定セクション */} 
-            <div className=\"space-y-2 pt-2 border-t\">
-              <div className=\"flex items-center justify-between mb-1\">
-                <label className=\"text-xs font-black text-gray-400 tracking-wider uppercase\">コート数設定</label>
-                <button onClick={addCourt} className=\"px-2.5 py-1 bg-blue-50 text-blue-700 text-xs font-bold rounded-xl border border-blue-100 active:bg-blue-100 transition-all flex items-center gap-1\">
+            <div className="space-y-2 pt-2 border-t">
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-black text-gray-400 tracking-wider uppercase">コート数設定</label>
+                <button onClick={addCourt} className="px-2.5 py-1 bg-blue-50 text-blue-700 text-xs font-bold rounded-xl border border-blue-100 active:bg-blue-100 transition-all flex items-center gap-1">
                   <Plus size={12} /> コート追加
                 </button>
               </div>
-              <div className=\"space-y-1.5\">
+              <div className="space-y-1.5">
                 {courts.map(c => (
-                  <div key={c.id} className=\"flex items-center gap-2 bg-gray-50 border p-2 rounded-2xl shadow-sm\">
+                  <div key={c.id} className="flex items-center gap-2 bg-gray-50 border p-2 rounded-2xl shadow-sm">
                     <button 
                       onClick={() => toggleCourtActive(c.id)} 
                       className={`w-5 h-5 rounded-md border flex items-center justify-center transition-all shrink-0 ${
                         c.isActive ? 'bg-blue-600 border-blue-600 text-white shadow-inner' : 'border-gray-300 bg-white'
                       }`}
                     >
-                      {c.isActive && <span className=\"text-xs font-black\">✓</span>}
+                      {c.isActive && <span className="text-xs font-black">✓</span>}
                     </button>
                     <input 
-                      type=\"text\" 
+                      type="text" 
                       value={c.name} 
                       onChange={(e) => renameCourt(c.id, e.target.value)} 
-                      className=\"flex-1 px-2 py-1 bg-transparent border-b border-transparent focus:border-gray-300 text-xs font-bold focus:outline-none\" 
+                      className="flex-1 px-2 py-1 bg-transparent border-b border-transparent focus:border-gray-300 text-xs font-bold focus:outline-none" 
                     />
-                    <button onClick={() => deleteCourt(c.id)} className=\"p-1.5 text-gray-400 hover:text-red-500 active:bg-gray-100 rounded-lg transition-colors\">
+                    <button onClick={() => deleteCourt(c.id)} className="p-1.5 text-gray-400 hover:text-red-500 active:bg-gray-100 rounded-lg transition-colors">
                       <Trash2 size={14} />
                     </button>
                   </div>
@@ -1499,24 +1499,24 @@ export default function DoublesApp() {
             </div>
 
             {/* データバックアップ ＆ リセット */} 
-            <div className=\"space-y-2 pt-4 border-t\">
-              <label className=\"text-xs font-black text-gray-400 tracking-wider uppercase block mb-1\">データ管理・バックアップ</label>
-              <div className=\"grid grid-cols-2 gap-2\">
-                <button onClick={exportData} className=\"py-2.5 bg-gray-50 text-gray-700 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 border active:bg-gray-100 transition-colors\">
+            <div className="space-y-2 pt-4 border-t">
+              <label className="text-xs font-black text-gray-400 tracking-wider uppercase block mb-1">データ管理・バックアップ</label>
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={exportData} className="py-2.5 bg-gray-50 text-gray-700 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 border active:bg-gray-100 transition-colors">
                   <Download size={14} /> バックアップ保存
                 </button>
-                <label className=\"py-2.5 bg-gray-50 text-gray-700 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 border active:bg-gray-100 transition-colors cursor-pointer text-center\">
+                <label className="py-2.5 bg-gray-50 text-gray-700 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 border active:bg-gray-100 transition-colors cursor-pointer text-center">
                   <Upload size={14} /> データを復元
-                  <input type=\"file\" accept=\".json\" onChange={importData} className=\"hidden\" />
+                  <input type="file" accept=".json" onChange={importData} className="hidden" />
                 </label>
               </div>
             </div>
 
-            <div className=\"space-y-4 pt-4 border-t\">
-              <button onClick={resetPlayCountsOnly} className=\"w-full py-4 bg-gray-50 text-gray-700 rounded-2xl font-bold flex items-center justify-center gap-3 border active:bg-gray-100 transition-colors\">
+            <div className="space-y-4 pt-4 border-t">
+              <button onClick={resetPlayCountsOnly} className="w-full py-4 bg-gray-50 text-gray-700 rounded-2xl font-bold flex items-center justify-center gap-3 border active:bg-gray-100 transition-colors">
                 <RotateCcw size={20} /> 試合数と履歴をリセット
               </button>
-              <button onClick={() => {if(confirm('全てリセットしますか？')) {localStorage.clear(); location.reload();}}} className=\"w-full py-4 bg-red-50 text-red-500 rounded-2xl font-bold border border-red-100 active:bg-red-100 transition-colors\">
+              <button onClick={() => {if(confirm('全てリセットしますか？')) {localStorage.clear(); location.reload();}}} className="w-full py-4 bg-red-50 text-red-500 rounded-2xl font-bold border border-red-100 active:bg-red-100 transition-colors">
                 データを完全消去
               </button>
             </div>
@@ -1525,7 +1525,7 @@ export default function DoublesApp() {
       </main>
 
       {/* 下部ナビゲーションバー */}
-      <nav className=\"fixed bottom-0 left-0 right-0 bg-white border-t border-gray-300 flex justify-around pb-safe z-30 shadow-[0_-5px_20px_rgba(0,0,0,0.1)]\">
+      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-300 flex justify-around pb-safe z-30 shadow-[0_-5px_20px_rgba(0,0,0,0.1)]">
         {[
           { id: 'dashboard', icon: Play, label: '試合' },
           { id: 'members', icon: Users, label: '名簿' },
@@ -1542,7 +1542,7 @@ export default function DoublesApp() {
             }`}
           >
             <tab.icon size={20} className={activeTab === tab.id ? 'stroke-[2.5]' : 'stroke-[2]'} />
-            <span className=\"text-[10px] tracking-wider mt-1\">{tab.label}</span>
+            <span className="text-[10px] tracking-wider mt-1">{tab.label}</span>
           </button>
         ))}
       </nav>
