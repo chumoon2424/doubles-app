@@ -539,7 +539,7 @@ export default function DoublesMatchupApp() {
     return common.join('/') as LevelPattern;
   };
 
-  const getMatchNonePriority = (candidates: Member[]): Match | null => {
+  const getMatchNonePriority = (candidates: Member[], innerTrials: number = 4): Match | null => {
     const minPlayCount = Math.min(...candidates.map(m => m.playCount));
     const minLastTime = Math.min(...candidates.map(m => m.lastPlayedTime));
 
@@ -581,7 +581,7 @@ export default function DoublesMatchupApp() {
     };
 
     const patterns: Member[][] = [];
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < innerTrials; i++) {
       const s: Member[] = [];
       const W = pickMember(s, 'W'); if (W) s.push(W); else continue;
       const X = pickMember(s, 'X'); if (X) s.push(X); else continue;
@@ -698,7 +698,7 @@ export default function DoublesMatchupApp() {
     return bestMatch;
   };
 
-  const getMatchForCourt = (currentCourts: Court[], currentMembers: Member[]): Match | null => {
+  const getMatchForCourt = (currentCourts: Court[], currentMembers: Member[], innerTrials: number = 4): Match | null => {
     const playingIds = new Set<number>();
     (currentCourts || []).forEach(c => { if (c?.match) [c.match.p1, c.match.p2, c.match.p3, c.match.p4].forEach(id => playingIds.add(id)); });
     let candidates = (currentMembers || []).filter(m => m.isActive && !playingIds.has(m.id));
@@ -713,7 +713,7 @@ export default function DoublesMatchupApp() {
     }
 
     if (config.levelPriority === 'none') {
-      return getMatchNonePriority(candidates);
+      return getMatchNonePriority(candidates, innerTrials);
     } else {
       return getMatchWithPriority(candidates, config.levelPriority);
     }
@@ -769,192 +769,123 @@ export default function DoublesMatchupApp() {
     setMembers(prev => calculateNextMemberState(prev, p1, p2, p3, p4));
   };
 
-  const regeneratePlannedMatches = (targetMembers?: Member[]) => {
-    const baseMembers = JSON.parse(JSON.stringify(targetMembers || members)) as Member[];
-    const courtCount = config.courtCount;
-    const now = Math.floor(Date.now() / 1000); 
-
-    const activeMembers = baseMembers.filter(m => m.isActive);
-    if (activeMembers.length < 4) {
-      setNextMatches(Array.from({ length: courtCount }, (_, i) => ({ id: i + 1, match: null })));
-      return;
-    }
-
-    const getLevelDistance = (l1: LevelPattern, l2: LevelPattern) => {
+  const calculatePatternCost = (pattern: Court[], baseMembers: Member[]): number => {
+    const getLevelDistLocal = (l1: LevelPattern, l2: LevelPattern): number => {
       const levelMap: Record<string, number> = { 'A': 1, 'B': 2, 'C': 3 };
       const s1 = l1.split('/');
       const s2 = l2.split('/');
-      let minDistance = 999;
+      let minDist = 999;
       for (const v1 of s1) {
         for (const v2 of s2) {
           const d = Math.abs(levelMap[v1] - levelMap[v2]);
-          if (d < minDistance) minDistance = d;
+          if (d < minDist) minDist = d;
         }
       }
-      return minDistance;
+      return minDist;
     };
+    let total = 0;
+    const allPlayerIds: number[] = [];
+    pattern.forEach(c => {
+      if (c.match) {
+        [c.match.p1, c.match.p2, c.match.p3, c.match.p4].forEach(id => allPlayerIds.push(id));
+      }
+    });
+    if (allPlayerIds.length > 0) {
+      const playCounts = allPlayerIds.map(id => baseMembers.find(m => m.id === id)?.playCount ?? 0);
+      const maxPC = Math.max(...playCounts);
+      const minPC = Math.min(...playCounts);
+      total += (maxPC - minPC) * 5000;
+    }
+    pattern.forEach(c => {
+      if (!c.match) return;
+      const { p1, p2, p3, p4 } = c.match;
+      const m1 = baseMembers.find(m => m.id === p1);
+      const m2 = baseMembers.find(m => m.id === p2);
+      const m3 = baseMembers.find(m => m.id === p3);
+      const m4 = baseMembers.find(m => m.id === p4);
+      if (!m1 || !m2 || !m3 || !m4) return;
+      const hasFixed1 = m1.fixedPairMemberId === p2;
+      const hasFixed2 = m3.fixedPairMemberId === p4;
+      if (m1.fixedPairMemberId && !hasFixed1) total += 100000;
+      if (m2.fixedPairMemberId && !hasFixed1) total += 100000;
+      if (m3.fixedPairMemberId && !hasFixed2) total += 100000;
+      if (m4.fixedPairMemberId && !hasFixed2) total += 100000;
+      const scatter = (m1.pairHistory?.[p2] || 0) * 20 + (m3.pairHistory?.[p4] || 0) * 20
+        + (m1.matchHistory?.[p3] || 0) + (m1.matchHistory?.[p4] || 0)
+        + (m2.matchHistory?.[p3] || 0) + (m2.matchHistory?.[p4] || 0);
+      if (config.levelPriority === 'none') {
+        total += scatter;
+      } else if (config.levelPriority === 'forced') {
+        if (!getCommonLevel([p1, p2, p3, p4], baseMembers)) total += 1000000;
+        else total += scatter;
+      } else {
+        const lp = getLevelDistLocal(m1.level, m2.level) + getLevelDistLocal(m3.level, m4.level)
+          + getLevelDistLocal(m1.level, m3.level) + getLevelDistLocal(m1.level, m4.level)
+          + getLevelDistLocal(m2.level, m3.level) + getLevelDistLocal(m2.level, m4.level);
+        if (config.levelPriority === 'strong') total += lp * 1000 + scatter;
+        else total += scatter * 100 + lp;
+      }
+    });
+    return total;
+  };
 
-    // 全コート分の組み合わせパターンに対する総合的なバランス（トータルコスト）を計算する関数
-    const evaluatePattern = (plannedCourts: Court[]) => {
-      let cost = 0;
-      const memberPlayCounts = { ...baseMembers.reduce((acc, m) => ({ ...acc, [m.id]: m.playCount }), {} as Record<number, number>) };
-
-      plannedCourts.forEach(c => {
-        if (!c.match) return;
-        const { p1, p2, p3, p4 } = c.match;
-        [p1, p2, p3, p4].forEach(id => {
-          if (memberPlayCounts[id] !== undefined) memberPlayCounts[id]++;
-        });
-
-        const m1 = baseMembers.find(m => m.id === p1)!;
-        const m2 = baseMembers.find(m => m.id === p2)!;
-        const m3 = baseMembers.find(m => m.id === p3)!;
-        const m4 = baseMembers.find(m => m.id === p4)!;
-        if (!m1 || !m2 || !m3 || !m4) return;
-
-        const hasFixed1 = m1.fixedPairMemberId === m2.id;
-        const hasFixed2 = m3.fixedPairMemberId === m4.id;
-        if (m1.fixedPairMemberId && !hasFixed1) cost += 100000;
-        if (m2.fixedPairMemberId && !hasFixed1) cost += 100000;
-        if (m3.fixedPairMemberId && !hasFixed2) cost += 100000;
-        if (m4.fixedPairMemberId && !hasFixed2) cost += 100000;
-
-        const scatter = (m1.pairHistory[m2.id] || 0) * 20 + (m3.pairHistory[m4.id] || 0) * 20
-                      + (m1.matchHistory[m3.id] || 0) + (m1.matchHistory[m4.id] || 0)
-                      + (m2.matchHistory[m3.id] || 0) + (m2.matchHistory[m4.id] || 0);
-
-        const levelPenalty = getLevelDistance(m1.level, m2.level) + getLevelDistance(m3.level, m4.level)
-                           + getLevelDistance(m1.level, m3.level) + getLevelDistance(m1.level, m4.level)
-                           + getLevelDistance(m2.level, m3.level) + getLevelDistance(m2.level, m4.level);
-
-        const common = getCommonLevel([p1, p2, p3, p4], baseMembers);
-        if (config.levelPriority === 'forced' && !common) cost += 1000000;
-
-        if (config.levelPriority === 'strong') {
-          cost += levelPenalty * 1000 + scatter;
-        } else if (config.levelPriority === 'forced') {
-          cost += scatter;
-        } else {
-          cost += scatter * 100 + levelPenalty;
-        }
-      });
-
-      const activePlayCounts = activeMembers.map(m => memberPlayCounts[m.id]);
-      const maxPlay = Math.max(...activePlayCounts);
-      const minPlay = Math.min(...activePlayCounts);
-      cost += (maxPlay - minPlay) * 500000;
-
-      return cost;
-    };
-
-    let bestPlanned: Court[] = [];
-    let minTotalCost = Infinity;
-    const simulationCount = 100; // ブラウザがフリーズしない範囲での試行回数
-
-    for (let sim = 0; sim < simulationCount; sim++) {
-      let currentPlanned: Court[] = [];
-      let pool = [...activeMembers];
-
+  const simulateOnePattern = (baseMembers: Member[]): Court[] => {
+    const courtCount = config.courtCount;
+    const now = Math.floor(Date.now() / 1000);
+    const planned: Court[] = [];
+    if (config.bulkOnlyMode && (config.levelPriority === 'weak' || config.levelPriority === 'strong')) {
+      const activeCandidates = baseMembers.filter(m => m.isActive);
+      if (activeCandidates.length < 4) {
+        return Array.from({ length: courtCount }, (_, i) => ({ id: i + 1, match: null }));
+      }
+      const neededPlayerCount = Math.min(activeCandidates.length - (activeCandidates.length % 4), courtCount * 4);
+      const pool = activeCandidates
+        .sort((a, b) => {
+          if (a.playCount !== b.playCount) return a.playCount - b.playCount;
+          return a.lastPlayedTime - b.lastPlayedTime;
+        })
+        .slice(0, neededPlayerCount);
+      let currentPool = [...pool];
       for (let i = 0; i < courtCount; i++) {
-        if (pool.length < 4) {
-          currentPlanned.push({ id: i + 1, match: null });
-          continue;
+        if (currentPool.length < 4) { planned.push({ id: i + 1, match: null }); continue; }
+        const match = getMatchWithPriority(currentPool, config.levelPriority);
+        if (match) {
+          planned.push({ id: i + 1, match });
+          const ids = [match.p1, match.p2, match.p3, match.p4];
+          currentPool = currentPool.filter(m => !ids.includes(m.id));
+        } else {
+          planned.push({ id: i + 1, match: null });
         }
-
-        // 各コートの4人を確率的・ランダムに選出（試合数が少ないメンバーを優先しつつ揺らぎを付与）
-        let selectedPlayers: Member[] = [];
-        while (selectedPlayers.length < 4 && pool.length > 0) {
-          let sortedCandidates = [...pool].sort((a, b) => {
-            if (config.orderFirstMatchByList && baseMembers.every(m => m.playCount === 0) && sim === 0) {
-              return a.sortOrder - b.sortOrder;
-            }
-            const scoreA = a.playCount * 100 + (a.lastPlayedTime % 10000) + Math.random() * 150;
-            const scoreB = b.playCount * 100 + (b.lastPlayedTime % 10000) + Math.random() * 150;
-            return scoreA - scoreB;
-          });
-
-          const nextP = sortedCandidates[0];
-          selectedPlayers.push(nextP);
-          pool = pool.filter(m => m.id !== nextP.id);
-
-          // 固定ペアが片方選ばれた場合、相方も未割り当てであれば優先的に同じコートへ呼び出す
-          if (nextP.fixedPairMemberId && selectedPlayers.length < 4) {
-            const partner = pool.find(m => m.id === nextP.fixedPairMemberId);
-            if (partner) {
-              selectedPlayers.push(partner);
-              pool = pool.filter(m => m.id !== partner.id);
-            }
-          }
-        }
-
-        if (selectedPlayers.length < 4) {
-          currentPlanned.push({ id: i + 1, match: null });
-          continue;
-        }
-
-        const [p1, p2, p3, p4] = selectedPlayers.map(p => p.id);
-        const pairings = [
-          { p1, p2, p3, p4 },
-          { p1, p2: p3, p3: p2, p4 },
-          { p1, p2: p4, p3: p2, p4: p3 }
-        ];
-
-        // 選ばれた4人の中で、コート単体の制約コストが最も低いペア・対戦パターンを暫定選択
-        let bestPairing = pairings[0];
-        let minCourtCost = Infinity;
-
-        pairings.forEach(pair => {
-          const m1 = baseMembers.find(m => m.id === pair.p1)!;
-          const m2 = baseMembers.find(m => m.id === pair.p2)!;
-          const m3 = baseMembers.find(m => m.id === pair.p3)!;
-          const m4 = baseMembers.find(m => m.id === pair.p4)!;
-
-          const hasFixed1 = m1.fixedPairMemberId === m2.id;
-          const hasFixed2 = m3.fixedPairMemberId === m4.id;
-          let cCost = 0;
-          if (m1.fixedPairMemberId && !hasFixed1) cCost += 100000;
-          if (m2.fixedPairMemberId && !hasFixed1) cCost += 100000;
-          if (m3.fixedPairMemberId && !hasFixed2) cCost += 100000;
-          if (m4.fixedPairMemberId && !hasFixed2) cCost += 100000;
-
-          const scatter = (m1.pairHistory[pair.p2] || 0) * 20 + (m3.pairHistory[pair.p4] || 0) * 20
-                        + (m1.matchHistory[pair.p3] || 0) + (m1.matchHistory[pair.p4] || 0)
-                        + (m2.matchHistory[pair.p3] || 0) + (m2.matchHistory[pair.p4] || 0);
-
-          const levelPenalty = getLevelDistance(m1.level, m2.level) + getLevelDistance(m3.level, m4.level)
-                             + getLevelDistance(m1.level, m3.level) + getLevelDistance(m1.level, m4.level)
-                             + getLevelDistance(m2.level, m3.level) + getLevelDistance(m2.level, m4.level);
-
-          if (config.levelPriority === 'strong') cCost += levelPenalty * 1000 + scatter;
-          else if (config.levelPriority === 'forced') cCost += scatter + (getCommonLevel([pair.p1, pair.p2, pair.p3, pair.p4], baseMembers) ? 0 : 1000000);
-          else cCost += scatter * 100 + levelPenalty;
-
-          if (cCost < minCourtCost) {
-            minCourtCost = cCost;
-            bestPairing = pair;
-          }
-        });
-
-        currentPlanned.push({
-          id: i + 1,
-          match: {
-            p1: bestPairing.p1,
-            p2: bestPairing.p2,
-            p3: bestPairing.p3,
-            p4: bestPairing.p4,
-            levelPattern: getCommonLevel([bestPairing.p1, bestPairing.p2, bestPairing.p3, bestPairing.p4], baseMembers)
-          }
-        });
       }
-
-      const totalCost = evaluatePattern(currentPlanned);
-      if (totalCost < minTotalCost) {
-        minTotalCost = totalCost;
-        bestPlanned = currentPlanned;
+    } else {
+      let tempMembers = [...baseMembers];
+      for (let i = 0; i < courtCount; i++) {
+        const match = getMatchForCourt(planned, tempMembers, 1);
+        if (match) {
+          planned.push({ id: i + 1, match });
+          const ids = [match.p1, match.p2, match.p3, match.p4];
+          tempMembers = tempMembers.map(m => ids.includes(m.id) ? { ...m, playCount: m.playCount + 1, lastPlayedTime: now } : m);
+        } else { planned.push({ id: i + 1, match: null }); }
       }
     }
+    return planned;
+  };
 
-    setNextMatches(bestPlanned);
+  const regeneratePlannedMatches = (targetMembers?: Member[]) => {
+    const baseMembers = JSON.parse(JSON.stringify(targetMembers || members)) as Member[];
+    const courtCount = config.courtCount;
+    const NUM_SIMULATIONS = 75;
+    let bestPattern: Court[] | null = null;
+    let bestCost = Infinity;
+    for (let i = 0; i < NUM_SIMULATIONS; i++) {
+      const pattern = simulateOnePattern(baseMembers);
+      const cost = calculatePatternCost(pattern, baseMembers);
+      if (cost < bestCost) {
+        bestCost = cost;
+        bestPattern = pattern;
+      }
+    }
+    setNextMatches(bestPattern ?? Array.from({ length: courtCount }, (_, i) => ({ id: i + 1, match: null })));
   };
 
   const handleBulkAction = () => {
@@ -989,22 +920,31 @@ export default function DoublesMatchupApp() {
         prevMembersRef.current = JSON.parse(JSON.stringify(currentMembersState));
       }, 200);
     } else {
+      const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const baseMembers = JSON.parse(JSON.stringify(members)) as Member[];
+      let bestPattern: Court[] | null = null;
+      let bestCost = Infinity;
+      for (let i = 0; i < 75; i++) {
+        const pattern = simulateOnePattern(baseMembers);
+        const cost = calculatePatternCost(pattern, baseMembers);
+        if (cost < bestCost) { bestCost = cost; bestPattern = pattern; }
+      }
+      const matchesToApply = bestPattern ?? courts.map(c => ({ ...c, match: null }));
       setCourts(prev => prev.map(c => ({ ...c, match: null })));
       setTimeout(() => {
-        setCourts(prev => {
-          let current = [...prev], temp = JSON.parse(JSON.stringify(members));
-          for (let i = 0; i < current.length; i++) {
-            const m = getMatchForCourt(current, temp);
-            if (m) {
-              const ids = [m.p1, m.p2, m.p3, m.p4], names = ids.map(id => temp.find((x: any) => x.id === id)?.name || '?');
-              setMatchHistory(prevH => [{ id: Date.now().toString() + current[i].id, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), courtId: current[i].id, players: names, playerIds: ids, levelPattern: m.levelPattern }, ...prevH]);
-              current[i] = { ...current[i], match: m };
-              temp = temp.map((x: any) => ids.includes(x.id) ? { ...x, playCount: x.playCount + 1, lastPlayedTime: Math.floor(Date.now() / 1000) } : x);
-              applyMatchToMembers(m.p1, m.p2, m.p3, m.p4);
-            }
+        let currentMembersState = [...members];
+        let newHistoryEntries: MatchRecord[] = [];
+        matchesToApply.forEach(c => {
+          if (c?.match) {
+            const ids = [c.match.p1, c.match.p2, c.match.p3, c.match.p4];
+            const names = ids.map(id => currentMembersState.find(m => m.id === id)?.name || '?');
+            newHistoryEntries.push({ id: Date.now().toString() + c.id, timestamp, courtId: c.id, players: names, playerIds: ids, levelPattern: c.match?.levelPattern });
+            currentMembersState = calculateNextMemberState(currentMembersState, c.match.p1, c.match.p2, c.match.p3, c.match.p4);
           }
-          return current;
         });
+        setMatchHistory(prev => [...newHistoryEntries, ...prev]);
+        setMembers(currentMembersState);
+        setCourts(matchesToApply);
       }, 200);
     }
   };
