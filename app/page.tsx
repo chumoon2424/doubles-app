@@ -890,6 +890,7 @@ export default function DoublesMatchupApp() {
         if (selectedPlayers.length < 4) {
           currentPlanned.push({ id: i + 1, match: null });
           continue;
+        }
 
         const [p1, p2, p3, p4] = selectedPlayers.map(p => p.id);
         const pairings = [
