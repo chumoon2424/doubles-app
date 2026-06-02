@@ -45,6 +45,7 @@ interface Member {
   matchHistory: Record<number, number>;
   pairHistory: Record<number, number>;
   fixedPairMemberId: number | null;
+  lastPairMemberId: number | null;
   sortOrder: number;
   memo: string; 
 }
@@ -146,7 +147,7 @@ export default function DoublesMatchupApp() {
   const LEVEL_PATTERNS: LevelPattern[] = ['A/B/C', 'A', 'A/B', 'B', 'B/C', 'C'];
 
   useEffect(() => {
-    const versions = ['v26', 'v25', 'v24', 'v23', 'v22', 'v21', 'v20', 'v19', 'v18', 'v17', 'v16', 'v15', 'v14', 'v13', 'v12', 'v11', 'v10', 'v9', 'v8'];
+    const versions = ['v27', 'v26', 'v25', 'v24', 'v23', 'v22', 'v21', 'v20', 'v19', 'v18', 'v17', 'v16', 'v15', 'v14', 'v13', 'v12', 'v11', 'v10', 'v9', 'v8'];
     let loadedData: any = null;
     let loadedVersion = '';
     for (const v of versions) {
@@ -175,6 +176,7 @@ export default function DoublesMatchupApp() {
         return {
           ...m,
           fixedPairMemberId: m.fixedPairMemberId !== undefined ? m.fixedPairMemberId : null,
+          lastPairMemberId: m.lastPairMemberId !== undefined ? m.lastPairMemberId : null,
           level: level as LevelPattern,
           matchHistory: m.matchHistory || {},
           pairHistory: m.pairHistory || {},
@@ -245,7 +247,7 @@ export default function DoublesMatchupApp() {
     if (!isInitialized) return;
     try {
       const data = { members, courts, nextMatches, matchHistory, config, nextMemberId, pastSnapshots };
-      localStorage.setItem('doubles-app-data-v26', JSON.stringify(data));
+      localStorage.setItem('doubles-app-data-v27', JSON.stringify(data));
     } catch (e) {
       console.error("Failed to save data");
     }
@@ -431,7 +433,7 @@ export default function DoublesMatchupApp() {
 
   const exportMembers = () => {
     const backupData = members.map(m => ({
-      id: m.id, name: m.name, level: m.level, fixedPairMemberId: m.fixedPairMemberId, sortOrder: m.sortOrder, memo: m.memo
+      id: m.id, name: m.name, level: m.level, fixedPairMemberId: m.fixedPairMemberId, lastPairMemberId: m.lastPairMemberId, sortOrder: m.sortOrder, memo: m.memo
     }));
     const json = JSON.stringify(backupData, null, 2);
     const blob = new Blob([json], { type: 'application/json' });
@@ -453,7 +455,7 @@ export default function DoublesMatchupApp() {
         if (!Array.isArray(data)) throw new Error('Invalid format');
         if (!confirm('名簿を復元します。現在の全ての試合データと履歴はリセットされますが、よろしいですか？')) return;
         const newMembers: Member[] = data.map((m, idx) => ({
-          ...m, name: m.name || '?', level: m.level || 'A/B/C', isActive: true, playCount: 0, imputedPlayCount: 0, lastPlayedTime: 0, matchHistory: {}, pairHistory: {}, fixedPairMemberId: m.fixedPairMemberId || null, sortOrder: m.sortOrder !== undefined ? m.sortOrder : idx, memo: m.memo !== undefined ? m.memo : ''
+          ...m, name: m.name || '?', level: m.level || 'A/B/C', isActive: true, playCount: 0, imputedPlayCount: 0, lastPlayedTime: 0, matchHistory: {}, pairHistory: {}, fixedPairMemberId: m.fixedPairMemberId || null, lastPairMemberId: m.lastPairMemberId !== undefined ? m.lastPairMemberId : null, sortOrder: m.sortOrder !== undefined ? m.sortOrder : idx, memo: m.memo !== undefined ? m.memo : ''
         }));
         setMembers(newMembers);
         setMatchHistory([]);
@@ -485,7 +487,7 @@ export default function DoublesMatchupApp() {
     const newMember: Member = { 
       id: nextMemberId, name: `${nextMemberId}`, level: 'A/B/C', isActive: true, 
       playCount: avgPlay, imputedPlayCount: avgPlay, lastPlayedTime: 0, 
-      matchHistory: {}, pairHistory: {}, fixedPairMemberId: null,
+      matchHistory: {}, pairHistory: {}, fixedPairMemberId: null, lastPairMemberId: null,
       sortOrder: members.length, memo: defaultMemo
     };
     if (!checkChangeConfirmation([...members, newMember])) return;
@@ -498,8 +500,12 @@ export default function DoublesMatchupApp() {
     const prevMembersCopy = JSON.parse(JSON.stringify(members));
     const nextDisplay = displayMembers.map(m => {
       let nm = { ...m };
-      if (m.id === memberId) nm.fixedPairMemberId = partnerId;
+      if (m.id === memberId) {
+        nm.fixedPairMemberId = partnerId;
+        if (partnerId !== null) nm.lastPairMemberId = partnerId;
+      }
       if (partnerId && m.id === partnerId) nm.fixedPairMemberId = memberId;
+      if (partnerId && m.id === partnerId) nm.lastPairMemberId = memberId;
       if (m.fixedPairMemberId === memberId && m.id !== partnerId) nm.fixedPairMemberId = null;
       const oldTarget = prevMembersCopy.find((x: any) => x.id === memberId);
       if (oldTarget?.fixedPairMemberId && m.id === oldTarget.fixedPairMemberId && m.id !== partnerId) nm.fixedPairMemberId = null;
@@ -539,7 +545,7 @@ export default function DoublesMatchupApp() {
     return common.join('/') as LevelPattern;
   };
 
-  const getMatchNonePriority = (candidates: Member[], innerTrials: number = 4): Match | null => {
+  const getMatchByPlayOrder = (candidates: Member[], innerTrials: number = 4): Match | null => {
     const minPlayCount = Math.min(...candidates.map(m => m.playCount));
     const minLastTime = Math.min(...candidates.map(m => m.lastPlayedTime));
     const sharedLevels = (mems: Member[]): string[] =>
@@ -716,7 +722,7 @@ export default function DoublesMatchupApp() {
     }
 
     if (config.levelPriority === 'none' || config.levelPriority === 'forced') {
-      return getMatchNonePriority(candidates, innerTrials);
+      return getMatchByPlayOrder(candidates, innerTrials);
     } else {
       return getMatchWithPriority(candidates, config.levelPriority);
     }
@@ -876,7 +882,7 @@ export default function DoublesMatchupApp() {
           for (const lvl of ['A', 'B', 'C']) {
             const group = remaining.filter(m => m.level.split('/').includes(lvl));
             if (group.length < 4) continue;
-            const candidate = getMatchNonePriority(group, 1);
+            const candidate = getMatchByPlayOrder(group, 1);
             if (!candidate) continue;
             if (!getCommonLevel([candidate.p1, candidate.p2, candidate.p3, candidate.p4], remaining)) continue;
             const minPC = Math.min(...[candidate.p1, candidate.p2, candidate.p3, candidate.p4]
@@ -1316,7 +1322,7 @@ export default function DoublesMatchupApp() {
                     <div className="bg-gray-100 px-4 py-3 flex justify-between items-center border-b"><h3 className="font-bold text-lg">ペアを選択</h3><button onClick={() => setEditingPairMemberId(null)} className="text-gray-500"><X size={20}/></button></div>
                     <div className="max-h-[60vh] overflow-y-auto p-2">
                       <button onClick={() => updateFixedPair(editingPairMemberId, null)} className="w-full text-left px-4 py-3 hover:bg-red-50 text-red-600 font-bold border-b flex items-center gap-2"><Unlink size={16} /> ペアを解消</button>
-                      {displayMembers.filter(m => m.id !== editingPairMemberId && m.isActive && (!m.fixedPairMemberId || m.fixedPairMemberId === editingPairMemberId) && m.level === displayMembers.find(x => x.id === editingPairMemberId)?.level)
+                      {displayMembers.filter(m => m.id !== editingPairMemberId && m.isActive && (!m.fixedPairMemberId || m.fixedPairMemberId === editingPairMemberId) && m.level === displayMembers.find(x => x.id === editingPairMemberId)?.level).sort((a, b) => { const lastPairId = displayMembers.find(x => x.id === editingPairMemberId)?.lastPairMemberId; if (a.id === lastPairId) return -1; if (b.id === lastPairId) return 1; return 0; })
                         .map(candidate => <button key={candidate.id} onClick={() => updateFixedPair(editingPairMemberId, candidate.id)} className={`w-full text-left px-4 py-3 hover:bg-blue-50 font-bold border-b flex items-center gap-2 ${displayMembers.find(x => x.id === editingPairMemberId)?.fixedPairMemberId === candidate.id ? 'bg-blue-50 text-blue-700' : 'text-gray-700'}`}><LinkIcon size={16} className="text-gray-400" />{candidate.name}</button>)}
                     </div>
                   </div>
