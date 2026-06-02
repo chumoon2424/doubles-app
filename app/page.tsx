@@ -834,7 +834,6 @@ export default function DoublesMatchupApp() {
 
   const simulateOnePattern = (baseMembers: Member[]): Court[] => {
     const courtCount = config.courtCount;
-    const now = Math.floor(Date.now() / 1000);
     const planned: Court[] = [];
     if (config.bulkOnlyMode && (config.levelPriority === 'weak' || config.levelPriority === 'strong')) {
       const activeCandidates = baseMembers.filter(m => m.isActive);
@@ -861,13 +860,10 @@ export default function DoublesMatchupApp() {
         }
       }
     } else {
-      let tempMembers = [...baseMembers];
       for (let i = 0; i < courtCount; i++) {
-        const match = getMatchForCourt(planned, tempMembers, 1);
+        const match = getMatchForCourt(planned, baseMembers, 1);
         if (match) {
           planned.push({ id: i + 1, match });
-          const ids = [match.p1, match.p2, match.p3, match.p4];
-          tempMembers = tempMembers.map(m => ids.includes(m.id) ? { ...m, playCount: m.playCount + 1, lastPlayedTime: now } : m);
         } else { planned.push({ id: i + 1, match: null }); }
       }
     }
