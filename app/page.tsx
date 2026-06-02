@@ -888,6 +888,14 @@ export default function DoublesMatchupApp() {
         bestPattern = pattern;
       }
     }
+    if (config.levelPriority === 'forced' && (bestPattern === null || bestPattern.some(c => c.match === null))) {
+      const relaxedMembers = baseMembers.map(m => ({ ...m, playCount: 0, lastPlayedTime: 0 }));
+      for (let i = 0; i < NUM_SIMULATIONS; i++) {
+        const pattern = simulateOnePattern(relaxedMembers);
+        const cost = calculatePatternCost(pattern, baseMembers);
+        if (cost < bestCost) { bestCost = cost; bestPattern = pattern; }
+      }
+    }
     setNextMatches(bestPattern ?? Array.from({ length: courtCount }, (_, i) => ({ id: i + 1, match: null })));
   };
 
@@ -931,6 +939,14 @@ export default function DoublesMatchupApp() {
         const pattern = simulateOnePattern(baseMembers);
         const cost = calculatePatternCost(pattern, baseMembers);
         if (cost < bestCost) { bestCost = cost; bestPattern = pattern; }
+      }
+      if (config.levelPriority === 'forced' && (bestPattern === null || bestPattern.some(c => c.match === null))) {
+        const relaxedMembers = baseMembers.map(m => ({ ...m, playCount: 0, lastPlayedTime: 0 }));
+        for (let i = 0; i < 75; i++) {
+          const pattern = simulateOnePattern(relaxedMembers);
+          const cost = calculatePatternCost(pattern, baseMembers);
+          if (cost < bestCost) { bestCost = cost; bestPattern = pattern; }
+        }
       }
       const matchesToApply = bestPattern ?? courts.map(c => ({ ...c, match: null }));
       setCourts(prev => prev.map(c => ({ ...c, match: null })));
