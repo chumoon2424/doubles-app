@@ -542,6 +542,8 @@ export default function DoublesMatchupApp() {
   const getMatchNonePriority = (candidates: Member[], innerTrials: number = 4): Match | null => {
     const minPlayCount = Math.min(...candidates.map(m => m.playCount));
     const minLastTime = Math.min(...candidates.map(m => m.lastPlayedTime));
+    const sharedLevels = (mems: Member[]): string[] =>
+      ['A', 'B', 'C'].filter(lvl => mems.every(mem => mem.level.split('/').includes(lvl)));
 
     const pickMember = (currentSelection: Member[], step: 'W' | 'X' | 'Y' | 'Z'): Member | null => {
       const remaining = candidates.filter(m => !currentSelection.find(s => s.id === m.id));
@@ -551,16 +553,19 @@ export default function DoublesMatchupApp() {
         const criteria: number[] = [];
         if (step === 'W') { criteria.push(m.playCount, m.lastPlayedTime); }
         else if (step === 'X') {
+          if (config.levelPriority === 'forced') criteria.push(sharedLevels([w, m]).length > 0 ? 0 : 1);
           const wFixed = candidates.find(c => c.id === w.fixedPairMemberId);
           criteria.push(wFixed && m.id === w.fixedPairMemberId ? 0 : 1);
           criteria.push(m.fixedPairMemberId && candidates.some(c => c.id === m.fixedPairMemberId) ? 1 : 0);
           criteria.push((m.playCount === minPlayCount || m.lastPlayedTime === minLastTime) ? 0 : 1);
           criteria.push((w.pairHistory?.[m.id] || 0), (w.matchHistory?.[m.id] || 0));
         } else if (step === 'Y') {
+          if (config.levelPriority === 'forced') criteria.push(sharedLevels([w, x, m]).length > 0 ? 0 : 1);
           criteria.push((m.playCount === minPlayCount || m.lastPlayedTime === minLastTime) ? 0 : 1);
           criteria.push((w.pairHistory?.[m.id] || 0) + (w.matchHistory?.[m.id] || 0));
           criteria.push((x.pairHistory?.[m.id] || 0) + (x.matchHistory?.[m.id] || 0));
         } else if (step === 'Z') {
+          if (config.levelPriority === 'forced') criteria.push(sharedLevels([w, x, y, m]).length > 0 ? 0 : 1);
           const yFixed = candidates.find(c => c.id === y.fixedPairMemberId);
           criteria.push(yFixed && m.id === y.fixedPairMemberId ? 0 : 1);
           criteria.push(m.fixedPairMemberId && candidates.some(c => c.id === m.fixedPairMemberId) ? 1 : 0);
@@ -587,7 +592,10 @@ export default function DoublesMatchupApp() {
       const X = pickMember(s, 'X'); if (X) s.push(X); else continue;
       const Y = pickMember(s, 'Y'); if (Y) s.push(Y); else continue;
       const Z = pickMember(s, 'Z'); if (Z) s.push(Z); else continue;
-      if (s.length === 4) patterns.push(s);
+      if (s.length === 4) {
+        if (config.levelPriority === 'forced' && !getCommonLevel([s[0].id, s[1].id, s[2].id, s[3].id], candidates)) continue;
+        patterns.push(s);
+      }
     }
     if (patterns.length === 0) return null;
     const best = patterns.reduce((prev, curr) => {
@@ -605,7 +613,7 @@ export default function DoublesMatchupApp() {
     return { p1: best[0].id, p2: best[1].id, p3: best[2].id, p4: best[3].id, levelPattern: getCommonLevel([best[0].id, best[1].id, best[2].id, best[3].id], candidates) };
   };
 
-  const getMatchWithPriority = (candidates: Member[], priority: 'weak' | 'strong' | 'forced'): Match | null => {
+  const getMatchWithPriority = (candidates: Member[], priority: 'weak' | 'strong'): Match | null => {
     const getLevelDistance = (l1: LevelPattern, l2: LevelPattern) => {
       const levelMap: Record<string, number> = { 'A': 1, 'B': 2, 'C': 3 };
       const s1 = l1.split('/');
@@ -622,9 +630,7 @@ export default function DoublesMatchupApp() {
 
     const minPC = Math.min(...candidates.map(m => m.playCount));
     
-    const filteredCandidates = priority === 'forced' 
-      ? candidates 
-      : candidates.filter(m => m.playCount <= minPC + 1);
+    const filteredCandidates = candidates.filter(m => m.playCount <= minPC + 1);
     
     const shuffled = [...filteredCandidates].sort(() => Math.random() - 0.5);
     
@@ -634,7 +640,7 @@ export default function DoublesMatchupApp() {
       return a.lastPlayedTime - b.lastPlayedTime;
     });
 
-    const topCandidates = sortedByUrgency.slice(0, priority === 'forced' ? 32 : 16);
+    const topCandidates = sortedByUrgency.slice(0, 16);
     
     let bestMatch: Match | null = null;
     let bestScore = Infinity;
@@ -646,7 +652,6 @@ export default function DoublesMatchupApp() {
             const p = [topCandidates[i], topCandidates[j], topCandidates[k], topCandidates[l]];
             
             const common = getCommonLevel([p[0].id, p[1].id, p[2].id, p[3].id], candidates);
-            if (priority === 'forced' && !common) continue;
 
             const pairings = [[0,1,2,3], [0,2,1,3], [0,3,1,2]];
             pairings.forEach(idx => {
@@ -677,8 +682,6 @@ export default function DoublesMatchupApp() {
 
               if (priority === 'strong') {
                 score += levelPenalty * 1000 + scatter;
-              } else if (priority === 'forced') {
-                score += scatter;
               } else {
                 score += scatter * 100 + levelPenalty;
               }
@@ -712,7 +715,7 @@ export default function DoublesMatchupApp() {
       }
     }
 
-    if (config.levelPriority === 'none') {
+    if (config.levelPriority === 'none' || config.levelPriority === 'forced') {
       return getMatchNonePriority(candidates, innerTrials);
     } else {
       return getMatchWithPriority(candidates, config.levelPriority);
