@@ -787,6 +787,10 @@ export default function DoublesMatchupApp() {
       return minDist;
     };
     let total = 0;
+    const activeCount = baseMembers.filter(m => m.isActive).length;
+    const maxFillable = Math.min(pattern.length, Math.floor(activeCount / 4));
+    const filledCount = pattern.filter(c => c.match !== null).length;
+    total += (maxFillable - filledCount) * 5_000_000;
     const allPlayerIds: number[] = [];
     pattern.forEach(c => {
       if (c.match) {
@@ -861,10 +865,34 @@ export default function DoublesMatchupApp() {
       }
     } else {
       for (let i = 0; i < courtCount; i++) {
-        const match = getMatchForCourt(planned, baseMembers, 1);
-        if (match) {
+        if (config.levelPriority === 'forced') {
+          const playingIds = new Set<number>();
+          planned.forEach(c => {
+            if (c?.match) [c.match.p1, c.match.p2, c.match.p3, c.match.p4].forEach(id => playingIds.add(id));
+          });
+          const remaining = baseMembers.filter(m => m.isActive && !playingIds.has(m.id));
+          let match: Match | null = null;
+          let bestMinPC = Infinity;
+          for (const lvl of ['A', 'B', 'C']) {
+            const group = remaining.filter(m => m.level.split('/').includes(lvl));
+            if (group.length < 4) continue;
+            const candidate = getMatchNonePriority(group, 1);
+            if (!candidate) continue;
+            if (!getCommonLevel([candidate.p1, candidate.p2, candidate.p3, candidate.p4], remaining)) continue;
+            const minPC = Math.min(...[candidate.p1, candidate.p2, candidate.p3, candidate.p4]
+              .map(id => remaining.find(m => m.id === id)?.playCount ?? Infinity));
+            if (minPC < bestMinPC) {
+              bestMinPC = minPC;
+              match = candidate;
+            }
+          }
           planned.push({ id: i + 1, match });
-        } else { planned.push({ id: i + 1, match: null }); }
+        } else {
+          const match = getMatchForCourt(planned, baseMembers, 1);
+          if (match) {
+            planned.push({ id: i + 1, match });
+          } else { planned.push({ id: i + 1, match: null }); }
+        }
       }
     }
     return planned;
