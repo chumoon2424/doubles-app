@@ -332,7 +332,7 @@ export default function DoublesMatchupApp() {
     }
 
     if (loadedData) {
-      const safeMembers = (loadedData.members || []).map((m: StoredMember, idx: number) => {
+      const safeMembers = (loadedData.members || []).map((m: StoredMember, idx: number): Member => {
         let level = m.level || 'A/B/C';
         if (level === 'A' || level === 'B' || level === 'C') {
         } else if (!LEVEL_PATTERNS.includes(level as LevelPattern)) {
@@ -340,6 +340,11 @@ export default function DoublesMatchupApp() {
         }
         return {
           ...m,
+          name: m.name ?? '',
+          isActive: m.isActive ?? true,
+          playCount: m.playCount ?? 0,
+          imputedPlayCount: m.imputedPlayCount ?? 0,
+          lastPlayedTime: m.lastPlayedTime ?? 0,
           fixedPairMemberId: m.fixedPairMemberId !== undefined ? m.fixedPairMemberId : null,
           lastPairMemberId: m.lastPairMemberId !== undefined ? m.lastPairMemberId : null,
           level: level as LevelPattern,
