@@ -288,6 +288,95 @@ const getMatchWithPriority = (candidates: Member[], priority: 'weak' | 'strong')
   return bestMatch;
 };
 
+const buildNonePool = (activeCandidates: Member[], targetCount: number): Member[] => {
+  const shuffled = [...activeCandidates].sort(() => Math.random() - 0.5);
+  const usedIds = new Set<number>();
+  const units: Member[][] = [];
+  for (const m of shuffled) {
+    if (usedIds.has(m.id)) continue;
+    const partner = shuffled.find(p => p.id === m.fixedPairMemberId && p.fixedPairMemberId === m.id);
+    if (partner && !usedIds.has(partner.id)) {
+      units.push([m, partner]);
+      usedIds.add(m.id);
+      usedIds.add(partner.id);
+    } else {
+      units.push([m]);
+      usedIds.add(m.id);
+    }
+  }
+  units.sort((a, b) => {
+    const avgA = a.reduce((sum, m) => sum + m.playCount, 0) / a.length;
+    const avgB = b.reduce((sum, m) => sum + m.playCount, 0) / b.length;
+    if (avgA !== avgB) return avgA - avgB;
+    const avgTA = a.reduce((sum, m) => sum + m.lastPlayedTime, 0) / a.length;
+    const avgTB = b.reduce((sum, m) => sum + m.lastPlayedTime, 0) / b.length;
+    return avgTA - avgTB;
+  });
+  const pool: Member[] = [];
+  for (const unit of units) {
+    if (pool.length >= targetCount) break;
+    if (unit.length === 2 && pool.length + 2 > targetCount) continue;
+    pool.push(...unit);
+  }
+  return pool;
+};
+
+const getMatchFromPool = (pool: Member[]): Match | null => {
+  if (pool.length < PLAYERS_PER_MATCH) return null;
+  const pickMember = (
+    currentSelection: Member[],
+    step: 'first' | 'second' | 'third' | 'fourth'
+  ): Member | null => {
+    const remaining = pool.filter(m => !currentSelection.find(sel => sel.id === m.id));
+    if (remaining.length === 0) return null;
+    const [firstPick, secondPick, thirdPick] = currentSelection;
+    const score = (m: Member): number[] => {
+      const criteria: number[] = [];
+      if (step === 'first') {
+        // no criteria: random selection
+      } else if (step === 'second') {
+        const firstFixed = pool.find(c => c.id === firstPick.fixedPairMemberId);
+        criteria.push(firstFixed && m.id === firstPick.fixedPairMemberId ? 0 : 1);
+        criteria.push(m.fixedPairMemberId && pool.some(c => c.id === m.fixedPairMemberId) ? 1 : 0);
+        criteria.push((firstPick.pairHistory?.[m.id] || 0), (firstPick.matchHistory?.[m.id] || 0));
+      } else if (step === 'third') {
+        criteria.push((firstPick.pairHistory?.[m.id] || 0) + (firstPick.matchHistory?.[m.id] || 0));
+        criteria.push((secondPick.pairHistory?.[m.id] || 0) + (secondPick.matchHistory?.[m.id] || 0));
+      } else if (step === 'fourth') {
+        const thirdFixed = pool.find(c => c.id === thirdPick.fixedPairMemberId);
+        criteria.push(thirdFixed && m.id === thirdPick.fixedPairMemberId ? 0 : 1);
+        criteria.push(m.fixedPairMemberId && pool.some(c => c.id === m.fixedPairMemberId) ? 1 : 0);
+        criteria.push((thirdPick.pairHistory?.[m.id] || 0), (thirdPick.matchHistory?.[m.id] || 0));
+        criteria.push(
+          (firstPick.pairHistory?.[m.id] || 0) + (firstPick.matchHistory?.[m.id] || 0),
+          (secondPick.pairHistory?.[m.id] || 0) + (secondPick.matchHistory?.[m.id] || 0)
+        );
+      }
+      return criteria;
+    };
+    const sorted = [...remaining].sort((a, b) => {
+      const sA = score(a), sB = score(b);
+      for (let i = 0; i < Math.min(sA.length, sB.length); i++) {
+        if (sA[i] !== sB[i]) return sA[i] - sB[i];
+      }
+      return 0;
+    });
+    const topScore = score(sorted[0]);
+    const topCandidates = sorted.filter(m => score(m).every((v, i) => v === topScore[i]));
+    return topCandidates[Math.floor(Math.random() * topCandidates.length)];
+  };
+  const pickedMembers: Member[] = [];
+  const first = pickMember(pickedMembers, 'first'); if (first) pickedMembers.push(first); else return null;
+  const second = pickMember(pickedMembers, 'second'); if (second) pickedMembers.push(second); else return null;
+  const third = pickMember(pickedMembers, 'third'); if (third) pickedMembers.push(third); else return null;
+  const fourth = pickMember(pickedMembers, 'fourth'); if (fourth) pickedMembers.push(fourth); else return null;
+  return {
+    p1: pickedMembers[0].id, p2: pickedMembers[1].id,
+    p3: pickedMembers[2].id, p4: pickedMembers[3].id,
+    levelPattern: getCommonLevel(pickedMembers.map(m => m.id), pool)
+  };
+};
+
 const LevelBadge = ({ level, className = "" }: { level: LevelPattern; className?: string }) => {
   const segments = level.split('/');
   return (
@@ -947,6 +1036,30 @@ export default function DoublesMatchupApp() {
           planned.push({ id: i + 1, match: null });
         }
       }
+    } else if (config.levelPriority === 'none') {
+      const activeCandidates = baseMembers.filter(m => m.isActive);
+      if (activeCandidates.length < PLAYERS_PER_MATCH) {
+        return Array.from({ length: courtCount }, (_, i) => ({ id: i + 1, match: null }));
+      }
+      const targetCount = Math.min(
+        activeCandidates.length - (activeCandidates.length % PLAYERS_PER_MATCH),
+        courtCount * PLAYERS_PER_MATCH
+      );
+      const pool = buildNonePool(activeCandidates, targetCount);
+      let currentPool = [...pool];
+      for (let i = 0; i < courtCount; i++) {
+        if (currentPool.length < PLAYERS_PER_MATCH) {
+          planned.push({ id: i + 1, match: null });
+          continue;
+        }
+        const match = getMatchFromPool(currentPool);
+        if (match) {
+          planned.push({ id: i + 1, match });
+          currentPool = currentPool.filter(m => !matchPlayerIds(match).includes(m.id));
+        } else {
+          planned.push({ id: i + 1, match: null });
+        }
+      }
     } else {
       for (let i = 0; i < courtCount; i++) {
         if (config.levelPriority === 'forced') {
@@ -967,9 +1080,6 @@ export default function DoublesMatchupApp() {
             }
           }
           planned.push({ id: i + 1, match });
-        } else {
-          const match = getMatchForCourt(planned, baseMembers, 1);
-          planned.push({ id: i + 1, match: match ?? null });
         }
       }
     }
