@@ -110,13 +110,14 @@ type StoredData = {
 };
 
 const PLAYERS_PER_MATCH = 4;
-const NUM_SIMULATIONS = 75;
+const NUM_SIMULATIONS = 50;
 const COST_EMPTY_COURT = 5_000_000;
 const COST_PLAY_COUNT_SPREAD_FACTOR = 5000;
 const COST_FIXED_PAIR_VIOLATION = 100_000;
 const COST_FORCED_LEVEL_VIOLATION = 1_000_000;
 const MAX_SNAPSHOT_COUNT = 20;
 const TOP_CANDIDATES_LIMIT = 16;
+const STABLE_COUNT_LIMIT = 10;
 const LEVEL_PATTERNS: LevelPattern[] = ['A/B/C', 'A', 'A/B', 'B', 'B/C', 'C'];
 
 const matchPlayerIds = (match: Match): number[] =>
@@ -886,7 +887,7 @@ export default function DoublesMatchupApp() {
     const courtCount = config.courtCount;
     const planned: Court[] = [];
 
-    if (config.bulkOnlyMode && (config.levelPriority === 'weak' || config.levelPriority === 'strong')) {
+    if (config.levelPriority === 'weak' || config.levelPriority === 'strong') {
       const activeCandidates = baseMembers.filter(m => m.isActive);
       if (activeCandidates.length < PLAYERS_PER_MATCH) {
         return Array.from({ length: courtCount }, (_, i) => ({ id: i + 1, match: null }));
@@ -947,22 +948,32 @@ export default function DoublesMatchupApp() {
   const findBestPattern = (baseMembers: Member[]): Court[] => {
     let bestPattern: Court[] | null = null;
     let bestCost = Infinity;
+    let stableCount = 0;
     for (let i = 0; i < NUM_SIMULATIONS; i++) {
       const pattern = simulateOnePattern(baseMembers);
       const cost = calculatePatternCost(pattern, baseMembers);
       if (cost < bestCost) {
         bestCost = cost;
         bestPattern = pattern;
+        stableCount = 0;
+      } else {
+        stableCount++;
+        if (stableCount >= STABLE_COUNT_LIMIT) break;
       }
     }
     if (config.levelPriority === 'forced' && (bestPattern === null || bestPattern.some(c => c.match === null))) {
       const relaxedMembers = baseMembers.map(m => ({ ...m, playCount: 0, lastPlayedTime: 0 }));
+      stableCount = 0;
       for (let i = 0; i < NUM_SIMULATIONS; i++) {
         const pattern = simulateOnePattern(relaxedMembers);
         const cost = calculatePatternCost(pattern, baseMembers);
         if (cost < bestCost) {
           bestCost = cost;
           bestPattern = pattern;
+          stableCount = 0;
+        } else {
+          stableCount++;
+          if (stableCount >= STABLE_COUNT_LIMIT) break;
         }
       }
     }
