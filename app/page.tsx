@@ -168,21 +168,6 @@ const calcAvgPairHistory = (candidates: Member[]): number => {
     : 0;
 };
 
-const calcAvgPairHistory = (candidates: Member[]): number => {
-  const values: number[] = [];
-  for (let i = 0; i < candidates.length - 1; i++) {
-    for (let j = i + 1; j < candidates.length; j++) {
-      const a = candidates[i], b = candidates[j];
-      if (a.fixedPairMemberId !== b.id) {
-        values.push(a.pairHistory[b.id] || 0);
-      }
-    }
-  }
-  return values.length > 0
-    ? values.reduce((s, v) => s + v, 0) / values.length
-    : 0;
-};
-
 const calculateNextMemberState = (
   currentMembers: Member[],
   p1: number, p2: number, p3: number, p4: number
