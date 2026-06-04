@@ -168,6 +168,21 @@ const calcAvgPairHistory = (candidates: Member[]): number => {
     : 0;
 };
 
+const calcAvgPairHistory = (candidates: Member[]): number => {
+  const values: number[] = [];
+  for (let i = 0; i < candidates.length - 1; i++) {
+    for (let j = i + 1; j < candidates.length; j++) {
+      const a = candidates[i], b = candidates[j];
+      if (a.fixedPairMemberId !== b.id) {
+        values.push(a.pairHistory[b.id] || 0);
+      }
+    }
+  }
+  return values.length > 0
+    ? values.reduce((s, v) => s + v, 0) / values.length
+    : 0;
+};
+
 const calculateNextMemberState = (
   currentMembers: Member[],
   p1: number, p2: number, p3: number, p4: number
@@ -263,6 +278,12 @@ const getMatchWithPriority = (candidates: Member[], priority: 'weak' | 'strong')
               getLevelDistance(m1.level, m2.level) + getLevelDistance(m3.level, m4.level) +
               getLevelDistance(m1.level, m3.level) + getLevelDistance(m1.level, m4.level) +
               getLevelDistance(m2.level, m3.level) + getLevelDistance(m2.level, m4.level);
+            if (hasFixed1 && hasFixed2) {
+              score += (
+                (m1.matchHistory[m3.id] || 0) + (m1.matchHistory[m4.id] || 0) +
+                (m2.matchHistory[m3.id] || 0) + (m2.matchHistory[m4.id] || 0)
+              ) * 19;
+            }
             if (priority === 'strong') {
               score += levelPenalty * 1000 + scatter;
             } else {
@@ -884,6 +905,12 @@ export default function DoublesMatchupApp() {
         + (hasFixed2 ? avgPairH : (m3.pairHistory?.[p4] || 0)) * 20
         + (m1.matchHistory?.[p3] || 0) + (m1.matchHistory?.[p4] || 0)
         + (m2.matchHistory?.[p3] || 0) + (m2.matchHistory?.[p4] || 0);
+      if (hasFixed1 && hasFixed2) {
+        total += (
+          (m1.matchHistory?.[p3] || 0) + (m1.matchHistory?.[p4] || 0) +
+          (m2.matchHistory?.[p3] || 0) + (m2.matchHistory?.[p4] || 0)
+        ) * 19;
+      }
       if (config.levelPriority === 'none') {
         total += scatter;
       } else if (config.levelPriority === 'forced') {
