@@ -153,6 +153,21 @@ const getCommonLevel = (pIds: number[], currentMembers: Member[]): LevelPattern 
   return common.join('/') as LevelPattern;
 };
 
+const calcAvgPairHistory = (candidates: Member[]): number => {
+  const values: number[] = [];
+  for (let i = 0; i < candidates.length - 1; i++) {
+    for (let j = i + 1; j < candidates.length; j++) {
+      const a = candidates[i], b = candidates[j];
+      if (a.fixedPairMemberId !== b.id) {
+        values.push(a.pairHistory[b.id] || 0);
+      }
+    }
+  }
+  return values.length > 0
+    ? values.reduce((s, v) => s + v, 0) / values.length
+    : 0;
+};
+
 const calculateNextMemberState = (
   currentMembers: Member[],
   p1: number, p2: number, p3: number, p4: number
@@ -218,6 +233,7 @@ const getMatchWithPriority = (candidates: Member[], priority: 'weak' | 'strong')
   const topCandidates = sortedByUrgency.slice(0, TOP_CANDIDATES_LIMIT);
   let bestMatch: Match | null = null;
   let bestScore = Infinity;
+  const avgPairH = calcAvgPairHistory(candidates);
 
   for (let i = 0; i < topCandidates.length - 3; i++) {
     for (let j = i + 1; j < topCandidates.length - 2; j++) {
@@ -239,7 +255,8 @@ const getMatchWithPriority = (candidates: Member[], priority: 'weak' | 'strong')
             const sumPlayCount = m1.playCount + m2.playCount + m3.playCount + m4.playCount;
             score += (sumPlayCount - minPlayCount * PLAYERS_PER_MATCH) * COST_PLAY_COUNT_SPREAD_FACTOR;
             const scatter =
-              (m1.pairHistory[m2.id] || 0) * 20 + (m3.pairHistory[m4.id] || 0) * 20
+              (hasFixed1 ? avgPairH : (m1.pairHistory[m2.id] || 0)) * 20
+              + (hasFixed2 ? avgPairH : (m3.pairHistory[m4.id] || 0)) * 20
               + (m1.matchHistory[m3.id] || 0) + (m1.matchHistory[m4.id] || 0)
               + (m2.matchHistory[m3.id] || 0) + (m2.matchHistory[m4.id] || 0);
             const levelPenalty =
@@ -847,6 +864,7 @@ export default function DoublesMatchupApp() {
       total += (maxPC - minPC) * COST_PLAY_COUNT_SPREAD_FACTOR;
     }
 
+    const avgPairH = calcAvgPairHistory(baseMembers.filter(m => m.isActive));
     pattern.forEach(c => {
       if (!c.match) return;
       const { p1, p2, p3, p4 } = c.match;
@@ -862,7 +880,8 @@ export default function DoublesMatchupApp() {
       if (m3.fixedPairMemberId && !hasFixed2) total += COST_FIXED_PAIR_VIOLATION;
       if (m4.fixedPairMemberId && !hasFixed2) total += COST_FIXED_PAIR_VIOLATION;
       const scatter =
-        (m1.pairHistory?.[p2] || 0) * 20 + (m3.pairHistory?.[p4] || 0) * 20
+        (hasFixed1 ? avgPairH : (m1.pairHistory?.[p2] || 0)) * 20
+        + (hasFixed2 ? avgPairH : (m3.pairHistory?.[p4] || 0)) * 20
         + (m1.matchHistory?.[p3] || 0) + (m1.matchHistory?.[p4] || 0)
         + (m2.matchHistory?.[p3] || 0) + (m2.matchHistory?.[p4] || 0);
       if (config.levelPriority === 'none') {
