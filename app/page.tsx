@@ -1052,6 +1052,33 @@ export default function DoublesMatchupApp() {
     const courtCount = config.courtCount;
     const planned: Court[] = [];
 
+    if (config.orderFirstMatchByList) {
+      const firstTimers = baseMembers
+        .filter(m => m.isActive && m.playCount === 0)
+        .sort((a, b) => a.sortOrder - b.sortOrder);
+      if (firstTimers.length >= PLAYERS_PER_MATCH) {
+        let idx = 0;
+        while (idx + PLAYERS_PER_MATCH <= firstTimers.length && planned.length < courtCount) {
+          const group = firstTimers.slice(idx, idx + PLAYERS_PER_MATCH);
+          const playerIds = group.map(m => m.id);
+          planned.push({
+            id: planned.length + 1,
+            match: {
+              p1: playerIds[0], p2: playerIds[1],
+              p3: playerIds[2], p4: playerIds[3],
+              levelPattern: getCommonLevel(playerIds, baseMembers)
+            }
+          });
+          idx += PLAYERS_PER_MATCH;
+        }
+        while (planned.length < courtCount) {
+          const match = getMatchForCourt(planned, baseMembers);
+          planned.push({ id: planned.length + 1, match: match ?? null });
+        }
+        return planned;
+      }
+    }
+
     if (config.levelPriority === 'weak' || config.levelPriority === 'strong') {
       const activeCandidates = baseMembers.filter(m => m.isActive);
       if (activeCandidates.length < PLAYERS_PER_MATCH) {
