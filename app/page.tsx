@@ -313,9 +313,17 @@ const buildNonePool = (activeCandidates: Member[], targetCount: number): Member[
     return avgTA - avgTB;
   });
   const pool: Member[] = [];
+  const skipped: Member[][] = [];
   for (const unit of units) {
     if (pool.length >= targetCount) break;
-    if (unit.length === 2 && pool.length + 2 > targetCount) continue;
+    if (unit.length === 2 && pool.length + 2 > targetCount) {
+      skipped.push(unit);
+      continue;
+    }
+    pool.push(...unit);
+  }
+  for (const unit of skipped) {
+    if (pool.length >= PLAYERS_PER_MATCH) break;
     pool.push(...unit);
   }
   return pool;
@@ -403,6 +411,7 @@ const buildForcedPools = (
       if (c >= 0 && c <= maxCourts.C) validAllocations.push([a, b, c]);
     }
   }
+  if (validAllocations.length === 0) return { A: [], B: [], C: [] };
   const [allocA, allocB, allocC] = validAllocations[Math.floor(Math.random() * validAllocations.length)];
   const allocMap: Record<string, number> = { A: allocA, B: allocB, C: allocC };
   const usedIds = new Set<number>();
