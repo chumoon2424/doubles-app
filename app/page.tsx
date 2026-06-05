@@ -377,6 +377,51 @@ const getMatchFromPool = (pool: Member[]): Match | null => {
   };
 };
 
+const buildForcedPools = (
+  activeCandidates: Member[],
+  courtCount: number
+): Record<string, Member[]> => {
+  const shuffled = [...activeCandidates].sort(() => Math.random() - 0.5);
+  const playersForLevel: Record<string, Member[]> = {};
+  for (const lvl of ['A', 'B', 'C']) {
+    playersForLevel[lvl] = shuffled
+      .filter(m => m.level.split('/').includes(lvl))
+      .sort((a, b) => {
+        if (a.playCount !== b.playCount) return a.playCount - b.playCount;
+        return a.lastPlayedTime - b.lastPlayedTime;
+      });
+  }
+  const maxCourts: Record<string, number> = {};
+  for (const lvl of ['A', 'B', 'C']) {
+    maxCourts[lvl] = Math.floor(playersForLevel[lvl].length / PLAYERS_PER_MATCH);
+  }
+  const targetTotal = Math.min(courtCount, maxCourts.A + maxCourts.B + maxCourts.C);
+  const validAllocations: [number, number, number][] = [];
+  for (let a = 0; a <= maxCourts.A; a++) {
+    for (let b = 0; b <= maxCourts.B; b++) {
+      const c = targetTotal - a - b;
+      if (c >= 0 && c <= maxCourts.C) validAllocations.push([a, b, c]);
+    }
+  }
+  const [allocA, allocB, allocC] = validAllocations[Math.floor(Math.random() * validAllocations.length)];
+  const allocMap: Record<string, number> = { A: allocA, B: allocB, C: allocC };
+  const usedIds = new Set<number>();
+  const pools: Record<string, Member[]> = { A: [], B: [], C: [] };
+  const levelOrder = ['A', 'B', 'C'].sort(() => Math.random() - 0.5);
+  for (const lvl of levelOrder) {
+    let count = 0;
+    for (const m of playersForLevel[lvl]) {
+      if (count >= allocMap[lvl] * PLAYERS_PER_MATCH) break;
+      if (!usedIds.has(m.id)) {
+        pools[lvl].push(m);
+        usedIds.add(m.id);
+        count++;
+      }
+    }
+  }
+  return pools;
+};
+
 const LevelBadge = ({ level, className = "" }: { level: LevelPattern; className?: string }) => {
   const segments = level.split('/');
   return (
@@ -1060,27 +1105,27 @@ export default function DoublesMatchupApp() {
           planned.push({ id: i + 1, match: null });
         }
       }
-    } else {
-      for (let i = 0; i < courtCount; i++) {
-        if (config.levelPriority === 'forced') {
-          const playingIds = collectPlayingIds(planned);
-          const remaining = baseMembers.filter(m => m.isActive && !playingIds.has(m.id));
-          let match: Match | null = null;
-          let bestMinPC = Infinity;
-          for (const lvl of ['A', 'B', 'C']) {
-            const group = remaining.filter(m => m.level.split('/').includes(lvl));
-            if (group.length < PLAYERS_PER_MATCH) continue;
-            const candidate = getMatchByPlayOrder(group, 1);
-            if (!candidate) continue;
-            if (!getCommonLevel(matchPlayerIds(candidate), remaining)) continue;
-            const groupMinPC = Math.min(...matchPlayerIds(candidate).map(id => remaining.find(m => m.id === id)?.playCount ?? Infinity));
-            if (groupMinPC < bestMinPC) {
-              bestMinPC = groupMinPC;
-              match = candidate;
-            }
+    } else if (config.levelPriority === 'forced') {
+      const activeCandidates = baseMembers.filter(m => m.isActive);
+      if (activeCandidates.length < PLAYERS_PER_MATCH) {
+        return Array.from({ length: courtCount }, (_, i) => ({ id: i + 1, match: null }));
+      }
+      const pools = buildForcedPools(activeCandidates, courtCount);
+      for (const lvl of ['A', 'B', 'C']) {
+        let currentPool = [...pools[lvl]];
+        const lvlCourtCount = Math.floor(currentPool.length / PLAYERS_PER_MATCH);
+        for (let j = 0; j < lvlCourtCount; j++) {
+          const match = getMatchFromPool(currentPool);
+          if (match) {
+            planned.push({ id: planned.length + 1, match });
+            currentPool = currentPool.filter(m => !matchPlayerIds(match).includes(m.id));
+          } else {
+            planned.push({ id: planned.length + 1, match: null });
           }
-          planned.push({ id: i + 1, match });
         }
+      }
+      while (planned.length < courtCount) {
+        planned.push({ id: planned.length + 1, match: null });
       }
     }
     return planned;
