@@ -1488,7 +1488,7 @@ export default function DoublesMatchupApp() {
                     })}
                     {isFixed && (
                       <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 flex justify-center pointer-events-none">
-                        <LinkIcon size={9} className="text-indigo-400/70" />
+                        <LinkIcon size={10} className="text-indigo-400/70" />
                       </div>
                     )}
                   </div>
