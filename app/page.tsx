@@ -116,6 +116,7 @@ const COST_PLAY_COUNT_SPREAD_FACTOR = 5000;
 const COST_FIXED_PAIR_VIOLATION = 100_000;
 const COST_FORCED_LEVEL_VIOLATION = 1_000_000;
 const MAX_SNAPSHOT_COUNT = 20;
+const MAX_HISTORY_COUNT = 500;
 const TOP_CANDIDATES_LIMIT = 16;
 const STABLE_COUNT_LIMIT = 10;
 const LEVEL_PATTERNS: LevelPattern[] = ['A/B/C', 'A', 'A/B', 'B', 'B/C', 'C'];
@@ -452,7 +453,8 @@ export default function DoublesMatchupApp() {
       const data = { members, courts, nextMatches, matchHistory, config, nextMemberId, pastSnapshots };
       localStorage.setItem('doubles-app-data-v27', JSON.stringify(data));
     } catch (e) {
-      console.error("Failed to save data");
+      console.error("Failed to save data", e);
+      alert('データの保存に失敗しました。「試合数と履歴をリセット」で容量を解放してください。');
     }
   }, [members, courts, nextMatches, matchHistory, config, nextMemberId, pastSnapshots, isInitialized]);
 
@@ -661,8 +663,9 @@ export default function DoublesMatchupApp() {
         if (!confirm('名簿を復元します。現在の全ての試合データと履歴はリセットされますが、よろしいですか？')) return;
         const newMembers: Member[] = data.map((m: StoredMember, idx: number) => ({
           ...m,
+          id: (typeof m.id === 'number' && Number.isFinite(m.id) && m.id > 0) ? m.id : idx + 1,
           name: m.name || '?',
-          level: m.level || 'A/B/C',
+          level: LEVEL_PATTERNS.includes(m.level as LevelPattern) ? m.level as LevelPattern : 'A/B/C',
           isActive: true,
           playCount: 0,
           imputedPlayCount: 0,
@@ -680,7 +683,7 @@ export default function DoublesMatchupApp() {
         setViewingSnapshotIdx(-1);
         setCourts(prev => prev.map(c => ({ ...c, match: null })));
         setNextMatches(prev => prev.map(c => ({ ...c, match: null })));
-        setNextMemberId(newMembers.length > 0 ? Math.max(...newMembers.map(m => m.id)) + 1 : 1);
+        setNextMemberId(newMembers.reduce((max, m) => Math.max(max, m.id), 0) + 1);
         setHasUserConfirmedRegen(false);
         alert('名簿を復元しました。');
         if (fileInputRef.current) fileInputRef.current.value = '';
@@ -1074,7 +1077,7 @@ export default function DoublesMatchupApp() {
       setCourts(prev => prev.map(c => ({ ...c, match: null })));
       setNextMatches(prev => prev.map(c => ({ ...c, match: null })));
       setTimeout(() => {
-        setMatchHistory(prev => [...finalHistoryEntries, ...prev]);
+        setMatchHistory(prev => [...finalHistoryEntries, ...prev].slice(0, MAX_HISTORY_COUNT));
         setMembers(finalMembersState);
         setCourts(matchesToApply);
         setHasUserConfirmedRegen(false);
@@ -1106,7 +1109,7 @@ export default function DoublesMatchupApp() {
       const finalHistoryEntries = newHistoryEntries;
       setCourts(prev => prev.map(c => ({ ...c, match: null })));
       setTimeout(() => {
-        setMatchHistory(prev => [...finalHistoryEntries, ...prev]);
+        setMatchHistory(prev => [...finalHistoryEntries, ...prev].slice(0, MAX_HISTORY_COUNT));
         setMembers(finalMembersState);
         setCourts(matchesToApply);
       }, 200);
@@ -1128,7 +1131,7 @@ export default function DoublesMatchupApp() {
       players: names,
       playerIds: ids,
       levelPattern: match.levelPattern
-    }, ...prev]);
+    }, ...prev].slice(0, MAX_HISTORY_COUNT));
     applyMatchToMembers(match.p1, match.p2, match.p3, match.p4);
     setCourts(prev => prev.map(c => c.id === courtId ? { ...c, match } : c));
   };
