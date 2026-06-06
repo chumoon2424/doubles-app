@@ -200,10 +200,6 @@ const calculateNextMemberState = (
   });
 };
 
-// Note: calculateNextMemberState の副作用として非参加メンバーの
-// imputedPlayCount・playCount が補正されるが、ここではその逆算を行わない。
-// スワップ操作後に軽微な累積誤差が生じうるが、playCount は
-// 次回 calculateNextMemberState 実行時に正しく補正される。
 const revertMemberState = (
   currentMembers: Member[],
   p1: number, p2: number, p3: number, p4: number
@@ -292,6 +288,149 @@ const getMatchWithPriority = (candidates: Member[], priority: 'weak' | 'strong')
   return bestMatch;
 };
 
+const buildNonePool = (activeCandidates: Member[], targetCount: number): Member[] => {
+  const shuffled = [...activeCandidates].sort(() => Math.random() - 0.5);
+  const usedIds = new Set<number>();
+  const units: Member[][] = [];
+  for (const m of shuffled) {
+    if (usedIds.has(m.id)) continue;
+    const partner = shuffled.find(p => p.id === m.fixedPairMemberId && p.fixedPairMemberId === m.id);
+    if (partner && !usedIds.has(partner.id)) {
+      units.push([m, partner]);
+      usedIds.add(m.id);
+      usedIds.add(partner.id);
+    } else {
+      units.push([m]);
+      usedIds.add(m.id);
+    }
+  }
+  units.sort((a, b) => {
+    const avgA = a.reduce((sum, m) => sum + m.playCount, 0) / a.length;
+    const avgB = b.reduce((sum, m) => sum + m.playCount, 0) / b.length;
+    if (avgA !== avgB) return avgA - avgB;
+    const avgTA = a.reduce((sum, m) => sum + m.lastPlayedTime, 0) / a.length;
+    const avgTB = b.reduce((sum, m) => sum + m.lastPlayedTime, 0) / b.length;
+    return avgTA - avgTB;
+  });
+  const pool: Member[] = [];
+  const skipped: Member[][] = [];
+  for (const unit of units) {
+    if (pool.length >= targetCount) break;
+    if (unit.length === 2 && pool.length + 2 > targetCount) {
+      skipped.push(unit);
+      continue;
+    }
+    pool.push(...unit);
+  }
+  for (const unit of skipped) {
+    if (pool.length >= PLAYERS_PER_MATCH) break;
+    pool.push(...unit);
+  }
+  return pool;
+};
+
+const getMatchFromPool = (pool: Member[]): Match | null => {
+  if (pool.length < PLAYERS_PER_MATCH) return null;
+  const pickMember = (
+    currentSelection: Member[],
+    step: 'first' | 'second' | 'third' | 'fourth'
+  ): Member | null => {
+    const remaining = pool.filter(m => !currentSelection.find(sel => sel.id === m.id));
+    if (remaining.length === 0) return null;
+    const [firstPick, secondPick, thirdPick] = currentSelection;
+    const score = (m: Member): number[] => {
+      const criteria: number[] = [];
+      if (step === 'first') {
+        // no criteria: random selection
+      } else if (step === 'second') {
+        const firstFixed = pool.find(c => c.id === firstPick.fixedPairMemberId);
+        criteria.push(firstFixed && m.id === firstPick.fixedPairMemberId ? 0 : 1);
+        criteria.push(m.fixedPairMemberId && pool.some(c => c.id === m.fixedPairMemberId) ? 1 : 0);
+        criteria.push((firstPick.pairHistory?.[m.id] || 0), (firstPick.matchHistory?.[m.id] || 0));
+      } else if (step === 'third') {
+        criteria.push((firstPick.pairHistory?.[m.id] || 0) + (firstPick.matchHistory?.[m.id] || 0));
+        criteria.push((secondPick.pairHistory?.[m.id] || 0) + (secondPick.matchHistory?.[m.id] || 0));
+      } else if (step === 'fourth') {
+        const thirdFixed = pool.find(c => c.id === thirdPick.fixedPairMemberId);
+        criteria.push(thirdFixed && m.id === thirdPick.fixedPairMemberId ? 0 : 1);
+        criteria.push(m.fixedPairMemberId && pool.some(c => c.id === m.fixedPairMemberId) ? 1 : 0);
+        criteria.push((thirdPick.pairHistory?.[m.id] || 0), (thirdPick.matchHistory?.[m.id] || 0));
+        criteria.push(
+          (firstPick.pairHistory?.[m.id] || 0) + (firstPick.matchHistory?.[m.id] || 0),
+          (secondPick.pairHistory?.[m.id] || 0) + (secondPick.matchHistory?.[m.id] || 0)
+        );
+      }
+      return criteria;
+    };
+    const sorted = [...remaining].sort((a, b) => {
+      const sA = score(a), sB = score(b);
+      for (let i = 0; i < Math.min(sA.length, sB.length); i++) {
+        if (sA[i] !== sB[i]) return sA[i] - sB[i];
+      }
+      return 0;
+    });
+    const topScore = score(sorted[0]);
+    const topCandidates = sorted.filter(m => score(m).every((v, i) => v === topScore[i]));
+    return topCandidates[Math.floor(Math.random() * topCandidates.length)];
+  };
+  const pickedMembers: Member[] = [];
+  const first = pickMember(pickedMembers, 'first'); if (first) pickedMembers.push(first); else return null;
+  const second = pickMember(pickedMembers, 'second'); if (second) pickedMembers.push(second); else return null;
+  const third = pickMember(pickedMembers, 'third'); if (third) pickedMembers.push(third); else return null;
+  const fourth = pickMember(pickedMembers, 'fourth'); if (fourth) pickedMembers.push(fourth); else return null;
+  return {
+    p1: pickedMembers[0].id, p2: pickedMembers[1].id,
+    p3: pickedMembers[2].id, p4: pickedMembers[3].id,
+    levelPattern: getCommonLevel(pickedMembers.map(m => m.id), pool)
+  };
+};
+
+const buildForcedPools = (
+  activeCandidates: Member[],
+  courtCount: number
+): Record<string, Member[]> => {
+  const shuffled = [...activeCandidates].sort(() => Math.random() - 0.5);
+  const playersForLevel: Record<string, Member[]> = {};
+  for (const lvl of ['A', 'B', 'C']) {
+    playersForLevel[lvl] = shuffled
+      .filter(m => m.level.split('/').includes(lvl))
+      .sort((a, b) => {
+        if (a.playCount !== b.playCount) return a.playCount - b.playCount;
+        return a.lastPlayedTime - b.lastPlayedTime;
+      });
+  }
+  const maxCourts: Record<string, number> = {};
+  for (const lvl of ['A', 'B', 'C']) {
+    maxCourts[lvl] = Math.floor(playersForLevel[lvl].length / PLAYERS_PER_MATCH);
+  }
+  const targetTotal = Math.min(courtCount, maxCourts.A + maxCourts.B + maxCourts.C);
+  const validAllocations: [number, number, number][] = [];
+  for (let a = 0; a <= maxCourts.A; a++) {
+    for (let b = 0; b <= maxCourts.B; b++) {
+      const c = targetTotal - a - b;
+      if (c >= 0 && c <= maxCourts.C) validAllocations.push([a, b, c]);
+    }
+  }
+  if (validAllocations.length === 0) return { A: [], B: [], C: [] };
+  const [allocA, allocB, allocC] = validAllocations[Math.floor(Math.random() * validAllocations.length)];
+  const allocMap: Record<string, number> = { A: allocA, B: allocB, C: allocC };
+  const usedIds = new Set<number>();
+  const pools: Record<string, Member[]> = { A: [], B: [], C: [] };
+  const levelOrder = ['A', 'B', 'C'].sort(() => Math.random() - 0.5);
+  for (const lvl of levelOrder) {
+    let count = 0;
+    for (const m of playersForLevel[lvl]) {
+      if (count >= allocMap[lvl] * PLAYERS_PER_MATCH) break;
+      if (!usedIds.has(m.id)) {
+        pools[lvl].push(m);
+        usedIds.add(m.id);
+        count++;
+      }
+    }
+  }
+  return pools;
+};
+
 const LevelBadge = ({ level, className = "" }: { level: LevelPattern; className?: string }) => {
   const segments = level.split('/');
   return (
@@ -343,12 +482,14 @@ export default function DoublesMatchupApp() {
   useEffect(() => {
     const versions = ['v27', 'v26', 'v25', 'v24', 'v23', 'v22', 'v21', 'v20', 'v19', 'v18', 'v17', 'v16', 'v15', 'v14', 'v13', 'v12', 'v11', 'v10', 'v9', 'v8'];
     let loadedData: StoredData | null = null;
+    let loadedVersion = '';
     for (const v of versions) {
       const saved = localStorage.getItem(`doubles-app-data-${v}`);
       if (saved) {
         try {
           loadedData = JSON.parse(saved) as StoredData;
           if (loadedData) {
+            loadedVersion = v;
             break;
           }
         } catch (e) {
@@ -976,10 +1117,51 @@ export default function DoublesMatchupApp() {
           planned.push({ id: i + 1, match: null });
         }
       }
-    } else {
+    } else if (config.levelPriority === 'none') {
+      const activeCandidates = baseMembers.filter(m => m.isActive);
+      if (activeCandidates.length < PLAYERS_PER_MATCH) {
+        return Array.from({ length: courtCount }, (_, i) => ({ id: i + 1, match: null }));
+      }
+      const targetCount = Math.min(
+        activeCandidates.length - (activeCandidates.length % PLAYERS_PER_MATCH),
+        courtCount * PLAYERS_PER_MATCH
+      );
+      const pool = buildNonePool(activeCandidates, targetCount);
+      let currentPool = [...pool];
       for (let i = 0; i < courtCount; i++) {
-        const match = getMatchForCourt(planned, baseMembers);
-        planned.push({ id: i + 1, match: match ?? null });
+        if (currentPool.length < PLAYERS_PER_MATCH) {
+          planned.push({ id: i + 1, match: null });
+          continue;
+        }
+        const match = getMatchFromPool(currentPool);
+        if (match) {
+          planned.push({ id: i + 1, match });
+          currentPool = currentPool.filter(m => !matchPlayerIds(match).includes(m.id));
+        } else {
+          planned.push({ id: i + 1, match: null });
+        }
+      }
+    } else if (config.levelPriority === 'forced') {
+      const activeCandidates = baseMembers.filter(m => m.isActive);
+      if (activeCandidates.length < PLAYERS_PER_MATCH) {
+        return Array.from({ length: courtCount }, (_, i) => ({ id: i + 1, match: null }));
+      }
+      const pools = buildForcedPools(activeCandidates, courtCount);
+      for (const lvl of ['A', 'B', 'C']) {
+        let currentPool = [...pools[lvl]];
+        const lvlCourtCount = Math.floor(currentPool.length / PLAYERS_PER_MATCH);
+        for (let j = 0; j < lvlCourtCount; j++) {
+          const match = getMatchFromPool(currentPool);
+          if (match) {
+            planned.push({ id: planned.length + 1, match });
+            currentPool = currentPool.filter(m => !matchPlayerIds(match).includes(m.id));
+          } else {
+            planned.push({ id: planned.length + 1, match: null });
+          }
+        }
+      }
+      while (planned.length < courtCount) {
+        planned.push({ id: planned.length + 1, match: null });
       }
     }
     return planned;
@@ -1037,63 +1219,57 @@ export default function DoublesMatchupApp() {
 
     if (config.bulkOnlyMode) {
       const matchesToApply = [...nextMatches];
-      // 200ms 表示ディレイの間に members が変化してもよいよう、事前に計算を完了させる
-      let nextMembersState = [...members];
-      const newHistoryEntries: MatchRecord[] = [];
-      matchesToApply.forEach(c => {
-        if (c?.match) {
-          const ids = matchPlayerIds(c.match);
-          const names = ids.map(id => nextMembersState.find(m => m.id === id)?.name || '?');
-          newHistoryEntries.push({
-            id: Date.now().toString() + c.id,
-            timestamp,
-            courtId: c.id,
-            players: names,
-            playerIds: ids,
-            levelPattern: c.match.levelPattern
-          });
-          nextMembersState = calculateNextMemberState(nextMembersState, c.match.p1, c.match.p2, c.match.p3, c.match.p4);
-        }
-      });
-      const finalMembersState = nextMembersState;
-      const finalHistoryEntries = newHistoryEntries;
       setCourts(prev => prev.map(c => ({ ...c, match: null })));
       setNextMatches(prev => prev.map(c => ({ ...c, match: null })));
       setTimeout(() => {
-        setMatchHistory(prev => [...finalHistoryEntries, ...prev]);
-        setMembers(finalMembersState);
+        let currentMembersState = [...members];
+        const newHistoryEntries: MatchRecord[] = [];
+        matchesToApply.forEach(c => {
+          if (c?.match) {
+            const ids = matchPlayerIds(c.match);
+            const names = ids.map(id => currentMembersState.find(m => m.id === id)?.name || '?');
+            newHistoryEntries.push({
+              id: Date.now().toString() + c.id,
+              timestamp,
+              courtId: c.id,
+              players: names,
+              playerIds: ids,
+              levelPattern: c.match.levelPattern
+            });
+            currentMembersState = calculateNextMemberState(currentMembersState, c.match.p1, c.match.p2, c.match.p3, c.match.p4);
+          }
+        });
+        setMatchHistory(prev => [...newHistoryEntries, ...prev]);
+        setMembers(currentMembersState);
         setCourts(matchesToApply);
         setHasUserConfirmedRegen(false);
-        regeneratePlannedMatches(finalMembersState);
-        prevMembersRef.current = JSON.parse(JSON.stringify(finalMembersState));
+        regeneratePlannedMatches(currentMembersState);
+        prevMembersRef.current = JSON.parse(JSON.stringify(currentMembersState));
       }, 200);
     } else {
       const baseMembers = JSON.parse(JSON.stringify(members)) as Member[];
       const matchesToApply = findBestPattern(baseMembers);
-      // 200ms 表示ディレイの間に members が変化してもよいよう、事前に計算を完了させる
-      let nextMembersState: Member[] = [...members];
-      const newHistoryEntries: MatchRecord[] = [];
-      matchesToApply.forEach(c => {
-        if (c?.match) {
-          const ids = matchPlayerIds(c.match);
-          const names = ids.map(id => nextMembersState.find(m => m.id === id)?.name || '?');
-          newHistoryEntries.push({
-            id: Date.now().toString() + c.id,
-            timestamp,
-            courtId: c.id,
-            players: names,
-            playerIds: ids,
-            levelPattern: c.match.levelPattern
-          });
-          nextMembersState = calculateNextMemberState(nextMembersState, c.match.p1, c.match.p2, c.match.p3, c.match.p4);
-        }
-      });
-      const finalMembersState = nextMembersState;
-      const finalHistoryEntries = newHistoryEntries;
       setCourts(prev => prev.map(c => ({ ...c, match: null })));
       setTimeout(() => {
-        setMatchHistory(prev => [...finalHistoryEntries, ...prev]);
-        setMembers(finalMembersState);
+        let currentMembersState = [...members];
+        const newHistoryEntries: MatchRecord[] = [];
+        matchesToApply.forEach(c => {
+          if (c?.match) {
+            const ids = matchPlayerIds(c.match);
+            const names = ids.map(id => currentMembersState.find(m => m.id === id)?.name || '?');
+            newHistoryEntries.push({
+              id: Date.now().toString() + c.id,
+              timestamp,
+              courtId: c.id,
+              players: names,
+              playerIds: ids,
+              levelPattern: c.match.levelPattern
+            });
+            currentMembersState = calculateNextMemberState(currentMembersState, c.match.p1, c.match.p2, c.match.p3, c.match.p4);
+          }
+        });
+        setMatchHistory(prev => [...newHistoryEntries, ...prev]);
+        setMembers(currentMembersState);
         setCourts(matchesToApply);
       }, 200);
     }
@@ -1155,71 +1331,83 @@ export default function DoublesMatchupApp() {
     if (!source.courtId && !dest.courtId) { setSelectedSwap(null); return; }
 
     // 試合中のメンバー同士の入れ替えかどうかを判定
-    const isBothInMatch = !!(source.courtId && dest.courtId);
+    const isBothInMatch = source.courtId && dest.courtId;
     const isSwapWithWaiting = !source.courtId || !dest.courtId;
 
-    // 1. nextCourts を純粋計算で求める
-    const nextCourts = courts.map(c => {
-      if (!c.match) return c;
-      let newMatch = { ...c.match };
-      if (source.courtId === c.id && source.position) {
-        newMatch = { ...newMatch, [source.position]: dest.memberId };
-      }
-      if (dest.courtId === c.id && dest.position) {
-        newMatch = { ...newMatch, [dest.position]: source.memberId };
-      }
-      if (source.courtId === c.id || dest.courtId === c.id) {
-        return { ...c, match: newMatch };
-      }
-      return c;
-    });
+    setMembers(prev => {
+      let nextMembers = [...prev];
 
-    // 2. nextMembers を純粋計算で求める
-    let nextMembers = [...members];
-    if (!isBothInMatch) {
       // 試合中のメンバーと待機メンバーの入れ替えの場合のみ、試合数などの変動処理を行う
-      [source, dest].forEach(s => {
-        if (s.courtId) {
-          const court = courts.find(c => c.id === s.courtId);
-          if (court?.match) {
-            nextMembers = revertMemberState(nextMembers, court.match.p1, court.match.p2, court.match.p3, court.match.p4);
+      if (!isBothInMatch) {
+        [source, dest].forEach(s => {
+          if (s.courtId) {
+            const court = courts.find(c => c.id === s.courtId);
+            if (court?.match) {
+              nextMembers = revertMemberState(nextMembers, court.match.p1, court.match.p2, court.match.p3, court.match.p4);
+            }
           }
-        }
-      });
-      // 試合数変動が必要な場合のみ再計算
-      nextCourts.forEach(c => {
-        if (c.match && (c.id === source.courtId || c.id === dest.courtId)) {
-          nextMembers = calculateNextMemberState(nextMembers, c.match.p1, c.match.p2, c.match.p3, c.match.p4);
-        }
-      });
-    }
-
-    // 3. nextHistory を純粋計算で求める（直近1件のみ更新）
-    const nextHistory = [...matchHistory];
-    nextCourts.forEach(c => {
-      if (c.match && (c.id === source.courtId || c.id === dest.courtId)) {
-        const targetHistIdx = nextHistory.findIndex(h => h.courtId === c.id);
-        if (targetHistIdx !== -1) {
-          const ids = matchPlayerIds(c.match);
-          nextHistory[targetHistIdx] = {
-            ...nextHistory[targetHistIdx],
-            playerIds: ids,
-            players: ids.map(id => nextMembers.find(m => m.id === id)?.name || '?'),
-            levelPattern: getCommonLevel(ids, nextMembers)
-          };
-        }
+        });
       }
+
+      setCourts(prevCourts => {
+        const nextCourts = [...prevCourts];
+        const updates: { cid: number; pos: string; mid: number }[] = [];
+        if (source.courtId) updates.push({ cid: source.courtId, pos: source.position!, mid: dest.memberId });
+        if (dest.courtId) updates.push({ cid: dest.courtId, pos: dest.position!, mid: source.memberId });
+
+        updates.forEach(u => {
+          const cIdx = nextCourts.findIndex(c => c.id === u.cid);
+          if (cIdx !== -1 && nextCourts[cIdx].match) {
+            nextCourts[cIdx] = {
+              ...nextCourts[cIdx],
+              match: { ...nextCourts[cIdx].match!, [u.pos]: u.mid }
+            };
+          }
+        });
+
+        let finalMembers = [...nextMembers];
+
+        // 試合数変動が必要な場合のみ再計算
+        if (!isBothInMatch) {
+          nextCourts.forEach(c => {
+            if (c.match && (c.id === source.courtId || c.id === dest.courtId)) {
+              finalMembers = calculateNextMemberState(finalMembers, c.match.p1, c.match.p2, c.match.p3, c.match.p4);
+            }
+          });
+        }
+
+        // 履歴情報の更新（コート内に入れ替わった人がいる場合、履歴の表示名とIDを最新に同期する）
+        nextCourts.forEach(c => {
+          if (c.match && (c.id === source.courtId || c.id === dest.courtId)) {
+            const targetHistIdx = matchHistory.findIndex(h => h.courtId === c.id);
+            if (targetHistIdx !== -1) {
+              setMatchHistory(prevH => {
+                const newH = [...prevH];
+                const ids = matchPlayerIds(c.match!);
+                newH[targetHistIdx] = {
+                  ...newH[targetHistIdx],
+                  playerIds: ids,
+                  players: ids.map(id => finalMembers.find(m => m.id === id)?.name || '?'),
+                  levelPattern: getCommonLevel(ids, finalMembers)
+                };
+                return newH;
+              });
+            }
+          }
+        });
+
+        setTimeout(() => {
+          setMembers(finalMembers);
+          // 待機メンバーとの入れ替えがあった場合のみ、次回の予定を再計算
+          if (isSwapWithWaiting && config.bulkOnlyMode) {
+            regeneratePlannedMatches(finalMembers);
+          }
+        }, 0);
+        return nextCourts;
+      });
+
+      return nextMembers;
     });
-
-    // 4. フラットにまとめてステートを更新
-    setCourts(nextCourts);
-    setMembers(nextMembers);
-    setMatchHistory(nextHistory);
-
-    // 待機メンバーとの入れ替えがあった場合のみ、次回の予定を再計算
-    if (isSwapWithWaiting && config.bulkOnlyMode) {
-      regeneratePlannedMatches(nextMembers);
-    }
 
     setSelectedSwap(null);
   };
@@ -1275,12 +1463,8 @@ export default function DoublesMatchupApp() {
           {court.match ? (
             <div className="flex items-center gap-2 h-full">
               <div className="flex-1 grid grid-cols-2 gap-2 h-full">
-                {[1, 2].map(pIdx => {
-                  const isFixed = pIdx === 1
-                    ? members.find(m => m.id === court.match!.p1)?.fixedPairMemberId === court.match!.p2
-                    : members.find(m => m.id === court.match!.p3)?.fixedPairMemberId === court.match!.p4;
-                  return (
-                  <div key={pIdx} className={`rounded-lg flex flex-col justify-center items-stretch border px-3 overflow-hidden relative ${pIdx === 1 ? 'bg-blue-50/30 border-blue-100' : 'bg-red-50/30 border-red-100'}`}>
+                {[1, 2].map(pIdx => (
+                  <div key={pIdx} className={`rounded-lg flex flex-col justify-center items-stretch border px-3 overflow-hidden ${pIdx === 1 ? 'bg-blue-50/30 border-blue-100' : 'bg-red-50/30 border-red-100'}`}>
                     {(pIdx === 1 ? ['p1', 'p2'] as const : ['p3', 'p4'] as const).map((pKey, i) => {
                       const mId = court.match![pKey];
                       const mName = members.find(m => m.id === mId)?.name;
@@ -1298,14 +1482,8 @@ export default function DoublesMatchupApp() {
                         </div>
                       );
                     })}
-                    {isFixed && (
-                      <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 flex justify-center pointer-events-none">
-                        <LinkIcon size={12} className="text-indigo-400/70" />
-                      </div>
-                    )}
                   </div>
-                  );
-                })}
+                ))}
               </div>
             </div>
           ) : (
@@ -1413,7 +1591,6 @@ export default function DoublesMatchupApp() {
                               onClick={() => handleSwap({ memberId: m.id })}
                               className={`px-4 py-2 rounded-full font-bold shadow-sm border transition-all animate-in fade-in zoom-in duration-200 flex items-center gap-2 ${isSelected ? 'bg-yellow-200 border-yellow-400 ring-2 ring-yellow-400 text-yellow-900' : 'bg-white border-gray-100 text-slate-700 hover:bg-gray-50'}`}
                             >
-                              {m.fixedPairMemberId && <LinkIcon size={10} className="text-indigo-400 shrink-0" />}
                               <span style={{ fontSize }}>{m.name}</span>
                               <span className="text-[10px] text-gray-400 font-bold bg-gray-50 px-1.5 py-0.5 rounded border border-gray-100">
                                 {m.playCount}{m.imputedPlayCount > 0 && <span>({m.imputedPlayCount})</span>}
