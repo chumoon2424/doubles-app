@@ -287,7 +287,7 @@ const getMatchWithPriority = (candidates: Member[], priority: 'weak' | 'strong')
         }
       }
     }
-    if (bestMatch && bestScore < 100) break;
+    if (bestMatch && bestScore < 10) break;
   }
   return bestMatch;
 };
@@ -959,7 +959,8 @@ export default function DoublesMatchupApp() {
       const pool = activeCandidates
         .sort((a, b) => {
           if (a.playCount !== b.playCount) return a.playCount - b.playCount;
-          return a.lastPlayedTime - b.lastPlayedTime;
+          if (a.lastPlayedTime !== b.lastPlayedTime) return a.lastPlayedTime - b.lastPlayedTime;
+          return Math.random() - 0.5;
         })
         .slice(0, neededPlayerCount);
       let currentPool = [...pool];
