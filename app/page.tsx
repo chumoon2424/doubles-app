@@ -1339,7 +1339,7 @@ export default function DoublesMatchupApp() {
     if (!source.courtId && !dest.courtId) { setSelectedSwap(null); return; }
 
     // 試合中のメンバー同士の入れ替えかどうかを判定
-    cconst isBothInMatch = !!(source.courtId && dest.courtId);
+    const isBothInMatch = !!(source.courtId && dest.courtId);
     const isSwapWithWaiting = !source.courtId || !dest.courtId;
 
     // 1. nextCourts を純粋計算で求める
