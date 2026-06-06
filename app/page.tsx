@@ -200,6 +200,10 @@ const calculateNextMemberState = (
   });
 };
 
+// Note: calculateNextMemberState の副作用として非参加メンバーの
+// imputedPlayCount・playCount が補正されるが、ここではその逆算を行わない。
+// スワップ操作後に軽微な累積誤差が生じうるが、playCount は
+// 次回 calculateNextMemberState 実行時に正しく補正される。
 const revertMemberState = (
   currentMembers: Member[],
   p1: number, p2: number, p3: number, p4: number
@@ -482,14 +486,12 @@ export default function DoublesMatchupApp() {
   useEffect(() => {
     const versions = ['v27', 'v26', 'v25', 'v24', 'v23', 'v22', 'v21', 'v20', 'v19', 'v18', 'v17', 'v16', 'v15', 'v14', 'v13', 'v12', 'v11', 'v10', 'v9', 'v8'];
     let loadedData: StoredData | null = null;
-    let loadedVersion = '';
     for (const v of versions) {
       const saved = localStorage.getItem(`doubles-app-data-${v}`);
       if (saved) {
         try {
           loadedData = JSON.parse(saved) as StoredData;
           if (loadedData) {
-            loadedVersion = v;
             break;
           }
         } catch (e) {
@@ -1219,57 +1221,63 @@ export default function DoublesMatchupApp() {
 
     if (config.bulkOnlyMode) {
       const matchesToApply = [...nextMatches];
+      // 200ms 表示ディレイの間に members が変化してもよいよう、事前に計算を完了させる
+      let nextMembersState = [...members];
+      const newHistoryEntries: MatchRecord[] = [];
+      matchesToApply.forEach(c => {
+        if (c?.match) {
+          const ids = matchPlayerIds(c.match);
+          const names = ids.map(id => nextMembersState.find(m => m.id === id)?.name || '?');
+          newHistoryEntries.push({
+            id: Date.now().toString() + c.id,
+            timestamp,
+            courtId: c.id,
+            players: names,
+            playerIds: ids,
+            levelPattern: c.match.levelPattern
+          });
+          nextMembersState = calculateNextMemberState(nextMembersState, c.match.p1, c.match.p2, c.match.p3, c.match.p4);
+        }
+      });
+      const finalMembersState = nextMembersState;
+      const finalHistoryEntries = newHistoryEntries;
       setCourts(prev => prev.map(c => ({ ...c, match: null })));
       setNextMatches(prev => prev.map(c => ({ ...c, match: null })));
       setTimeout(() => {
-        let currentMembersState = [...members];
-        const newHistoryEntries: MatchRecord[] = [];
-        matchesToApply.forEach(c => {
-          if (c?.match) {
-            const ids = matchPlayerIds(c.match);
-            const names = ids.map(id => currentMembersState.find(m => m.id === id)?.name || '?');
-            newHistoryEntries.push({
-              id: Date.now().toString() + c.id,
-              timestamp,
-              courtId: c.id,
-              players: names,
-              playerIds: ids,
-              levelPattern: c.match.levelPattern
-            });
-            currentMembersState = calculateNextMemberState(currentMembersState, c.match.p1, c.match.p2, c.match.p3, c.match.p4);
-          }
-        });
-        setMatchHistory(prev => [...newHistoryEntries, ...prev]);
-        setMembers(currentMembersState);
+        setMatchHistory(prev => [...finalHistoryEntries, ...prev]);
+        setMembers(finalMembersState);
         setCourts(matchesToApply);
         setHasUserConfirmedRegen(false);
-        regeneratePlannedMatches(currentMembersState);
-        prevMembersRef.current = JSON.parse(JSON.stringify(currentMembersState));
+        regeneratePlannedMatches(finalMembersState);
+        prevMembersRef.current = JSON.parse(JSON.stringify(finalMembersState));
       }, 200);
     } else {
       const baseMembers = JSON.parse(JSON.stringify(members)) as Member[];
       const matchesToApply = findBestPattern(baseMembers);
+      // 200ms 表示ディレイの間に members が変化してもよいよう、事前に計算を完了させる
+      let nextMembersState: Member[] = [...members];
+      const newHistoryEntries: MatchRecord[] = [];
+      matchesToApply.forEach(c => {
+        if (c?.match) {
+          const ids = matchPlayerIds(c.match);
+          const names = ids.map(id => nextMembersState.find(m => m.id === id)?.name || '?');
+          newHistoryEntries.push({
+            id: Date.now().toString() + c.id,
+            timestamp,
+            courtId: c.id,
+            players: names,
+            playerIds: ids,
+            levelPattern: c.match.levelPattern
+          });
+          nextMembersState = calculateNextMemberState(nextMembersState, c.match.p1, c.match.p2, c.match.p3, c.match.p4);
+        }
+      });
+      const finalMembersState = nextMembersState;
+      const finalHistoryEntries = newHistoryEntries;
       setCourts(prev => prev.map(c => ({ ...c, match: null })));
       setTimeout(() => {
-        let currentMembersState = [...members];
-        const newHistoryEntries: MatchRecord[] = [];
-        matchesToApply.forEach(c => {
-          if (c?.match) {
-            const ids = matchPlayerIds(c.match);
-            const names = ids.map(id => currentMembersState.find(m => m.id === id)?.name || '?');
-            newHistoryEntries.push({
-              id: Date.now().toString() + c.id,
-              timestamp,
-              courtId: c.id,
-              players: names,
-              playerIds: ids,
-              levelPattern: c.match.levelPattern
-            });
-            currentMembersState = calculateNextMemberState(currentMembersState, c.match.p1, c.match.p2, c.match.p3, c.match.p4);
-          }
-        });
-        setMatchHistory(prev => [...newHistoryEntries, ...prev]);
-        setMembers(currentMembersState);
+        setMatchHistory(prev => [...finalHistoryEntries, ...prev]);
+        setMembers(finalMembersState);
         setCourts(matchesToApply);
       }, 200);
     }
@@ -1331,83 +1339,71 @@ export default function DoublesMatchupApp() {
     if (!source.courtId && !dest.courtId) { setSelectedSwap(null); return; }
 
     // 試合中のメンバー同士の入れ替えかどうかを判定
-    const isBothInMatch = source.courtId && dest.courtId;
+    cconst isBothInMatch = !!(source.courtId && dest.courtId);
     const isSwapWithWaiting = !source.courtId || !dest.courtId;
 
-    setMembers(prev => {
-      let nextMembers = [...prev];
-
-      // 試合中のメンバーと待機メンバーの入れ替えの場合のみ、試合数などの変動処理を行う
-      if (!isBothInMatch) {
-        [source, dest].forEach(s => {
-          if (s.courtId) {
-            const court = courts.find(c => c.id === s.courtId);
-            if (court?.match) {
-              nextMembers = revertMemberState(nextMembers, court.match.p1, court.match.p2, court.match.p3, court.match.p4);
-            }
-          }
-        });
+    // 1. nextCourts を純粋計算で求める
+    const nextCourts = courts.map(c => {
+      if (!c.match) return c;
+      let newMatch = { ...c.match };
+      if (source.courtId === c.id && source.position) {
+        newMatch = { ...newMatch, [source.position]: dest.memberId };
       }
-
-      setCourts(prevCourts => {
-        const nextCourts = [...prevCourts];
-        const updates: { cid: number; pos: string; mid: number }[] = [];
-        if (source.courtId) updates.push({ cid: source.courtId, pos: source.position!, mid: dest.memberId });
-        if (dest.courtId) updates.push({ cid: dest.courtId, pos: dest.position!, mid: source.memberId });
-
-        updates.forEach(u => {
-          const cIdx = nextCourts.findIndex(c => c.id === u.cid);
-          if (cIdx !== -1 && nextCourts[cIdx].match) {
-            nextCourts[cIdx] = {
-              ...nextCourts[cIdx],
-              match: { ...nextCourts[cIdx].match!, [u.pos]: u.mid }
-            };
-          }
-        });
-
-        let finalMembers = [...nextMembers];
-
-        // 試合数変動が必要な場合のみ再計算
-        if (!isBothInMatch) {
-          nextCourts.forEach(c => {
-            if (c.match && (c.id === source.courtId || c.id === dest.courtId)) {
-              finalMembers = calculateNextMemberState(finalMembers, c.match.p1, c.match.p2, c.match.p3, c.match.p4);
-            }
-          });
-        }
-
-        // 履歴情報の更新（コート内に入れ替わった人がいる場合、履歴の表示名とIDを最新に同期する）
-        nextCourts.forEach(c => {
-          if (c.match && (c.id === source.courtId || c.id === dest.courtId)) {
-            const targetHistIdx = matchHistory.findIndex(h => h.courtId === c.id);
-            if (targetHistIdx !== -1) {
-              setMatchHistory(prevH => {
-                const newH = [...prevH];
-                const ids = matchPlayerIds(c.match!);
-                newH[targetHistIdx] = {
-                  ...newH[targetHistIdx],
-                  playerIds: ids,
-                  players: ids.map(id => finalMembers.find(m => m.id === id)?.name || '?'),
-                  levelPattern: getCommonLevel(ids, finalMembers)
-                };
-                return newH;
-              });
-            }
-          }
-        });
-
-        setTimeout(() => {
-          setMembers(finalMembers);
-          // 待機メンバーとの入れ替えがあった場合のみ、次回の予定を再計算
-          if (isSwapWithWaiting && config.bulkOnlyMode) {
-            regeneratePlannedMatches(finalMembers);
-          }
-        }, 0);
-        return nextCourts;
-      });
-
-      return nextMembers;
+      if (dest.courtId === c.id && dest.position) {
+        newMatch = { ...newMatch, [dest.position]: source.memberId };
+      }
+      if (source.courtId === c.id || dest.courtId === c.id) {
+        return { ...c, match: newMatch };
+      }
+      return c;
     });
+
+    // 2. nextMembers を純粋計算で求める
+    let nextMembers = [...members];
+    if (!isBothInMatch) {
+      // 試合中のメンバーと待機メンバーの入れ替えの場合のみ、試合数などの変動処理を行う
+      [source, dest].forEach(s => {
+        if (s.courtId) {
+          const court = courts.find(c => c.id === s.courtId);
+          if (court?.match) {
+            nextMembers = revertMemberState(nextMembers, court.match.p1, court.match.p2, court.match.p3, court.match.p4);
+          }
+        }
+      });
+      // 試合数変動が必要な場合のみ再計算
+      nextCourts.forEach(c => {
+        if (c.match && (c.id === source.courtId || c.id === dest.courtId)) {
+          nextMembers = calculateNextMemberState(nextMembers, c.match.p1, c.match.p2, c.match.p3, c.match.p4);
+        }
+      });
+    }
+
+    // 3. nextHistory を純粋計算で求める（直近1件のみ更新）
+    const nextHistory = [...matchHistory];
+    nextCourts.forEach(c => {
+      if (c.match && (c.id === source.courtId || c.id === dest.courtId)) {
+        const targetHistIdx = nextHistory.findIndex(h => h.courtId === c.id);
+        if (targetHistIdx !== -1) {
+          const ids = matchPlayerIds(c.match);
+          nextHistory[targetHistIdx] = {
+            ...nextHistory[targetHistIdx],
+            playerIds: ids,
+            players: ids.map(id => nextMembers.find(m => m.id === id)?.name || '?'),
+            levelPattern: getCommonLevel(ids, nextMembers)
+          };
+        }
+      }
+    });
+
+    // 4. フラットにまとめてステートを更新
+    setCourts(nextCourts);
+    setMembers(nextMembers);
+    setMatchHistory(nextHistory);
+
+    // 待機メンバーとの入れ替えがあった場合のみ、次回の予定を再計算
+    if (isSwapWithWaiting && config.bulkOnlyMode) {
+      regeneratePlannedMatches(nextMembers);
+    }
 
     setSelectedSwap(null);
   };
