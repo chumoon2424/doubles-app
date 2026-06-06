@@ -252,10 +252,14 @@ const getMatchWithPriority = (candidates: Member[], priority: 'weak' | 'strong')
             let score = 0;
             const hasFixed1 = m1.fixedPairMemberId === m2.id;
             const hasFixed2 = m3.fixedPairMemberId === m4.id;
-            if (m1.fixedPairMemberId && !hasFixed1) score += COST_FIXED_PAIR_VIOLATION;
-            if (m2.fixedPairMemberId && !hasFixed1) score += COST_FIXED_PAIR_VIOLATION;
-            if (m3.fixedPairMemberId && !hasFixed2) score += COST_FIXED_PAIR_VIOLATION;
-            if (m4.fixedPairMemberId && !hasFixed2) score += COST_FIXED_PAIR_VIOLATION;
+            const m1PartnerAvailable = m1.fixedPairMemberId ? candidates.some(c => c.id === m1.fixedPairMemberId) : false;
+            const m2PartnerAvailable = m2.fixedPairMemberId ? candidates.some(c => c.id === m2.fixedPairMemberId) : false;
+            const m3PartnerAvailable = m3.fixedPairMemberId ? candidates.some(c => c.id === m3.fixedPairMemberId) : false;
+            const m4PartnerAvailable = m4.fixedPairMemberId ? candidates.some(c => c.id === m4.fixedPairMemberId) : false;
+            if (m1.fixedPairMemberId && m1PartnerAvailable && !hasFixed1) score += COST_FIXED_PAIR_VIOLATION;
+            if (m2.fixedPairMemberId && m2PartnerAvailable && !hasFixed1) score += COST_FIXED_PAIR_VIOLATION;
+            if (m3.fixedPairMemberId && m3PartnerAvailable && !hasFixed2) score += COST_FIXED_PAIR_VIOLATION;
+            if (m4.fixedPairMemberId && m4PartnerAvailable && !hasFixed2) score += COST_FIXED_PAIR_VIOLATION;
             const sumPlayCount = m1.playCount + m2.playCount + m3.playCount + m4.playCount;
             score += (sumPlayCount - minPlayCount * PLAYERS_PER_MATCH) * COST_PLAY_COUNT_SPREAD_FACTOR;
             const scatter =
@@ -458,6 +462,10 @@ export default function DoublesMatchupApp() {
       setDisplayMembers(sorted);
     }
   }, [members, activeTab]);
+
+  useEffect(() => {
+    setSelectedSwap(null);
+  }, [activeTab]);
 
   const sortByName = () => {
     const sorted = [...displayMembers].sort((a, b) => a.name.localeCompare(b.name, 'ja'));
@@ -883,10 +891,14 @@ export default function DoublesMatchupApp() {
       if (!m1 || !m2 || !m3 || !m4) return;
       const hasFixed1 = m1.fixedPairMemberId === p2;
       const hasFixed2 = m3.fixedPairMemberId === p4;
-      if (m1.fixedPairMemberId && !hasFixed1) total += COST_FIXED_PAIR_VIOLATION;
-      if (m2.fixedPairMemberId && !hasFixed1) total += COST_FIXED_PAIR_VIOLATION;
-      if (m3.fixedPairMemberId && !hasFixed2) total += COST_FIXED_PAIR_VIOLATION;
-      if (m4.fixedPairMemberId && !hasFixed2) total += COST_FIXED_PAIR_VIOLATION;
+      const m1PartnerActive = m1.fixedPairMemberId ? baseMembers.some(x => x.id === m1.fixedPairMemberId && x.isActive) : false;
+      const m2PartnerActive = m2.fixedPairMemberId ? baseMembers.some(x => x.id === m2.fixedPairMemberId && x.isActive) : false;
+      const m3PartnerActive = m3.fixedPairMemberId ? baseMembers.some(x => x.id === m3.fixedPairMemberId && x.isActive) : false;
+      const m4PartnerActive = m4.fixedPairMemberId ? baseMembers.some(x => x.id === m4.fixedPairMemberId && x.isActive) : false;
+      if (m1.fixedPairMemberId && m1PartnerActive && !hasFixed1) total += COST_FIXED_PAIR_VIOLATION;
+      if (m2.fixedPairMemberId && m2PartnerActive && !hasFixed1) total += COST_FIXED_PAIR_VIOLATION;
+      if (m3.fixedPairMemberId && m3PartnerActive && !hasFixed2) total += COST_FIXED_PAIR_VIOLATION;
+      if (m4.fixedPairMemberId && m4PartnerActive && !hasFixed2) total += COST_FIXED_PAIR_VIOLATION;
       const scatter =
         (hasFixed1 ? avgPairH : (m1.pairHistory?.[p2] || 0)) * 20
         + (hasFixed2 ? avgPairH : (m3.pairHistory?.[p4] || 0)) * 20
@@ -1178,7 +1190,21 @@ export default function DoublesMatchupApp() {
 
     // 2. nextMembers を純粋計算で求める
     let nextMembers = [...members];
-    if (!isBothInMatch) {
+    if (isBothInMatch) {
+      // 試合中のメンバー同士の入れ替えの場合も pairHistory / matchHistory を正しく更新する
+      const affectedCourtIds = new Set([source.courtId!, dest.courtId!]);
+      affectedCourtIds.forEach(cId => {
+        const court = courts.find(c => c.id === cId);
+        if (court?.match) {
+          nextMembers = revertMemberState(nextMembers, court.match.p1, court.match.p2, court.match.p3, court.match.p4);
+        }
+      });
+      nextCourts.forEach(c => {
+        if (c.match && affectedCourtIds.has(c.id)) {
+          nextMembers = calculateNextMemberState(nextMembers, c.match.p1, c.match.p2, c.match.p3, c.match.p4);
+        }
+      });
+    } else {
       // 試合中のメンバーと待機メンバーの入れ替えの場合のみ、試合数などの変動処理を行う
       [source, dest].forEach(s => {
         if (s.courtId) {
