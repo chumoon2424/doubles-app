@@ -1001,7 +1001,8 @@ export default function DoublesMatchupApp() {
         if (stableCount >= STABLE_COUNT_LIMIT) break;
       }
     }
-    if (config.levelPriority === 'forced' && (bestPattern === null || bestPattern.some(c => c.match === null))) {
+    const hasFirstTimers = config.orderFirstMatchByList && baseMembers.some(m => m.isActive && m.playCount === 0);
+    if (config.levelPriority === 'forced' && !hasFirstTimers && (bestPattern === null || bestPattern.some(c => c.match === null))) {
       const relaxedMembers = baseMembers.map(m => ({ ...m, playCount: Math.max(1, m.playCount), lastPlayedTime: 0 }));
       stableCount = 0;
       for (let i = 0; i < NUM_SIMULATIONS; i++) {
