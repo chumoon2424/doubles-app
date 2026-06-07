@@ -747,7 +747,7 @@ export default function DoublesMatchupApp() {
     syncMemberUpdate(nextDisplay);
   };
 
-  const getMatchByPlayOrder = (candidates: Member[], innerTrials: number = 4): Match | null => {
+  const getMatchByPlayOrder = (candidates: Member[], innerTrials: number = 4, skipLevelForced: boolean = false): Match | null => {
     const minPlayCount = Math.min(...candidates.map(m => m.playCount));
     const minLastTime = Math.min(...candidates.map(m => m.lastPlayedTime));
 
@@ -767,19 +767,19 @@ export default function DoublesMatchupApp() {
         if (step === 'first') {
           criteria.push(m.playCount, m.lastPlayedTime);
         } else if (step === 'second') {
-          if (config.levelPriority === 'forced') criteria.push(sharedLevels([firstPick, m]).length > 0 ? 0 : 1);
+          if (!skipLevelForced && config.levelPriority === 'forced') criteria.push(sharedLevels([firstPick, m]).length > 0 ? 0 : 1);
           const firstFixed = candidates.find(c => c.id === firstPick.fixedPairMemberId);
           criteria.push(firstFixed && m.id === firstPick.fixedPairMemberId ? 0 : 1);
           criteria.push(m.fixedPairMemberId && candidates.some(c => c.id === m.fixedPairMemberId) ? 1 : 0);
           criteria.push((m.playCount === minPlayCount || m.lastPlayedTime === minLastTime) ? 0 : 1);
           criteria.push((firstPick.pairHistory?.[m.id] || 0), (firstPick.matchHistory?.[m.id] || 0));
         } else if (step === 'third') {
-          if (config.levelPriority === 'forced') criteria.push(sharedLevels([firstPick, secondPick, m]).length > 0 ? 0 : 1);
+          if (!skipLevelForced && config.levelPriority === 'forced') criteria.push(sharedLevels([firstPick, secondPick, m]).length > 0 ? 0 : 1);
           criteria.push((m.playCount === minPlayCount || m.lastPlayedTime === minLastTime) ? 0 : 1);
           criteria.push((firstPick.pairHistory?.[m.id] || 0) + (firstPick.matchHistory?.[m.id] || 0));
           criteria.push((secondPick.pairHistory?.[m.id] || 0) + (secondPick.matchHistory?.[m.id] || 0));
         } else if (step === 'fourth') {
-          if (config.levelPriority === 'forced') criteria.push(sharedLevels([firstPick, secondPick, thirdPick, m]).length > 0 ? 0 : 1);
+          if (!skipLevelForced && config.levelPriority === 'forced') criteria.push(sharedLevels([firstPick, secondPick, thirdPick, m]).length > 0 ? 0 : 1);
           const thirdFixed = candidates.find(c => c.id === thirdPick.fixedPairMemberId);
           criteria.push(thirdFixed && m.id === thirdPick.fixedPairMemberId ? 0 : 1);
           criteria.push(m.fixedPairMemberId && candidates.some(c => c.id === m.fixedPairMemberId) ? 1 : 0);
@@ -811,7 +811,7 @@ export default function DoublesMatchupApp() {
       const third = pickMember(pickedMembers, 'third'); if (third) pickedMembers.push(third); else continue;
       const fourth = pickMember(pickedMembers, 'fourth'); if (fourth) pickedMembers.push(fourth); else continue;
       if (pickedMembers.length === PLAYERS_PER_MATCH) {
-        if (config.levelPriority === 'forced' && !getCommonLevel([pickedMembers[0].id, pickedMembers[1].id, pickedMembers[2].id, pickedMembers[3].id], candidates)) continue;
+        if (!skipLevelForced && config.levelPriority === 'forced' && !getCommonLevel([pickedMembers[0].id, pickedMembers[1].id, pickedMembers[2].id, pickedMembers[3].id], candidates)) continue;
         patterns.push(pickedMembers);
       }
     }
@@ -997,27 +997,15 @@ export default function DoublesMatchupApp() {
         const match = getMatchForCourt(planned, baseMembers);
         planned.push({ id: i + 1, match: match ?? null });
       }
-      // forced モードで空きコートが残った場合、試合数の公平性より充填を優先するフォールバック
+      // forced モードで空きコートが残った場合、レベル制約のみ除いた通常ロジックで充填する
       if (config.levelPriority === 'forced') {
-        const fallbackLevels = ['A', 'B', 'C'];
         for (const court of planned) {
           if (court.match !== null) continue;
           const playingIds = collectPlayingIds(planned);
-          const remaining = baseMembers.filter(m => m.isActive && !playingIds.has(m.id));
-          const sortedGroups = fallbackLevels
-            .map(lvl => remaining.filter(m => m.level.split('/').includes(lvl)))
-            .filter(g => g.length >= PLAYERS_PER_MATCH)
-            .sort((a, b) => b.length - a.length);
-          if (sortedGroups.length === 0) continue;
-          const group = [...sortedGroups[0]].sort((a, b) =>
-            a.playCount - b.playCount || a.lastPlayedTime - b.lastPlayedTime
-          );
-          const four = group.slice(0, PLAYERS_PER_MATCH);
-          const ids = four.map(m => m.id);
-          court.match = {
-            p1: ids[0], p2: ids[1], p3: ids[2], p4: ids[3],
-            levelPattern: getCommonLevel(ids, baseMembers)
-          };
+          const candidates = baseMembers.filter(m => m.isActive && !playingIds.has(m.id));
+          if (candidates.length < PLAYERS_PER_MATCH) continue;
+          const match = getMatchByPlayOrder(candidates, 4, true);
+          if (match) court.match = match;
         }
       }
     }
