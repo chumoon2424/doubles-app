@@ -747,7 +747,7 @@ export default function DoublesMatchupApp() {
     syncMemberUpdate(nextDisplay);
   };
 
-  const getMatchByPlayOrder = (candidates: Member[], innerTrials: number = 4, skipLevelForced: boolean = false): Match | null => {
+  const getMatchByPlayOrder = (candidates: Member[], innerTrials: number = 4): Match | null => {
     const minPlayCount = Math.min(...candidates.map(m => m.playCount));
     const minLastTime = Math.min(...candidates.map(m => m.lastPlayedTime));
 
@@ -767,19 +767,19 @@ export default function DoublesMatchupApp() {
         if (step === 'first') {
           criteria.push(m.playCount, m.lastPlayedTime);
         } else if (step === 'second') {
-          if (!skipLevelForced && config.levelPriority === 'forced') criteria.push(sharedLevels([firstPick, m]).length > 0 ? 0 : 1);
+          if (config.levelPriority === 'forced') criteria.push(sharedLevels([firstPick, m]).length > 0 ? 0 : 1);
           const firstFixed = candidates.find(c => c.id === firstPick.fixedPairMemberId);
           criteria.push(firstFixed && m.id === firstPick.fixedPairMemberId ? 0 : 1);
           criteria.push(m.fixedPairMemberId && candidates.some(c => c.id === m.fixedPairMemberId) ? 1 : 0);
           criteria.push((m.playCount === minPlayCount || m.lastPlayedTime === minLastTime) ? 0 : 1);
           criteria.push((firstPick.pairHistory?.[m.id] || 0), (firstPick.matchHistory?.[m.id] || 0));
         } else if (step === 'third') {
-          if (!skipLevelForced && config.levelPriority === 'forced') criteria.push(sharedLevels([firstPick, secondPick, m]).length > 0 ? 0 : 1);
+          if (config.levelPriority === 'forced') criteria.push(sharedLevels([firstPick, secondPick, m]).length > 0 ? 0 : 1);
           criteria.push((m.playCount === minPlayCount || m.lastPlayedTime === minLastTime) ? 0 : 1);
           criteria.push((firstPick.pairHistory?.[m.id] || 0) + (firstPick.matchHistory?.[m.id] || 0));
           criteria.push((secondPick.pairHistory?.[m.id] || 0) + (secondPick.matchHistory?.[m.id] || 0));
         } else if (step === 'fourth') {
-          if (!skipLevelForced && config.levelPriority === 'forced') criteria.push(sharedLevels([firstPick, secondPick, thirdPick, m]).length > 0 ? 0 : 1);
+          if (config.levelPriority === 'forced') criteria.push(sharedLevels([firstPick, secondPick, thirdPick, m]).length > 0 ? 0 : 1);
           const thirdFixed = candidates.find(c => c.id === thirdPick.fixedPairMemberId);
           criteria.push(thirdFixed && m.id === thirdPick.fixedPairMemberId ? 0 : 1);
           criteria.push(m.fixedPairMemberId && candidates.some(c => c.id === m.fixedPairMemberId) ? 1 : 0);
@@ -811,7 +811,7 @@ export default function DoublesMatchupApp() {
       const third = pickMember(pickedMembers, 'third'); if (third) pickedMembers.push(third); else continue;
       const fourth = pickMember(pickedMembers, 'fourth'); if (fourth) pickedMembers.push(fourth); else continue;
       if (pickedMembers.length === PLAYERS_PER_MATCH) {
-        if (!skipLevelForced && config.levelPriority === 'forced' && !getCommonLevel([pickedMembers[0].id, pickedMembers[1].id, pickedMembers[2].id, pickedMembers[3].id], candidates)) continue;
+        if (config.levelPriority === 'forced' && !getCommonLevel([pickedMembers[0].id, pickedMembers[1].id, pickedMembers[2].id, pickedMembers[3].id], candidates)) continue;
         patterns.push(pickedMembers);
       }
     }
@@ -998,13 +998,20 @@ export default function DoublesMatchupApp() {
         planned.push({ id: i + 1, match: match ?? null });
       }
       // forced モードで空きコートが残った場合、レベル制約のみ除いた通常ロジックで充填する
+      // （例: A12人+B7人の3回目のように、少数レベルが4人未満で余る場合）
       if (config.levelPriority === 'forced') {
         for (const court of planned) {
           if (court.match !== null) continue;
           const playingIds = collectPlayingIds(planned);
-          const candidates = baseMembers.filter(m => m.isActive && !playingIds.has(m.id));
-          if (candidates.length < PLAYERS_PER_MATCH) continue;
-          const match = getMatchByPlayOrder(candidates, 4, true);
+          const remaining = baseMembers.filter(m => m.isActive && !playingIds.has(m.id));
+          // 自分のレベルで4人揃わないメンバーを除外してから通常ロジックで充填する
+          const groupable = remaining.filter(m =>
+            m.level.split('/').some(seg =>
+              remaining.filter(r => r.level.split('/').includes(seg)).length >= PLAYERS_PER_MATCH
+            )
+          );
+          if (groupable.length < PLAYERS_PER_MATCH) continue;
+          const match = getMatchByPlayOrder(groupable, 4);
           if (match) court.match = match;
         }
       }
