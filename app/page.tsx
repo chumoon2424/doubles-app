@@ -997,6 +997,29 @@ export default function DoublesMatchupApp() {
         const match = getMatchForCourt(planned, baseMembers);
         planned.push({ id: i + 1, match: match ?? null });
       }
+      // forced モードで空きコートが残った場合、試合数の公平性より充填を優先するフォールバック
+      if (config.levelPriority === 'forced') {
+        const fallbackLevels = ['A', 'B', 'C'];
+        for (const court of planned) {
+          if (court.match !== null) continue;
+          const playingIds = collectPlayingIds(planned);
+          const remaining = baseMembers.filter(m => m.isActive && !playingIds.has(m.id));
+          const sortedGroups = fallbackLevels
+            .map(lvl => remaining.filter(m => m.level.split('/').includes(lvl)))
+            .filter(g => g.length >= PLAYERS_PER_MATCH)
+            .sort((a, b) => b.length - a.length);
+          if (sortedGroups.length === 0) continue;
+          const group = [...sortedGroups[0]].sort((a, b) =>
+            a.playCount - b.playCount || a.lastPlayedTime - b.lastPlayedTime
+          );
+          const four = group.slice(0, PLAYERS_PER_MATCH);
+          const ids = four.map(m => m.id);
+          court.match = {
+            p1: ids[0], p2: ids[1], p3: ids[2], p4: ids[3],
+            levelPattern: getCommonLevel(ids, baseMembers)
+          };
+        }
+      }
     }
     return planned;
   };
