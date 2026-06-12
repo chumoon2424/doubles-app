@@ -555,7 +555,6 @@ export default function DoublesMatchupApp() {
         }
         return s;
       }).sort().join('|');
-      return `${status}_C${config.courtCount}_P${config.levelPriority}_B${config.bulkOnlyMode}_F${config.orderFirstMatchByList}`;
       return `${status}_C${config.courtCount}_P${config.levelPriority}_B${config.bulkOnlyMode}_F${config.orderFirstMatchByList}_PA${config.pairEnabled}`;
     } catch (e) { return ''; }
   }, [members, config.courtCount, config.levelPriority, config.bulkOnlyMode, config.orderFirstMatchByList, config.pairEnabled, nextMatches]);
