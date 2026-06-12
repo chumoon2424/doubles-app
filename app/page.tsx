@@ -497,6 +497,15 @@ export default function DoublesMatchupApp() {
     setDisplayMembers(sorted);
   };
 
+  const sortByPair = () => {
+    const sorted = [...displayMembers].sort((a, b) => {
+      const aHasPair = a.fixedPairMemberId !== null ? 0 : 1;
+      const bHasPair = b.fixedPairMemberId !== null ? 0 : 1;
+      return aHasPair - bHasPair;
+    });
+    setDisplayMembers(sorted);
+  };
+
   const resetToSavedOrder = () => {
     const sorted = [...members].sort((a, b) => a.sortOrder - b.sortOrder);
     setDisplayMembers(sorted);
@@ -1501,6 +1510,7 @@ export default function DoublesMatchupApp() {
                 <button onClick={sortByMemo} className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-full text-xs font-bold text-gray-600 shadow-sm active:bg-gray-50"><StickyNote size={14} /> メモ順</button>
                 <button onClick={sortByLevel} className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-full text-xs font-bold text-gray-600 shadow-sm active:bg-gray-50"><BarChart3 size={14} /> レベル順</button>
                 <button onClick={sortByActive} className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-full text-xs font-bold text-gray-600 shadow-sm active:bg-gray-50"><UserCheck size={14} /> 参加中</button>
+                <button onClick={sortByPair} className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-full text-xs font-bold text-gray-600 shadow-sm active:bg-gray-50"><LinkIcon size={14} /> ペア有</button>
               </div>
               <button onClick={saveCurrentOrder} className="shrink-0 flex items-center gap-1.5 px-4 py-1.5 bg-blue-600 border border-blue-500 rounded-full text-xs font-bold text-white shadow-md active:bg-blue-700 transition-colors ml-4">
                 <Save size={14} /> 順序を保存
