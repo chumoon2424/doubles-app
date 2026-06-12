@@ -1342,9 +1342,9 @@ export default function DoublesMatchupApp() {
             <div className="flex items-center gap-2 h-full">
               <div className="flex-1 grid grid-cols-2 gap-2 h-full">
                 {[1, 2].map(pIdx => {
-                  const isFixed = pIdx === 1
+                  const isFixed = config.pairEnabled && (pIdx === 1
                     ? members.find(m => m.id === court.match!.p1)?.fixedPairMemberId === court.match!.p2
-                    : members.find(m => m.id === court.match!.p3)?.fixedPairMemberId === court.match!.p4;
+                    : members.find(m => m.id === court.match!.p3)?.fixedPairMemberId === court.match!.p4);
                   return (
                   <div key={pIdx} className={`rounded-lg flex flex-col justify-center items-stretch border px-3 overflow-hidden relative ${pIdx === 1 ? 'bg-blue-50/30 border-blue-100' : 'bg-red-50/30 border-red-100'}`}>
                     {(pIdx === 1 ? ['p1', 'p2'] as const : ['p3', 'p4'] as const).map((pKey, i) => {
@@ -1479,7 +1479,7 @@ export default function DoublesMatchupApp() {
                               onClick={() => handleSwap({ memberId: m.id })}
                               className={`px-4 py-2 rounded-full font-bold shadow-sm border transition-all animate-in fade-in zoom-in duration-200 flex items-center gap-2 ${isSelected ? 'bg-yellow-200 border-yellow-400 ring-2 ring-yellow-400 text-yellow-900' : 'bg-white border-gray-100 text-slate-700 hover:bg-gray-50'}`}
                             >
-                              {m.fixedPairMemberId && <LinkIcon size={10} className="text-indigo-400 shrink-0" />}
+                              {config.pairEnabled && m.fixedPairMemberId && <LinkIcon size={10} className="text-indigo-400 shrink-0" />}
                               <span style={{ fontSize }}>{m.name}</span>
                               <span className="text-[10px] text-gray-400 font-bold bg-gray-50 px-1.5 py-0.5 rounded border border-gray-100">
                                 {m.playCount}{m.imputedPlayCount > 0 && <span>({m.imputedPlayCount})</span>}
