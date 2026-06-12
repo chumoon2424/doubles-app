@@ -83,6 +83,7 @@ interface AppConfig {
   orderFirstMatchByList: boolean;
   memoDefault: 'none' | 'yyyymm';
   resetHistoryOnDayChange: boolean;
+  pairEnabled: boolean;
 }
 
 interface Snapshot {
@@ -332,6 +333,7 @@ export default function DoublesMatchupApp() {
     orderFirstMatchByList: false,
     memoDefault: 'yyyymm',
     resetHistoryOnDayChange: true,
+    pairEnabled: true,
   });
   const [nextMemberId, setNextMemberId] = useState(1);
   const [isInitialized, setIsInitialized] = useState(false);
@@ -407,7 +409,8 @@ export default function DoublesMatchupApp() {
         orderFirstMatchByList: loadedData.config?.orderFirstMatchByList ?? false,
         memoDefault: loadedData.config?.memoDefault ?? 'yyyymm',
         showWaitingInBulkMode: loadedData.config?.showWaitingInBulkMode ?? true,
-        resetHistoryOnDayChange: loadedData.config?.resetHistoryOnDayChange ?? true
+        resetHistoryOnDayChange: loadedData.config?.resetHistoryOnDayChange ?? true,
+        pairEnabled: loadedData.config?.pairEnabled ?? true
       };
 
       // 日付変更チェックとリセット
@@ -552,13 +555,13 @@ export default function DoublesMatchupApp() {
         }
         return s;
       }).sort().join('|');
-      return `${status}_C${config.courtCount}_P${config.levelPriority}_B${config.bulkOnlyMode}_F${config.orderFirstMatchByList}`;
+      return `${status}_C${config.courtCount}_P${config.levelPriority}_B${config.bulkOnlyMode}_F${config.orderFirstMatchByList}_PA${config.pairEnabled}`;
     } catch (e) { return ''; }
-  }, [members, config.courtCount, config.levelPriority, config.bulkOnlyMode, config.orderFirstMatchByList, nextMatches]);
+  }, [members, config.courtCount, config.levelPriority, config.bulkOnlyMode, config.orderFirstMatchByList, config.pairEnabled, nextMatches]);
 
   const isRegenRequired = (currentMembers: Member[], currentConfig: AppConfig): boolean => {
     const plannedIds = collectPlayingIds(nextMatches);
-    const configPart = `_C${currentConfig.courtCount}_P${currentConfig.levelPriority}_B${currentConfig.bulkOnlyMode}_F${currentConfig.orderFirstMatchByList}`;
+    const configPart = `_C${currentConfig.courtCount}_P${currentConfig.levelPriority}_B${currentConfig.bulkOnlyMode}_F${currentConfig.orderFirstMatchByList}_PA${currentConfig.pairEnabled}`;
     if (lastFingerprint !== '' && !lastFingerprint.endsWith(configPart)) return true;
     const currentMemberIds = new Set(currentMembers.map(m => m.id));
     const wasPlannedMemberDeleted = Array.from(plannedIds).some(id => !currentMemberIds.has(id));
@@ -1064,9 +1067,14 @@ export default function DoublesMatchupApp() {
     return bestPattern ?? Array.from({ length: config.courtCount }, (_, i) => ({ id: i + 1, match: null }));
   };
 
+  const getEffectiveMembers = (mems: Member[]): Member[] => {
+    if (config.pairEnabled) return mems;
+    return mems.map(m => ({ ...m, fixedPairMemberId: null }));
+  };
+
   const regeneratePlannedMatches = (targetMembers?: Member[]) => {
     const baseMembers = JSON.parse(JSON.stringify(targetMembers || members)) as Member[];
-    setNextMatches(findBestPattern(baseMembers));
+    setNextMatches(findBestPattern(getEffectiveMembers(baseMembers)));
   };
 
   const handleBulkAction = () => {
@@ -1113,7 +1121,7 @@ export default function DoublesMatchupApp() {
       }, 200);
     } else {
       const baseMembers = JSON.parse(JSON.stringify(members)) as Member[];
-      const matchesToApply = findBestPattern(baseMembers);
+      const matchesToApply = findBestPattern(getEffectiveMembers(baseMembers));
       // 200ms 表示ディレイの間に members が変化してもよいよう、事前に計算を完了させる
       let nextMembersState: Member[] = [...members];
       const newHistoryEntries: MatchRecord[] = [];
@@ -1145,7 +1153,7 @@ export default function DoublesMatchupApp() {
 
   const generateNextMatch = (courtId: number) => {
     if (config.bulkOnlyMode) return;
-    const match = getMatchForCourt(courts, members);
+    const match = getMatchForCourt(courts, getEffectiveMembers(members));
     if (!match) return alert('待機メンバーが足りません');
     setPastSnapshots([]);
     setViewingSnapshotIdx(-1);
@@ -1334,9 +1342,9 @@ export default function DoublesMatchupApp() {
             <div className="flex items-center gap-2 h-full">
               <div className="flex-1 grid grid-cols-2 gap-2 h-full">
                 {[1, 2].map(pIdx => {
-                  const isFixed = pIdx === 1
+                  const isFixed = config.pairEnabled && (pIdx === 1
                     ? members.find(m => m.id === court.match!.p1)?.fixedPairMemberId === court.match!.p2
-                    : members.find(m => m.id === court.match!.p3)?.fixedPairMemberId === court.match!.p4;
+                    : members.find(m => m.id === court.match!.p3)?.fixedPairMemberId === court.match!.p4);
                   return (
                   <div key={pIdx} className={`rounded-lg flex flex-col justify-center items-stretch border px-3 overflow-hidden relative ${pIdx === 1 ? 'bg-blue-50/30 border-blue-100' : 'bg-red-50/30 border-red-100'}`}>
                     {(pIdx === 1 ? ['p1', 'p2'] as const : ['p3', 'p4'] as const).map((pKey, i) => {
@@ -1471,7 +1479,7 @@ export default function DoublesMatchupApp() {
                               onClick={() => handleSwap({ memberId: m.id })}
                               className={`px-4 py-2 rounded-full font-bold shadow-sm border transition-all animate-in fade-in zoom-in duration-200 flex items-center gap-2 ${isSelected ? 'bg-yellow-200 border-yellow-400 ring-2 ring-yellow-400 text-yellow-900' : 'bg-white border-gray-100 text-slate-700 hover:bg-gray-50'}`}
                             >
-                              {m.fixedPairMemberId && <LinkIcon size={10} className="text-indigo-400 shrink-0" />}
+                              {config.pairEnabled && m.fixedPairMemberId && <LinkIcon size={10} className="text-indigo-400 shrink-0" />}
                               <span style={{ fontSize }}>{m.name}</span>
                               <span className="text-[10px] text-gray-400 font-bold bg-gray-50 px-1.5 py-0.5 rounded border border-gray-100">
                                 {m.playCount}{m.imputedPlayCount > 0 && <span>({m.imputedPlayCount})</span>}
@@ -1498,7 +1506,15 @@ export default function DoublesMatchupApp() {
         {activeTab === 'members' && (
           <div className="space-y-3 max-w-2xl mx-auto">
             <div className="flex justify-between items-center p-2">
-              <h2 className="font-bold text-xl text-gray-700">名簿 ({members.filter(m => m.isActive).length}/{members.length})</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="font-bold text-xl text-gray-700">名簿 ({members.filter(m => m.isActive).length}/{members.length})</h2>
+                <button
+                  onClick={() => setConfig(prev => ({ ...prev, pairEnabled: !prev.pairEnabled }))}
+                  className={`px-3 py-1 rounded-full text-xs font-bold border transition-colors ${config.pairEnabled ? 'bg-indigo-600 text-white borderindigo-600' : 'bg-gray-100 text-gray-400 border-gray-300'}`}
+                >
+                  {config.pairEnabled ? 'ペア有効' : 'ペア無効'}
+                </button>
+              </div>
               <button onClick={addMember} className="bg-green-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-1 shadow-lg">
                 <Plus size={20} />選手追加
               </button>
