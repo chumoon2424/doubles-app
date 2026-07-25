@@ -8,13 +8,13 @@ export const viewport: Viewport = {
 }
 
 export const metadata = {
-  title: 'D.M.',
+  title: 'D.M.(beta)',
   description: 'Doubles Matchmaker',
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
-    title: 'D.M.',
+    title: 'D.M.(beta)',
   },
   icons: {
     icon: '/icon-192.png',
