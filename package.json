@@ -13,8 +13,8 @@
     "react": "latest",
     "react-dom": "latest",
     "lucide-react": "latest",
-    "tailwindcss": "latest",
-    "@tailwindcss/postcss": "latest"
+    "tailwindcss": "4.3.2",
+    "@tailwindcss/postcss": "4.3.2"
   },
   "devDependencies": {
     "typescript": "^6.0.3",
