@@ -32,7 +32,7 @@ import {
 
 // --- 型定義 ---
 type LevelPattern = 'A/B/C' | 'A' | 'A/B' | 'B' | 'B/C' | 'C';
-type LevelPriority = 'none' | 'weak' | 'strong' | 'forced';
+type LevelPriority = 'none' | 'weak' | 'strong' | 'forced' | 'perCourt';
 type TabId = 'dashboard' | 'members' | 'history' | 'settings';
 
 interface Member {
@@ -84,6 +84,7 @@ interface AppConfig {
   memoDefault: 'none' | 'yyyymm';
   resetHistoryOnDayChange: boolean;
   pairEnabled: boolean;
+  courtLevels: LevelPattern[];
 }
 
 interface Snapshot {
@@ -154,6 +155,10 @@ const getCommonLevel = (pIds: number[], currentMembers: Member[]): LevelPattern 
   if (common.length === 2 && common.includes('A') && common.includes('C') && !common.includes('B')) return undefined;
   return common.join('/') as LevelPattern;
 };
+
+// メンバーのレベルが、コートに設定された許容レベルの部分集合であるかを判定する（包含一致）
+const isLevelSubset = (memberLevel: LevelPattern, courtLevel: LevelPattern): boolean =>
+  memberLevel.split('/').every(seg => courtLevel.split('/').includes(seg));
 
 const calcAvgPairHistory = (candidates: Member[]): number => {
   const values: number[] = [];
@@ -334,6 +339,7 @@ export default function DoublesMatchupApp() {
     memoDefault: 'yyyymm',
     resetHistoryOnDayChange: true,
     pairEnabled: true,
+    courtLevels: Array.from({ length: 4 }, () => 'A/B/C' as LevelPattern),
   });
   const [nextMemberId, setNextMemberId] = useState(1);
   const [isInitialized, setIsInitialized] = useState(false);
@@ -410,7 +416,10 @@ export default function DoublesMatchupApp() {
         memoDefault: loadedData.config?.memoDefault ?? 'yyyymm',
         showWaitingInBulkMode: loadedData.config?.showWaitingInBulkMode ?? true,
         resetHistoryOnDayChange: loadedData.config?.resetHistoryOnDayChange ?? true,
-        pairEnabled: loadedData.config?.pairEnabled ?? true
+        pairEnabled: loadedData.config?.pairEnabled ?? true,
+        courtLevels: (loadedData.config?.courtLevels && loadedData.config.courtLevels.length === (loadedData.config?.courtCount || 4))
+          ? loadedData.config.courtLevels
+          : Array.from({ length: loadedData.config?.courtCount || 4 }, () => 'A/B/C' as LevelPattern)
       };
 
       // 日付変更チェックとリセット
@@ -555,13 +564,13 @@ export default function DoublesMatchupApp() {
         }
         return s;
       }).sort().join('|');
-      return `${status}_C${config.courtCount}_P${config.levelPriority}_B${config.bulkOnlyMode}_F${config.orderFirstMatchByList}_PA${config.pairEnabled}`;
+      return `${status}_C${config.courtCount}_P${config.levelPriority}_B${config.bulkOnlyMode}_F${config.orderFirstMatchByList}_PA${config.pairEnabled}_CL${config.courtLevels.join(',')}`;
     } catch (e) { return ''; }
-  }, [members, config.courtCount, config.levelPriority, config.bulkOnlyMode, config.orderFirstMatchByList, config.pairEnabled, nextMatches]);
+  }, [members, config.courtCount, config.levelPriority, config.bulkOnlyMode, config.orderFirstMatchByList, config.pairEnabled, config.courtLevels, nextMatches]);
 
   const isRegenRequired = (currentMembers: Member[], currentConfig: AppConfig): boolean => {
     const plannedIds = collectPlayingIds(nextMatches);
-    const configPart = `_C${currentConfig.courtCount}_P${currentConfig.levelPriority}_B${currentConfig.bulkOnlyMode}_F${currentConfig.orderFirstMatchByList}_PA${currentConfig.pairEnabled}`;
+    const configPart = `_C${currentConfig.courtCount}_P${currentConfig.levelPriority}_B${currentConfig.bulkOnlyMode}_F${currentConfig.orderFirstMatchByList}_PA${currentConfig.pairEnabled}_CL${currentConfig.courtLevels.join(',')}`;
     if (lastFingerprint !== '' && !lastFingerprint.endsWith(configPart)) return true;
     const currentMemberIds = new Set(currentMembers.map(m => m.id));
     const wasPlannedMemberDeleted = Array.from(plannedIds).some(id => !currentMemberIds.has(id));
@@ -616,7 +625,14 @@ export default function DoublesMatchupApp() {
   }, [activeTab, isInitialized, memberFingerprint, config.bulkOnlyMode, config.levelPriority, config.courtCount, config.orderFirstMatchByList]);
 
   const handleCourtCountChange = (count: number) => {
-    const nextConfig = { ...config, courtCount: count };
+    const adjustLevels = (prev: LevelPattern[]): LevelPattern[] => {
+      if (count > prev.length) {
+        const added = Array.from({ length: count - prev.length }, () => 'A/B/C' as LevelPattern);
+        return [...prev, ...added];
+      }
+      return prev.slice(0, count);
+    };
+    const nextConfig = { ...config, courtCount: count, courtLevels: adjustLevels(config.courtLevels) };
     if (!checkChangeConfirmation(undefined, nextConfig)) return;
     setConfig(nextConfig);
     const adjust = (prev: Court[]) => {
@@ -628,6 +644,13 @@ export default function DoublesMatchupApp() {
     };
     setCourts(prev => adjust(prev));
     setNextMatches(prev => adjust(prev));
+  };
+
+  const handleCourtLevelChange = (index: number, newLevel: LevelPattern) => {
+    const newCourtLevels = config.courtLevels.map((lvl, i) => i === index ? newLevel : lvl);
+    const nextConfig = { ...config, courtLevels: newCourtLevels };
+    if (!checkChangeConfirmation(undefined, nextConfig)) return;
+    setConfig(nextConfig);
   };
 
   const resetPlayCountsOnly = () => {
@@ -848,7 +871,7 @@ export default function DoublesMatchupApp() {
     };
   };
 
-  const getMatchForCourt = (currentCourts: Court[], currentMembers: Member[], innerTrials: number = 4): Match | null => {
+  const getMatchForCourt = (currentCourts: Court[], currentMembers: Member[], courtId: number, innerTrials: number = 4): Match | null => {
     const playingIds = collectPlayingIds(currentCourts || []);
     const candidates = (currentMembers || []).filter(m => m.isActive && !playingIds.has(m.id));
     if (candidates.length < PLAYERS_PER_MATCH) return null;
@@ -863,6 +886,13 @@ export default function DoublesMatchupApp() {
           levelPattern: getCommonLevel(playerIds, currentMembers)
         };
       }
+    }
+
+    if (config.levelPriority === 'perCourt') {
+      const allowedLevel = config.courtLevels[courtId - 1] || 'A/B/C';
+      const perCourtCandidates = candidates.filter(m => isLevelSubset(m.level, allowedLevel));
+      if (perCourtCandidates.length < PLAYERS_PER_MATCH) return null;
+      return getMatchByPlayOrder(perCourtCandidates, innerTrials);
     }
 
     if (config.levelPriority === 'none' || config.levelPriority === 'forced') {
@@ -880,7 +910,22 @@ export default function DoublesMatchupApp() {
     let total = 0;
 
     const activeCount = baseMembers.filter(m => m.isActive).length;
-    const maxFillable = Math.min(pattern.length, Math.floor(activeCount / PLAYERS_PER_MATCH));
+    let maxFillable: number;
+    if (config.levelPriority === 'perCourt') {
+      // コート毎モードでは、同一の許容レベルを持つコート群ごとに実際に埋められる面数を見積もる
+      const levelGroups = new Map<string, number>();
+      pattern.forEach(c => {
+        const lvl = config.courtLevels[c.id - 1] || 'A/B/C';
+        levelGroups.set(lvl, (levelGroups.get(lvl) || 0) + 1);
+      });
+      maxFillable = 0;
+      levelGroups.forEach((courtCountForLevel, lvl) => {
+        const poolSize = baseMembers.filter(m => m.isActive && isLevelSubset(m.level, lvl as LevelPattern)).length;
+        maxFillable += Math.min(courtCountForLevel, Math.floor(poolSize / PLAYERS_PER_MATCH));
+      });
+    } else {
+      maxFillable = Math.min(pattern.length, Math.floor(activeCount / PLAYERS_PER_MATCH));
+    }
     const filledCount = pattern.filter(c => c.match !== null).length;
     total += (maxFillable - filledCount) * COST_EMPTY_COURT;
 
@@ -925,7 +970,7 @@ export default function DoublesMatchupApp() {
           (m2.matchHistory?.[p3] || 0) + (m2.matchHistory?.[p4] || 0)
         ) * 19;
       }
-      if (config.levelPriority === 'none') {
+      if (config.levelPriority === 'none' || config.levelPriority === 'perCourt') {
         total += scatter;
       } else if (config.levelPriority === 'forced') {
         if (!getCommonLevel([p1, p2, p3, p4], baseMembers)) total += COST_FORCED_LEVEL_VIOLATION;
@@ -967,8 +1012,9 @@ export default function DoublesMatchupApp() {
           idx += PLAYERS_PER_MATCH;
         }
         while (planned.length < courtCount) {
-          const match = getMatchForCourt(planned, baseMembers);
-          planned.push({ id: planned.length + 1, match: match ?? null });
+          const courtId = planned.length + 1;
+          const match = getMatchForCourt(planned, baseMembers, courtId);
+          planned.push({ id: courtId, match: match ?? null });
         }
         return planned;
       }
@@ -1006,7 +1052,7 @@ export default function DoublesMatchupApp() {
       }
     } else {
       for (let i = 0; i < courtCount; i++) {
-        const match = getMatchForCourt(planned, baseMembers);
+        const match = getMatchForCourt(planned, baseMembers, i + 1);
         planned.push({ id: i + 1, match: match ?? null });
       }
       // forced モードで空きコートが残った場合、レベル制約のみ除いた通常ロジックで充填する
@@ -1153,7 +1199,7 @@ export default function DoublesMatchupApp() {
 
   const generateNextMatch = (courtId: number) => {
     if (config.bulkOnlyMode) return;
-    const match = getMatchForCourt(courts, getEffectiveMembers(members));
+    const match = getMatchForCourt(courts, getEffectiveMembers(members), courtId);
     if (!match) return alert('待機メンバーが足りません');
     setPastSnapshots([]);
     setViewingSnapshotIdx(-1);
@@ -1324,8 +1370,11 @@ export default function DoublesMatchupApp() {
         style={{ height: `${courtHeight}px`, minHeight: `${courtHeight}px` }}
       >
         <div className={`w-12 shrink-0 relative border-r border-gray-100 ${isPlanned ? 'bg-gray-200/50' : 'bg-slate-50'}`}>
-          <div className="absolute inset-0 flex items-center justify-center">
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1">
             <span className={`font-black text-2xl ${isPlanned ? 'text-gray-500' : 'text-slate-900'}`}>{court.id}</span>
+            {config.levelPriority === 'perCourt' && (
+              <LevelBadge level={config.courtLevels[court.id - 1] || 'A/B/C'} />
+            )}
           </div>
           {!config.bulkOnlyMode && !isPlanned && !isPast && court.match ? (
             <button
@@ -1703,27 +1752,49 @@ export default function DoublesMatchupApp() {
                 <div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-md ${config.orderFirstMatchByList ? 'left-8' : 'left-1'}`} />
               </button>
             </div>
-            <div className="flex items-center justify-between py-6 border-b border-gray-50">
-              <div className="flex-1 pr-4 flex flex-col">
-                <span className="font-bold text-lg text-gray-700">レベル優先モード</span>
-                <span className="text-xs text-gray-400 leading-tight">レベルを考慮して組み合わせます（強制：一致必須、強：一致優先、弱：分散優先）</span>
+            <div className="py-6 border-b border-gray-50">
+              <div className="flex items-center justify-between">
+                <div className="flex-1 pr-4 flex flex-col">
+                  <span className="font-bold text-lg text-gray-700">レベル優先モード</span>
+                  <span className="text-xs text-gray-400 leading-tight">レベルを考慮して組み合わせます（強制：一致必須、強：一致優先、弱：分散優先、コート毎：コートごとに受け入れレベルを指定）</span>
+                </div>
+                <div className="relative">
+                  <select
+                    value={config.levelPriority}
+                    onChange={(e) => {
+                      const next = { ...config, levelPriority: e.target.value as LevelPriority };
+                      if (checkChangeConfirmation(undefined, next)) setConfig(next);
+                    }}
+                    className="bg-gray-100 border-none rounded-lg px-3 py-2 text-sm font-bold text-gray-700 appearance-none pr-8 focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="none">なし</option>
+                    <option value="weak">弱</option>
+                    <option value="strong">強</option>
+                    <option value="forced">強制</option>
+                    <option value="perCourt">コート毎</option>
+                  </select>
+                  <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400" />
+                </div>
               </div>
-              <div className="relative">
-                <select
-                  value={config.levelPriority}
-                  onChange={(e) => {
-                    const next = { ...config, levelPriority: e.target.value as LevelPriority };
-                    if (checkChangeConfirmation(undefined, next)) setConfig(next);
-                  }}
-                  className="bg-gray-100 border-none rounded-lg px-3 py-2 text-sm font-bold text-gray-700 appearance-none pr-8 focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="none">なし</option>
-                  <option value="weak">弱</option>
-                  <option value="strong">強</option>
-                  <option value="forced">強制</option>
-                </select>
-                <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400" />
-              </div>
+              {config.levelPriority === 'perCourt' && (
+                <div className="mt-4 space-y-2">
+                  {config.courtLevels.map((lvl, idx) => (
+                    <div key={idx} className="flex items-center gap-3">
+                      <span className="text-sm font-bold text-gray-500 w-16 shrink-0">コート{idx + 1}</span>
+                      <div className="relative group">
+                        <select
+                          value={lvl}
+                          onChange={(e) => handleCourtLevelChange(idx, e.target.value as LevelPattern)}
+                          className="absolute inset-0 opacity-0 cursor-pointer z-10 w-full"
+                        >
+                          {LEVEL_PATTERNS.map(p => <option key={p} value={p}>{p}</option>)}
+                        </select>
+                        <LevelBadge level={lvl} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
             <div className="space-y-0">
               <div className="flex items-center justify-between py-6 border-b border-gray-50">
