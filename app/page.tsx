@@ -156,9 +156,9 @@ const getCommonLevel = (pIds: number[], currentMembers: Member[]): LevelPattern 
   return common.join('/') as LevelPattern;
 };
 
-// メンバーのレベルが、コートに設定された許容レベルの部分集合であるかを判定する（包含一致）
-const isLevelSubset = (memberLevel: LevelPattern, courtLevel: LevelPattern): boolean =>
-  memberLevel.split('/').every(seg => courtLevel.split('/').includes(seg));
+// メンバーのレベルと、コートに設定された許容レベルが1つでも重なるかを判定する（部分一致）
+const hasLevelOverlap = (memberLevel: LevelPattern, courtLevel: LevelPattern): boolean =>
+  memberLevel.split('/').some(seg => courtLevel.split('/').includes(seg));
 
 const calcAvgPairHistory = (candidates: Member[]): number => {
   const values: number[] = [];
@@ -890,7 +890,7 @@ export default function DoublesMatchupApp() {
 
     if (config.levelPriority === 'perCourt') {
       const allowedLevel = config.courtLevels[courtId - 1] || 'A/B/C';
-      const perCourtCandidates = candidates.filter(m => isLevelSubset(m.level, allowedLevel));
+      const perCourtCandidates = candidates.filter(m => hasLevelOverlap(m.level, allowedLevel));
       if (perCourtCandidates.length < PLAYERS_PER_MATCH) return null;
       return getMatchByPlayOrder(perCourtCandidates, innerTrials);
     }
@@ -920,7 +920,7 @@ export default function DoublesMatchupApp() {
       });
       maxFillable = 0;
       levelGroups.forEach((courtCountForLevel, lvl) => {
-        const poolSize = baseMembers.filter(m => m.isActive && isLevelSubset(m.level, lvl as LevelPattern)).length;
+        const poolSize = baseMembers.filter(m => m.isActive && hasLevelOverlap(m.level, lvl as LevelPattern)).length;
         maxFillable += Math.min(courtCountForLevel, Math.floor(poolSize / PLAYERS_PER_MATCH));
       });
     } else {
